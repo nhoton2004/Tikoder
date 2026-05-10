@@ -35,9 +35,15 @@
         "text": "16",
         "price": 16000,
         "time": "01:19:16"
+      },
+      {
+        "id": 1778437598309.3662,
+        "text": "25",
+        "price": 25000,
+        "time": "01:26:38"
       }
     ],
-    "total": 46000
+    "total": 71000
   },
   "messimyle": {
     "username": "messimyle",
@@ -112,5 +118,19 @@
       }
     ],
     "total": 65000
+  },
+  ".thanhthao_": {
+    "username": ".thanhthao_",
+    "nickname": "Cỏ.🍀",
+    "profilePictureUrl": "https://p16-common-sign.tiktokcdn.com/tos-alisg-avt-0068/f195eaf1c88d0db94d3ff3e12ec3b6c8~tplv-tiktok-shrink:72:72.webp?dr=14561&refresh_token=00047b31&x-expires=1778608800&x-signature=LdB8Z7j7758VDoum8%2FKVXCNJEhM%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=fdd36af4&idc=my2",
+    "items": [
+      {
+        "id": 1778437652153.7454,
+        "text": "25",
+        "price": 25000,
+        "time": "01:27:32"
+      }
+    ],
+    "total": 25000
   }
 }
