@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Chốt Đơn TikTok Live</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        @media print { body * { visibility: hidden; } #print-section, #print-section * { visibility: visible; } #print-section { position: absolute; left: 0; top: 0; width: 80mm; font-family: 'Times New Roman', Times, serif; } .no-print { display: none !important; } }
+        #chat-feed::-webkit-scrollbar { width: 4px; }
+        #chat-feed::-webkit-scrollbar-thumb { background: #e5e7eb; border-radius: 10px; }
+    </style>
+</head>
+<body class="bg-gray-100 min-h-screen">
+    <div class="container mx-auto px-4 py-8">
+        <header class="mb-8 text-center no-print relative">
+            <h1 class="text-3xl font-bold text-red-600 mb-2">TikTok Order Collector</h1>
+            <p class="text-gray-600 italic">Quản lý đơn hàng chuyên nghiệp</p>
+            <div class="absolute top-0 right-0 flex gap-2">
+                <button onclick="showHistory()" class="p-2 bg-blue-100 text-blue-600 rounded-full hover:bg-blue-200 transition" title="Xem lịch sử">📜</button>
+                <button onclick="toggleSettings()" class="p-2 bg-gray-200 rounded-full hover:bg-gray-300 transition">⚙️</button>
+            </div>
+        </header>
+
+        <!-- History Modal -->
+        <div id="history-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center p-4 no-print">
+            <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+                <div class="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-xl">
+                    <h3 class="font-bold text-lg">Lịch sử Phiên Live</h3>
+                    <button onclick="closeHistory()" class="text-gray-500 hover:text-black text-xl">✕</button>
+                </div>
+                <div id="history-list-content" class="overflow-y-auto p-4 space-y-2"></div>
+            </div>
+        </div>
+
+        <!-- Settings Panel -->
+        <div id="settings-panel" class="bg-white rounded-lg shadow-md p-6 mb-8 max-w-md mx-auto no-print hidden border-2 border-blue-500">
+            <h3 class="font-bold mb-2 text-sm text-blue-800">Cấu hình máy in</h3>
+            <div class="flex gap-2">
+                <input type="text" id="printer-ip" placeholder="tcp://192.168.1.9 hoặc /dev/usb/lp0" class="flex-1 border rounded px-3 py-2 text-xs">
+                <button onclick="savePrinterSettings()" class="bg-blue-600 text-white px-4 py-1 rounded text-xs font-bold">Lưu</button>
+            </div>
+            <p id="printer-status-msg" class="mt-2 text-[10px] text-blue-600 italic"></p>
+        </div>
+
+        <!-- Connection Form -->
+        <div class="bg-white rounded-lg shadow-md p-6 mb-8 max-w-md mx-auto no-print border-b-4 border-red-500">
+            <div class="flex gap-2">
+                <input type="text" id="tiktok-id" placeholder="ID TikTok chủ Live" class="flex-1 border rounded-lg px-4 py-2 focus:ring-2 focus:ring-red-500">
+                <button id="btn-connect" class="bg-red-500 text-white px-6 py-2 rounded-lg font-bold hover:bg-red-600 transition">Kết nối</button>
+            </div>
+            <div id="status-msg" class="mt-4 text-sm text-center font-medium text-gray-500 italic">Chưa kết nối</div>
+        </div>
+
+        <div class="flex flex-col lg:flex-row gap-6">
+            <div class="lg:w-2/5 no-print">
+                <div class="bg-white rounded-xl shadow-lg flex flex-col h-[700px]">
+                    <div class="p-4 border-b bg-gray-50 rounded-t-xl"><h2 class="font-bold text-gray-700">Luồng bình luận</h2></div>
+                    <div id="chat-feed" class="flex-1 p-4 overflow-y-auto space-y-4 bg-gray-50"></div>
+                </div>
+            </div>
+            <div class="lg:w-3/5">
+                <div class="flex justify-between items-center mb-4">
+                    <h2 class="font-bold text-xl text-gray-800">Đơn hàng hiện tại</h2>
+                    <button onclick="window.printAllSummary()" class="bg-blue-600 text-white px-4 py-2 rounded font-bold text-sm no-print italic">In Tổng Kết</button>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="orders-container"></div>
+            </div>
+        </div>
+    </div>
+    <div id="print-section" class="p-4"></div>
+
+    <script>
+        const socket = io();
+        const ordersContainer = document.getElementById('orders-container');
+        const chatFeed = document.getElementById('chat-feed');
+        const tiktokIdInput = document.getElementById('tiktok-id');
+        const btnConnect = document.getElementById('btn-connect');
+        const statusMsg = document.getElementById('status-msg');
+        const printerIpInput = document.getElementById('printer-ip');
+        const printerStatusMsg = document.getElementById('printer-status-msg');
+        const settingsPanel = document.getElementById('settings-panel');
+        const historyModal = document.getElementById('history-modal');
+        const historyListContent = document.getElementById('history-list-content');
+
+        let ordersData = {};
+
+        window.toggleSettings = () => settingsPanel.classList.toggle('hidden');
+        window.savePrinterSettings = () => socket.emit('update-printer', printerIpInput.value.trim());
+        window.showHistory = () => { historyModal.classList.remove('hidden'); socket.emit('get-history-list'); };
+        window.closeHistory = () => historyModal.classList.add('hidden');
+
+        socket.on('history-list', (list) => {
+            historyListContent.innerHTML = list.map(f => `
+                <div class="flex justify-between items-center p-3 border rounded-lg hover:bg-blue-50 transition cursor-pointer" onclick="loadHistory('${f.fileName}')">
+                    <div>
+                        <p class="font-bold text-gray-800 text-sm">${f.fileName.replace('.json', '')}</p>
+                        <p class="text-[10px] text-gray-400">Ngày lưu: ${new Date(f.mtime).toLocaleString()}</p>
+                    </div>
+                    <button class="text-blue-600 font-bold text-xs uppercase">Xem lại</button>
+                </div>
+            `).join('') || '<p class="text-center text-gray-400 py-10">Chưa có lịch sử.</p>';
+        });
+
+        window.loadHistory = (fileName) => {
+            if(confirm("Tải lịch sử này sẽ ghi đè danh sách đang hiện?")) {
+                socket.emit('load-history-file', fileName);
+                closeHistory();
+            }
+        };
+
+        socket.on('history-data', (res) => {
+            ordersData = res.data;
+            ordersContainer.innerHTML = '';
+            Object.values(res.data).forEach(order => renderOrderCard(order));
+            statusMsg.innerText = "Lịch sử: " + res.fileName;
+        });
+
+        socket.on('printer-config', (currentIp) => { printerIpInput.value = currentIp; });
+        socket.on('printer-status', (msg) => { printerStatusMsg.innerText = msg; setTimeout(() => printerStatusMsg.innerText = '', 3000); });
+        socket.on('printer-error', (msg) => { alert(msg); });
+
+        socket.on('all-confirmed-orders', (allOrders) => {
+            ordersData = allOrders;
+            ordersContainer.innerHTML = '';
+            Object.values(allOrders).forEach(order => renderOrderCard(order));
+        });
+
+        btnConnect.addEventListener('click', () => {
+            const id = tiktokIdInput.value.trim().replace('@', '');
+            if (!id) return alert('Nhập ID');
+            socket.emit('start-live', id);
+        });
+
+        socket.on('status', (data) => {
+            statusMsg.innerText = data.connected ? 'Kết nối: ' + data.roomId : 'Lỗi: ' + data.error;
+            statusMsg.className = data.connected ? 'mt-4 text-sm text-center font-medium text-green-600' : 'mt-4 text-sm text-center font-medium text-red-600';
+        });
+
+        socket.on('raw-chat', (data) => {
+            const now = new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+            const div = document.createElement('div');
+            div.className = 'bg-white p-3 rounded-lg shadow-sm border border-gray-100 flex gap-3 items-start animate-fadeIn';
+            const priceTag = data.suggestedPrice > 0 ? `<span class="text-xs font-bold text-red-500 bg-red-50 px-2 py-1 rounded">Giá: ${formatMoney(data.suggestedPrice)}</span>` : '';
+            div.innerHTML = `
+                <img src="${data.profilePictureUrl}" class="w-10 h-10 rounded-full border">
+                <div class="flex-1 min-w-0">
+                    <div class="flex justify-between items-center">
+                        <p class="font-bold text-gray-800 truncate text-sm">${data.nickname}</p>
+                        <span class="text-[10px] text-gray-400 font-mono">${now}</span>
+                    </div>
+                    <p class="text-gray-700 my-1 text-sm">${data.comment}</p>
+                    <div class="flex items-center gap-2 mt-2">
+                        ${priceTag}
+                        <button onclick="manualConfirm('${data.uniqueId}', '${data.nickname}', '${data.profilePictureUrl}', '${data.comment.replace(/'/g, "\\'")}', ${data.suggestedPrice})" 
+                            class="bg-red-500 text-white text-[10px] font-black px-3 py-1 rounded uppercase">CHỐT</button>
+                    </div>
+                </div>
+            `;
+            chatFeed.appendChild(div);
+            chatFeed.scrollTop = chatFeed.scrollHeight;
+            if (chatFeed.children.length > 50) chatFeed.removeChild(chatFeed.firstChild);
+        });
+
+        window.manualConfirm = (uniqueId, nickname, profilePictureUrl, comment, suggestedPrice) => {
+            let price = suggestedPrice || parseFloat(prompt("Nhập giá (vd: 50000):", "")) || 0;
+            if (price > 0) socket.emit('confirm-item', { uniqueId, nickname, profilePictureUrl, comment, price });
+        };
+
+        socket.on('order-confirmed', (userOrder) => {
+            ordersData[userOrder.username] = userOrder;
+            renderOrderCard(userOrder);
+        });
+
+        // --- CÁC HÀM SỬA/XÓA TRÊN GIAO DIỆN ---
+        window.deleteCustomer = (username) => {
+            if(confirm(`Xóa toàn bộ đơn của khách @${username}?`)) socket.emit('delete-customer', username);
+        };
+        window.deleteItem = (username, itemId) => {
+            if(confirm("Xóa món hàng này?")) socket.emit('delete-item', { username, itemId });
+        };
+        window.editItem = (username, itemId, oldPrice) => {
+            const newPrice = parseFloat(prompt("Nhập giá mới:", oldPrice));
+            if (!isNaN(newPrice) && newPrice !== oldPrice) {
+                socket.emit('edit-item-price', { username, itemId, newPrice });
+            }
+        };
+
+        function formatMoney(amount) { return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount).replace('₫', 'đ'); }
+
+        function renderOrderCard(order) {
+            let card = document.getElementById(`card-${order.username}`);
+            if (!card) {
+                card = document.createElement('div');
+                card.id = `card-${order.username}`;
+                card.className = 'bg-white rounded-xl shadow border border-gray-200 flex flex-col animate-pop overflow-hidden';
+                ordersContainer.prepend(card);
+            }
+            const itemsHtml = order.items.map(i => `
+                <div class="group flex justify-between items-center text-[10px] py-2 border-b border-gray-50 hover:bg-gray-50 px-2 transition">
+                    <span class="text-gray-600 truncate mr-2 flex-1">${i.text}</span>
+                    <div class="flex items-center gap-3 ml-2">
+                        <span class="font-bold text-red-500 whitespace-nowrap">${formatMoney(i.price)}</span>
+                        <div class="flex gap-2 border-l pl-2 border-gray-200">
+                            <button onclick="reprintItem('${order.username}', ${i.id})" class="text-green-600 p-1 bg-green-50 rounded hover:bg-green-100 transition" title="In lại món này">🖨️</button>
+                            <button onclick="editItem('${order.username}', ${i.id}, ${i.price})" class="text-blue-500 p-1 bg-blue-50 rounded hover:bg-blue-100 transition" title="Sửa giá">✏️</button>
+                            <button onclick="deleteItem('${order.username}', ${i.id})" class="text-red-500 p-1 bg-red-50 rounded hover:bg-red-100 transition" title="Xóa món">🗑️</button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
+            card.innerHTML = `
+                <div class="p-3 bg-gray-50 flex items-center justify-between border-b">
+                    <div class="flex items-center gap-2">
+                        <img src="${order.profilePictureUrl}" class="w-8 h-8 rounded-full border">
+                        <div class="overflow-hidden">
+                            <h3 class="font-bold text-xs truncate">${order.nickname}</h3>
+                            <p class="text-[9px] text-gray-400">@${order.username}</p>
+                        </div>
+                    </div>
+                    <button onclick="deleteCustomer('${order.username}')" class="text-gray-400 hover:text-red-500 text-sm">✕</button>
+                </div>
+                <div class="flex-1 max-h-48 overflow-y-auto">${itemsHtml}</div>
+                <div class="p-3 bg-red-50 flex justify-between items-center border-t">
+                    <div class="flex items-center gap-2">
+                        <span class="text-[10px] font-bold text-gray-700 uppercase">TỔNG</span>
+                        <button onclick="reprintTotal('${order.username}')" class="text-[9px] bg-white border border-gray-300 px-1 py-0.5 rounded hover:bg-gray-100 transition" title="In lại tất cả món của khách này">In lại tổng</button>
+                    </div>
+                    <span class="text-sm font-black text-red-600">${formatMoney(order.total)}</span>
+                </div>
+            `;
+        }
+
+        window.reprintItem = (username, itemId) => socket.emit('reprint-item', { username, itemId });
+        window.reprintTotal = (username) => socket.emit('reprint-total', username);
+        window.deleteCustomer = (username) => {
+            if(confirm(`Xóa toàn bộ đơn của khách @${username}?`)) socket.emit('delete-customer', username);
+        };
+        window.deleteItem = (username, itemId) => {
+            if(confirm("Xóa món hàng này?")) socket.emit('delete-item', { username, itemId });
+        };
+        window.editItem = (username, itemId, oldPrice) => {
+            const newPrice = parseFloat(prompt("Nhập giá mới:", oldPrice));
+            if (!isNaN(newPrice) && newPrice !== oldPrice) {
+                socket.emit('edit-item-price', { username, itemId, newPrice });
+            }
+        };
+
+        window.printAllSummary = () => {
+            let html = `<div style="font-family: 'Times New Roman', Times, serif; width: 80mm; margin: 0 auto; color: black;">`;
+            html += `<div style="text-align:center;"><h2 style="margin: 0;">TỔNG KẾT PHIÊN LIVE</h2><hr style="border: 1px solid black;"></div>`;
+            let totalOverall = 0;
+            
+            Object.values(ordersData).forEach(o => {
+                totalOverall += o.total;
+                html += `<div style="margin-bottom: 10px; border-bottom: 1px dashed black; padding-bottom: 5px;">`;
+                html += `<div style="font-weight: bold; font-size: 16px;">${o.nickname} (@${o.username})</div>`;
+                
+                o.items.forEach(i => {
+                    html += `<div style="display: flex; justify-content: space-between; font-size: 13px; margin-top: 2px;">`;
+                    html += `<span style="flex: 1;">- ${i.text} <small>(${i.time})</small></span>`;
+                    html += `<span style="font-weight: bold;">${formatMoney(i.price)}</span>`;
+                    html += `</div>`;
+                });
+                
+                html += `<div style="text-align:right; font-weight: bold; font-size: 14px; margin-top: 5px;">Cộng: ${formatMoney(o.total)}</div>`;
+                html += `</div>`;
+            });
+            
+            html += `<div style="text-align:right; margin-top: 15px; border-top: 2px solid black; padding-top: 5px;">`;
+            html += `<h3 style="margin: 0;">TỔNG CỘNG: ${formatMoney(totalOverall)}</h3>`;
+            html += `</div></div>`;
+            
+            document.getElementById('print-section').innerHTML = html;
+            window.print();
+        };
+    </script>
+    <style>
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+        .animate-fadeIn { animation: fadeIn 0.2s ease-out; }
+        @keyframes pop { 0% { transform: scale(0.95); } 100% { transform: scale(1); } }
+        .animate-pop { animation: pop 0.2s cubic-bezier(0.175, 0.885, 0.32, 1.275); }
+    </style>
+</body>
+</html>
