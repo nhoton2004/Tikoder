@@ -9,6 +9,8 @@ const fs = require('fs');
 const { ThermalPrinter, PrinterTypes, CharacterSet } = require("node-thermal-printer");
 const admin = require('firebase-admin');
 const session = require('express-session');
+const liveSessionStore = require('./utils/liveSessionStore');
+const adminRoutes = require('./routes/admin');
 
 let serviceAccount;
 try {
@@ -59,11 +61,17 @@ app.post('/sessionLogin', async (req, res) => {
     try {
         const decodedToken = await admin.auth().verifyIdToken(idToken);
         const email = decodedToken.email;
-        console.log(">>> Token hợp lệ! Email:", email, "| Provider:", decodedToken.firebase?.sign_in_provider);
+        console.log(">>> Token hợp lệ! Email:", email, "| Provider:", decodedToken.firebase?.sign_in_provider, "| Role:", decodedToken.role || 'user');
 
         if (!isEmailAllowed(email)) {
             console.error(">>> LỖI: Email không có trong danh sách được phép.");
             return res.status(403).json({ message: 'Tài khoản này không có quyền truy cập' });
+        }
+
+        // Kiểm tra tài khoản có bị khóa không
+        const userRecord = await admin.auth().getUser(decodedToken.uid);
+        if (userRecord.disabled) {
+            return res.status(403).json({ message: 'Tài khoản đã bị khóa. Vui lòng liên hệ Admin.' });
         }
 
         req.session.user = {
@@ -71,9 +79,11 @@ app.post('/sessionLogin', async (req, res) => {
             email: decodedToken.email,
             name: decodedToken.name || '',
             picture: decodedToken.picture || '',
-            provider: decodedToken.firebase?.sign_in_provider || ''
+            provider: decodedToken.firebase?.sign_in_provider || '',
+            role: decodedToken.role || 'user',
+            permissions: decodedToken.permissions || []
         };
-        console.log(">>> Đăng nhập thành công! Đã lưu session.");
+        console.log(">>> Đăng nhập thành công! Role:", req.session.user.role);
         res.json({ success: true });
     } catch (error) {
         console.error(">>> LỖI XÁC THỰC FIREBASE ADMIN:", error.message);
@@ -101,9 +111,145 @@ const requireLogin = (req, res, next) => {
     if (req.session && req.session.user) {
         return next();
     }
+    // API requests trả 401, page requests redirect
+    if (req.path.startsWith('/api/')) {
+        return res.status(401).json({ error: 'Chưa đăng nhập' });
+    }
     res.redirect('/login');
 };
 app.use(requireLogin);
+
+// ============================================================
+// === API LỊCH SỬ PHIÊN LIVE (per-user, bảo mật theo uid) ===
+// ============================================================
+
+// Middleware kiểm tra đăng nhập cho API
+const requireApiAuth = (req, res, next) => {
+    if (!req.session || !req.session.user || !req.session.user.uid) {
+        return res.status(401).json({ error: 'Chưa đăng nhập' });
+    }
+    next();
+};
+
+// GET /api/live-sessions — Lấy danh sách phiên live của user
+app.get('/api/live-sessions', requireApiAuth, (req, res) => {
+    try {
+        const userId = req.session.user.uid;
+        const sessions = liveSessionStore.readUserSessions(userId);
+        // Trả về danh sách không kèm orders chi tiết (nhẹ hơn)
+        const list = sessions.map(s => ({
+            id: s.id,
+            liveName: s.liveName,
+            tiktokUsername: s.tiktokUsername,
+            startedAt: s.startedAt,
+            endedAt: s.endedAt,
+            createdAt: s.createdAt,
+            summary: s.summary
+        }));
+        res.json({ sessions: list });
+    } catch (error) {
+        console.error('Lỗi lấy danh sách phiên live:', error);
+        res.status(500).json({ error: 'Lỗi server' });
+    }
+});
+
+// POST /api/live-sessions — Tạo/lưu phiên live mới
+app.post('/api/live-sessions', requireApiAuth, (req, res) => {
+    try {
+        const userId = req.session.user.uid;
+        const { liveName, tiktokUsername, startedAt, endedAt, orders } = req.body;
+
+        if (!orders || (Array.isArray(orders) && orders.length === 0) ||
+            (typeof orders === 'object' && !Array.isArray(orders) && Object.keys(orders).length === 0)) {
+            return res.status(400).json({ error: 'Không có đơn hàng để lưu' });
+        }
+
+        const newSession = liveSessionStore.createLiveSession(userId, {
+            liveName,
+            tiktokUsername,
+            startedAt,
+            endedAt,
+            orders
+        });
+
+        console.log(`>>> Đã lưu phiên live "${newSession.liveName}" cho user ${userId} (${newSession.summary.totalOrders} đơn)`);
+        res.json({ success: true, session: newSession });
+    } catch (error) {
+        console.error('Lỗi tạo phiên live:', error);
+        res.status(500).json({ error: 'Lỗi server' });
+    }
+});
+
+// GET /api/live-sessions/:sessionId — Lấy chi tiết 1 phiên
+app.get('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
+    try {
+        const userId = req.session.user.uid;
+        const session = liveSessionStore.getLiveSessionById(userId, req.params.sessionId);
+        if (!session) {
+            return res.status(404).json({ error: 'Không tìm thấy phiên live' });
+        }
+        res.json({ session });
+    } catch (error) {
+        console.error('Lỗi lấy chi tiết phiên live:', error);
+        res.status(500).json({ error: 'Lỗi server' });
+    }
+});
+
+// DELETE /api/live-sessions/:sessionId — Xóa phiên live
+app.delete('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
+    try {
+        const userId = req.session.user.uid;
+        const deleted = liveSessionStore.deleteLiveSession(userId, req.params.sessionId);
+        if (!deleted) {
+            return res.status(404).json({ error: 'Không tìm thấy phiên live' });
+        }
+        console.log(`>>> Đã xóa phiên live ${req.params.sessionId} của user ${userId}`);
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Lỗi xóa phiên live:', error);
+        res.status(500).json({ error: 'Lỗi server' });
+    }
+});
+
+// POST /api/live-sessions/merge-summary — Gộp nhiều phiên
+app.post('/api/live-sessions/merge-summary', requireApiAuth, (req, res) => {
+    try {
+        const userId = req.session.user.uid;
+        const { sessionIds } = req.body;
+
+        if (!sessionIds || !Array.isArray(sessionIds) || sessionIds.length === 0) {
+            return res.status(400).json({ error: 'Vui lòng chọn ít nhất 1 phiên' });
+        }
+
+        const result = liveSessionStore.mergeLiveSessions(userId, sessionIds);
+        if (!result) {
+            return res.status(404).json({ error: 'Không tìm thấy phiên live nào' });
+        }
+
+        res.json(result);
+    } catch (error) {
+        console.error('Lỗi gộp phiên live:', error);
+        res.status(500).json({ error: 'Lỗi server' });
+    }
+});
+
+// ============================================================
+// === ADMIN PANEL ===
+// ============================================================
+app.get('/admin', (req, res) => {
+    const user = req.session?.user;
+    if (!user) return res.redirect('/login');
+    if (user.role !== 'admin' && user.role !== 'super_admin') {
+        return res.status(403).send(`
+            <html><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;background:#f3f4f6;">
+            <div style="text-align:center;"><h1 style="color:#ef4444;">⛔ Không có quyền truy cập</h1>
+            <p>Tài khoản của bạn không có quyền vào trang Admin.</p>
+            <a href="/" style="color:#3b82f6;">← Quay về trang chính</a></div></body></html>`);
+    }
+    res.sendFile(path.join(__dirname, 'public', 'admin.html'));
+});
+
+app.use('/api/admin', adminRoutes);
 
 app.use(express.static(path.join(__dirname, 'public')));
 

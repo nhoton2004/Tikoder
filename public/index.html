@@ -27,7 +27,9 @@
                     </div>
                 </div>
                 <button onclick="logout()" class="p-2 bg-red-100 text-red-600 rounded-full hover:bg-red-200 transition" title="Đăng xuất">🚪</button>
-                <button onclick="showHistory()" class="p-2 bg-blue-100 text-blue-600 rounded-full hover:bg-blue-200 transition" title="Xem lịch sử">📜</button>
+                <button id="btn-admin" onclick="location.href='/admin'" class="p-2 bg-amber-100 text-amber-700 rounded-full hover:bg-amber-200 transition hidden" title="Admin Panel">🛡️</button>
+                <button onclick="showLiveSessions()" class="p-2 bg-purple-100 text-purple-600 rounded-full hover:bg-purple-200 transition" title="Lịch sử phiên live">📋</button>
+                <button onclick="showHistory()" class="p-2 bg-blue-100 text-blue-600 rounded-full hover:bg-blue-200 transition" title="Xem lịch sử cũ">📜</button>
                 <button onclick="toggleSettings()" class="p-2 bg-gray-200 rounded-full hover:bg-gray-300 transition">⚙️</button>
             </div>
         </header>
@@ -79,13 +81,44 @@
             <div class="lg:w-3/5">
                 <div class="flex justify-between items-center mb-4">
                     <h2 class="font-bold text-xl text-gray-800">Đơn hàng hiện tại</h2>
-                    <button onclick="window.printAllSummary()" class="bg-blue-600 text-white px-4 py-2 rounded font-bold text-sm no-print italic">In Tổng Kết</button>
+                    <div class="flex gap-2 no-print">
+                        <button onclick="window.saveCurrentSession()" class="bg-purple-600 text-white px-4 py-2 rounded font-bold text-sm italic hover:bg-purple-700 transition">💾 Lưu phiên</button>
+                        <button onclick="window.printAllSummary()" class="bg-blue-600 text-white px-4 py-2 rounded font-bold text-sm italic">In Tổng Kết</button>
+                    </div>
                 </div>
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-4" id="orders-container"></div>
             </div>
         </div>
     </div>
     <div id="print-section" class="p-4"></div>
+
+    <!-- Live Sessions Modal -->
+    <div id="live-sessions-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center p-4 no-print">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+            <div class="p-4 border-b flex justify-between items-center bg-purple-50 rounded-t-xl">
+                <h3 class="font-bold text-lg text-purple-800">📋 Lịch sử Phiên Live</h3>
+                <div class="flex items-center gap-2">
+                    <button onclick="mergeSelectedSessions()" id="btn-merge" class="bg-purple-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-purple-700 transition hidden">🔗 Gộp phiên đã chọn (<span id="merge-count">0</span>)</button>
+                    <button onclick="closeLiveSessions()" class="text-gray-500 hover:text-black text-xl">✕</button>
+                </div>
+            </div>
+            <div id="live-sessions-list" class="overflow-y-auto p-4 space-y-2 flex-1"></div>
+        </div>
+    </div>
+
+    <!-- Merge Results Modal -->
+    <div id="merge-modal" class="fixed inset-0 bg-black bg-opacity-60 z-[60] hidden flex items-center justify-center p-4 no-print">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
+            <div class="p-4 border-b flex justify-between items-center bg-green-50 rounded-t-xl">
+                <h3 class="font-bold text-lg text-green-800">📊 Kết quả gộp phiên</h3>
+                <div class="flex items-center gap-2">
+                    <button onclick="printMergeResults()" class="bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-bold hover:bg-blue-700 transition">🖨️ In đơn gộp</button>
+                    <button onclick="closeMergeModal()" class="text-gray-500 hover:text-black text-xl">✕</button>
+                </div>
+            </div>
+            <div id="merge-results-content" class="overflow-y-auto p-4 flex-1"></div>
+        </div>
+    </div>
 
     <script>
         const socket = io();
@@ -333,11 +366,249 @@
 
                     bar.classList.remove('hidden');
                     bar.style.display = 'flex';
+
+                    // Show admin button if role is admin/super_admin
+                    if (data.user.role === 'admin' || data.user.role === 'super_admin') {
+                        document.getElementById('btn-admin').classList.remove('hidden');
+                    }
                 }
             } catch (e) {
                 console.warn('Could not load user info:', e);
             }
         })();
+
+        // ============================================================
+        // === LỊCH SỬ PHIÊN LIVE ===
+        // ============================================================
+        let selectedSessionIds = new Set();
+        let lastMergeData = null;
+
+        window.saveCurrentSession = async () => {
+            if (Object.keys(ordersData).length === 0) {
+                return alert('Chưa có đơn hàng nào để lưu!');
+            }
+            const tiktokId = tiktokIdInput.value.trim().replace('@', '') || '';
+            const defaultName = `Live ${tiktokId ? '@' + tiktokId + ' ' : ''}${new Date().toLocaleDateString('vi-VN')} ${new Date().toLocaleTimeString('vi-VN', {hour:'2-digit', minute:'2-digit'})}`;
+            const liveName = prompt('Đặt tên cho phiên live:', defaultName);
+            if (!liveName) return;
+
+            try {
+                const res = await fetch('/api/live-sessions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        liveName,
+                        tiktokUsername: tiktokId,
+                        startedAt: new Date().toISOString(),
+                        endedAt: new Date().toISOString(),
+                        orders: ordersData
+                    })
+                });
+                const data = await res.json();
+                if (data.success) {
+                    alert(`✅ Đã lưu phiên "${liveName}" (${data.session.summary.totalOrders} đơn, ${formatMoney(data.session.summary.totalRevenue)})`);
+                } else {
+                    alert('❌ Lỗi: ' + (data.error || 'Không xác định'));
+                }
+            } catch (e) {
+                alert('❌ Lỗi kết nối: ' + e.message);
+            }
+        };
+
+        window.showLiveSessions = async () => {
+            selectedSessionIds.clear();
+            document.getElementById('live-sessions-modal').classList.remove('hidden');
+            document.getElementById('live-sessions-list').innerHTML = '<p class="text-center text-gray-400 py-10">Đang tải...</p>';
+            updateMergeBtn();
+            try {
+                const res = await fetch('/api/live-sessions');
+                const data = await res.json();
+                renderLiveSessionsList(data.sessions || []);
+            } catch (e) {
+                document.getElementById('live-sessions-list').innerHTML = '<p class="text-center text-red-400 py-10">Lỗi tải dữ liệu</p>';
+            }
+        };
+
+        window.closeLiveSessions = () => document.getElementById('live-sessions-modal').classList.add('hidden');
+
+        function updateMergeBtn() {
+            const btn = document.getElementById('btn-merge');
+            const count = document.getElementById('merge-count');
+            if (selectedSessionIds.size > 0) {
+                btn.classList.remove('hidden');
+                count.textContent = selectedSessionIds.size;
+            } else {
+                btn.classList.add('hidden');
+            }
+        }
+
+        window.toggleSessionSelect = (sessionId) => {
+            if (selectedSessionIds.has(sessionId)) selectedSessionIds.delete(sessionId);
+            else selectedSessionIds.add(sessionId);
+            // Update checkbox UI
+            const cb = document.getElementById('cb-' + sessionId);
+            if (cb) cb.checked = selectedSessionIds.has(sessionId);
+            updateMergeBtn();
+        };
+
+        function renderLiveSessionsList(sessions) {
+            const container = document.getElementById('live-sessions-list');
+            if (sessions.length === 0) {
+                container.innerHTML = '<p class="text-center text-gray-400 py-10">Chưa có phiên live nào được lưu.<br><span class="text-xs">Bấm 💾 Lưu phiên để lưu phiên live hiện tại.</span></p>';
+                return;
+            }
+            container.innerHTML = sessions.map(s => {
+                const date = new Date(s.createdAt).toLocaleString('vi-VN');
+                const revenue = s.summary ? formatMoney(s.summary.totalRevenue) : '0đ';
+                const orders = s.summary ? s.summary.totalOrders : 0;
+                const qty = s.summary ? s.summary.totalQuantity : 0;
+                return `
+                <div class="flex items-start gap-3 p-3 border rounded-lg hover:bg-purple-50 transition group">
+                    <input type="checkbox" id="cb-${s.id}" class="mt-1 accent-purple-600 w-4 h-4 cursor-pointer" onchange="toggleSessionSelect('${s.id}')" ${selectedSessionIds.has(s.id) ? 'checked' : ''}>
+                    <div class="flex-1 min-w-0">
+                        <div class="flex justify-between items-start">
+                            <div>
+                                <p class="font-bold text-gray-800 text-sm">${s.liveName}</p>
+                                <p class="text-[10px] text-gray-400">${date}${s.tiktokUsername ? ' • @' + s.tiktokUsername : ''}</p>
+                            </div>
+                            <div class="text-right">
+                                <span class="text-xs font-bold text-red-500">${revenue}</span>
+                                <p class="text-[9px] text-gray-400">${orders} đơn • ${qty} SP</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition">
+                        <button onclick="viewSessionDetail('${s.id}')" class="text-blue-500 p-1 bg-blue-50 rounded hover:bg-blue-100 text-xs" title="Xem chi tiết">👁️</button>
+                        <button onclick="deleteSession('${s.id}')" class="text-red-500 p-1 bg-red-50 rounded hover:bg-red-100 text-xs" title="Xóa">🗑️</button>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        window.deleteSession = async (sessionId) => {
+            if (!confirm('Xóa phiên live này?')) return;
+            try {
+                await fetch('/api/live-sessions/' + sessionId, { method: 'DELETE' });
+                selectedSessionIds.delete(sessionId);
+                showLiveSessions(); // reload
+            } catch (e) { alert('Lỗi xóa: ' + e.message); }
+        };
+
+        window.viewSessionDetail = async (sessionId) => {
+            try {
+                const res = await fetch('/api/live-sessions/' + sessionId);
+                const data = await res.json();
+                if (!data.session) return alert('Không tìm thấy');
+                const s = data.session;
+                // Show in merge modal as single-session view
+                lastMergeData = {
+                    selectedSessions: [{ id: s.id, liveName: s.liveName }],
+                    summary: { totalSessions: 1, ...s.summary },
+                    mergedOrders: s.orders || [],
+                    productSummary: [],
+                    customerSummary: []
+                };
+                // Calculate product/customer summary client-side for detail view
+                renderMergeResults(lastMergeData, s.liveName);
+                document.getElementById('merge-modal').classList.remove('hidden');
+            } catch (e) { alert('Lỗi: ' + e.message); }
+        };
+
+        window.mergeSelectedSessions = async () => {
+            if (selectedSessionIds.size === 0) return alert('Chưa chọn phiên nào!');
+            try {
+                const res = await fetch('/api/live-sessions/merge-summary', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionIds: Array.from(selectedSessionIds) })
+                });
+                const data = await res.json();
+                if (data.error) return alert('Lỗi: ' + data.error);
+                lastMergeData = data;
+                renderMergeResults(data, `Gộp ${data.summary.totalSessions} phiên`);
+                document.getElementById('merge-modal').classList.remove('hidden');
+            } catch (e) { alert('Lỗi: ' + e.message); }
+        };
+
+        window.closeMergeModal = () => document.getElementById('merge-modal').classList.add('hidden');
+
+        function renderMergeResults(data, title) {
+            const s = data.summary;
+            const container = document.getElementById('merge-results-content');
+            let html = `
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+                    <div class="bg-purple-50 p-3 rounded-lg text-center"><p class="text-[10px] text-gray-500 uppercase">Phiên</p><p class="text-xl font-black text-purple-700">${s.totalSessions}</p></div>
+                    <div class="bg-blue-50 p-3 rounded-lg text-center"><p class="text-[10px] text-gray-500 uppercase">Đơn hàng</p><p class="text-xl font-black text-blue-700">${s.totalOrders}</p></div>
+                    <div class="bg-green-50 p-3 rounded-lg text-center"><p class="text-[10px] text-gray-500 uppercase">Sản phẩm</p><p class="text-xl font-black text-green-700">${s.totalQuantity}</p></div>
+                    <div class="bg-red-50 p-3 rounded-lg text-center"><p class="text-[10px] text-gray-500 uppercase">Doanh thu</p><p class="text-xl font-black text-red-600">${formatMoney(s.totalRevenue)}</p></div>
+                </div>`;
+
+            // Phiên đã chọn
+            if (data.selectedSessions && data.selectedSessions.length > 1) {
+                html += '<div class="mb-4"><h4 class="text-xs font-bold text-gray-500 uppercase mb-2">Phiên đã gộp</h4><div class="flex flex-wrap gap-1">';
+                data.selectedSessions.forEach(ss => { html += `<span class="bg-purple-100 text-purple-700 text-[10px] px-2 py-1 rounded-full">${ss.liveName}</span>`; });
+                html += '</div></div>';
+            }
+
+            // Product Summary
+            if (data.productSummary && data.productSummary.length > 0) {
+                html += `<div class="mb-4"><h4 class="text-xs font-bold text-gray-500 uppercase mb-2">Tổng theo sản phẩm</h4>
+                    <table class="w-full text-xs border-collapse"><thead><tr class="bg-gray-100">
+                    <th class="p-2 text-left border">Sản phẩm</th><th class="p-2 text-center border">SL đơn</th><th class="p-2 text-center border">Số lượng</th><th class="p-2 text-right border">Doanh thu</th></tr></thead><tbody>`;
+                data.productSummary.forEach(p => {
+                    html += `<tr class="hover:bg-gray-50"><td class="p-2 border font-medium">${p.productName}</td><td class="p-2 border text-center">${p.totalOrders}</td><td class="p-2 border text-center">${p.totalQuantity}</td><td class="p-2 border text-right font-bold text-red-500">${formatMoney(p.totalRevenue)}</td></tr>`;
+                });
+                html += '</tbody></table></div>';
+            }
+
+            // Customer Summary
+            if (data.customerSummary && data.customerSummary.length > 0) {
+                html += `<div class="mb-4"><h4 class="text-xs font-bold text-gray-500 uppercase mb-2">Tổng theo khách hàng</h4>
+                    <table class="w-full text-xs border-collapse"><thead><tr class="bg-gray-100">
+                    <th class="p-2 text-left border">Khách hàng</th><th class="p-2 text-center border">Số đơn</th><th class="p-2 text-right border">Tổng tiền</th></tr></thead><tbody>`;
+                data.customerSummary.forEach(c => {
+                    html += `<tr class="hover:bg-gray-50"><td class="p-2 border">${c.customerName || ''} ${c.customerUsername ? '(@' + c.customerUsername + ')' : ''}</td><td class="p-2 border text-center">${c.orders.length}</td><td class="p-2 border text-right font-bold text-red-500">${formatMoney(c.total)}</td></tr>`;
+                });
+                html += '</tbody></table></div>';
+            }
+
+            // Chi tiết đơn hàng
+            if (data.mergedOrders && data.mergedOrders.length > 0) {
+                html += `<details class="mb-2"><summary class="text-xs font-bold text-gray-500 uppercase cursor-pointer hover:text-gray-700">Chi tiết ${data.mergedOrders.length} đơn hàng</summary>
+                    <div class="mt-2 max-h-60 overflow-y-auto"><table class="w-full text-[10px] border-collapse"><thead><tr class="bg-gray-100">
+                    <th class="p-1 border">Khách</th><th class="p-1 border">Sản phẩm</th><th class="p-1 border text-right">Giá</th><th class="p-1 border">Phiên</th></tr></thead><tbody>`;
+                data.mergedOrders.forEach(o => {
+                    html += `<tr class="hover:bg-gray-50"><td class="p-1 border">${o.customerName || ''}</td><td class="p-1 border">${o.productName || o.text || ''}</td><td class="p-1 border text-right font-bold">${formatMoney(o.price || o.total || 0)}</td><td class="p-1 border text-gray-400">${o.fromSession || ''}</td></tr>`;
+                });
+                html += '</tbody></table></div></details>';
+            }
+
+            container.innerHTML = html;
+        }
+
+        window.printMergeResults = () => {
+            if (!lastMergeData) return;
+            const d = lastMergeData;
+            let html = `<div style="font-family: 'Times New Roman', Times, serif; width: 80mm; margin: 0 auto; color: black;">`;
+            html += `<div style="text-align:center;"><h2 style="margin:0;">TONG KET GOP PHIEN</h2><hr style="border:1px solid black;"></div>`;
+            html += `<p style="font-size:12px;">Phien: ${d.summary.totalSessions} | Don: ${d.summary.totalOrders} | SP: ${d.summary.totalQuantity}</p>`;
+            html += `<p style="font-weight:bold; font-size:16px;">TONG: ${formatMoney(d.summary.totalRevenue)}</p>`;
+            html += `<hr style="border:1px dashed black;">`;
+
+            if (d.customerSummary) {
+                d.customerSummary.forEach(c => {
+                    html += `<div style="margin-bottom:8px;border-bottom:1px dashed gray;padding-bottom:4px;">`;
+                    html += `<div style="font-weight:bold;">${c.customerName || ''} ${c.customerUsername ? '(@' + c.customerUsername + ')' : ''}</div>`;
+                    c.orders.forEach(o => {
+                        html += `<div style="display:flex;justify-content:space-between;font-size:12px;"><span>- ${o.productName || o.text || ''}</span><span style="font-weight:bold;">${formatMoney(o.price || o.total || 0)}</span></div>`;
+                    });
+                    html += `<div style="text-align:right;font-weight:bold;font-size:13px;">Cong: ${formatMoney(c.total)}</div></div>`;
+                });
+            }
+            html += `</div>`;
+            document.getElementById('print-section').innerHTML = html;
+            window.print();
+        };
     </script>
     <style>
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
