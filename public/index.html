@@ -17,7 +17,16 @@
         <header class="mb-8 text-center no-print relative">
             <h1 class="text-3xl font-bold text-red-600 mb-2">TikTok Order Collector</h1>
             <p class="text-gray-600 italic">Quản lý đơn hàng chuyên nghiệp</p>
-            <div class="absolute top-0 right-0 flex gap-2">
+            <div class="absolute top-0 right-0 flex items-center gap-2">
+                <!-- User info bar -->
+                <div id="user-bar" class="hidden flex items-center gap-2 bg-white border border-gray-200 rounded-full pl-1 pr-3 py-1 shadow-sm">
+                    <img id="user-avatar" src="" alt="avatar" class="w-7 h-7 rounded-full border border-gray-300 hidden">
+                    <div class="text-right leading-tight">
+                        <div id="user-name" class="text-[11px] font-bold text-gray-700 truncate max-w-[120px]"></div>
+                        <div id="user-email" class="text-[9px] text-gray-400 truncate max-w-[120px]"></div>
+                    </div>
+                </div>
+                <button onclick="logout()" class="p-2 bg-red-100 text-red-600 rounded-full hover:bg-red-200 transition" title="Đăng xuất">🚪</button>
                 <button onclick="showHistory()" class="p-2 bg-blue-100 text-blue-600 rounded-full hover:bg-blue-200 transition" title="Xem lịch sử">📜</button>
                 <button onclick="toggleSettings()" class="p-2 bg-gray-200 rounded-full hover:bg-gray-300 transition">⚙️</button>
             </div>
@@ -295,6 +304,40 @@
             document.getElementById('print-section').innerHTML = html;
             window.print();
         };
+
+        window.logout = async () => {
+            if(confirm("Đại ca muốn đăng xuất hả?")) {
+                await fetch('/logout', { method: 'POST' });
+                window.location.href = '/login';
+            }
+        };
+
+        // --- Load user info ---
+        (async () => {
+            try {
+                const res = await fetch('/api/me');
+                const data = await res.json();
+                if (data.loggedIn && data.user) {
+                    const bar = document.getElementById('user-bar');
+                    const avatar = document.getElementById('user-avatar');
+                    const nameEl = document.getElementById('user-name');
+                    const emailEl = document.getElementById('user-email');
+
+                    emailEl.textContent = data.user.email || '';
+                    nameEl.textContent = data.user.name || data.user.email?.split('@')[0] || '';
+
+                    if (data.user.picture) {
+                        avatar.src = data.user.picture;
+                        avatar.classList.remove('hidden');
+                    }
+
+                    bar.classList.remove('hidden');
+                    bar.style.display = 'flex';
+                }
+            } catch (e) {
+                console.warn('Could not load user info:', e);
+            }
+        })();
     </script>
     <style>
         @keyframes fadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }

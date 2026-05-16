@@ -1,3 +1,4 @@
+require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -6,13 +7,117 @@ const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
 const { ThermalPrinter, PrinterTypes, CharacterSet } = require("node-thermal-printer");
+const admin = require('firebase-admin');
+const session = require('express-session');
+
+let serviceAccount;
+try {
+    serviceAccount = require('./firebase-service-account.json');
+    admin.initializeApp({
+        credential: admin.credential.cert(serviceAccount)
+    });
+    console.log("Firebase Admin initialized.");
+} catch (e) {
+    console.warn("Could not load firebase-service-account.json. Firebase Auth will fail.");
+}
 
 const app = express();
 app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
+
+const sessionMiddleware = session({
+    secret: process.env.SESSION_SECRET || 'fallback_secret',
+    resave: false,
+    saveUninitialized: false,
+    cookie: { secure: false } // Set secure: true if using HTTPS
+});
+app.use(sessionMiddleware);
+
+app.get('/login', (req, res) => {
+    if (req.session && req.session.user) {
+        return res.redirect('/');
+    }
+    res.sendFile(path.join(__dirname, 'public', 'login.html'));
+});
+
+// --- Hàm kiểm tra email có quyền truy cập ---
+function isEmailAllowed(email) {
+    const allowRegister = (process.env.ALLOW_REGISTER || 'true').toLowerCase() === 'true';
+    if (allowRegister) return true;
+
+    // Nếu không cho đăng ký tự do, chỉ cho phép email trong danh sách admin
+    const adminEmailsStr = process.env.ADMIN_EMAILS || process.env.ADMIN_EMAIL || '';
+    if (!adminEmailsStr) return true; // Nếu không cấu hình thì cho phép tất cả
+    const adminEmails = adminEmailsStr.split(',').map(e => e.trim().toLowerCase());
+    return adminEmails.includes(email.toLowerCase());
+}
+
+app.post('/sessionLogin', async (req, res) => {
+    const idToken = req.body.idToken;
+    console.log(">>> Nhận yêu cầu đăng nhập, đang xác thực token...");
+    try {
+        const decodedToken = await admin.auth().verifyIdToken(idToken);
+        const email = decodedToken.email;
+        console.log(">>> Token hợp lệ! Email:", email, "| Provider:", decodedToken.firebase?.sign_in_provider);
+
+        if (!isEmailAllowed(email)) {
+            console.error(">>> LỖI: Email không có trong danh sách được phép.");
+            return res.status(403).json({ message: 'Tài khoản này không có quyền truy cập' });
+        }
+
+        req.session.user = {
+            uid: decodedToken.uid,
+            email: decodedToken.email,
+            name: decodedToken.name || '',
+            picture: decodedToken.picture || '',
+            provider: decodedToken.firebase?.sign_in_provider || ''
+        };
+        console.log(">>> Đăng nhập thành công! Đã lưu session.");
+        res.json({ success: true });
+    } catch (error) {
+        console.error(">>> LỖI XÁC THỰC FIREBASE ADMIN:", error.message);
+        res.status(401).json({ error: 'Xác thực thất bại: ' + error.message });
+    }
+});
+
+// --- API kiểm tra user hiện tại ---
+app.get('/api/me', (req, res) => {
+    if (req.session && req.session.user) {
+        return res.json({ loggedIn: true, user: req.session.user });
+    }
+    res.json({ loggedIn: false });
+});
+
+app.post('/logout', (req, res) => {
+    req.session.destroy(() => {
+        res.json({ success: true });
+    });
+});
+
+const requireLogin = (req, res, next) => {
+    if (req.path === '/login' || req.path === '/sessionLogin' || req.path === '/api/me') return next();
+    if (req.path === '/logout') return next();
+    if (req.session && req.session.user) {
+        return next();
+    }
+    res.redirect('/login');
+};
+app.use(requireLogin);
+
 app.use(express.static(path.join(__dirname, 'public')));
 
 const server = http.createServer(app);
 const io = new Server(server, { cors: { origin: "*" } });
+
+io.engine.use(sessionMiddleware);
+io.use((socket, next) => {
+    if (socket.request.session && socket.request.session.user) {
+        next();
+    } else {
+        next(new Error("Authentication error"));
+    }
+});
 
 const HISTORY_DIR = path.join(__dirname, 'history');
 const CONFIG_FILE = path.join(__dirname, 'config.json');

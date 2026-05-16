@@ -1,0 +1,500 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Đăng nhập - TikTok Order Collector</title>
+    <meta name="description" content="Đăng nhập vào hệ thống quản lý đơn hàng TikTok Live">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: linear-gradient(135deg, #0f0c29 0%, #302b63 50%, #24243e 100%);
+            padding: 20px;
+        }
+
+        .login-card {
+            background: rgba(255, 255, 255, 0.05);
+            backdrop-filter: blur(20px);
+            -webkit-backdrop-filter: blur(20px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 24px;
+            padding: 40px 36px;
+            width: 100%;
+            max-width: 420px;
+            box-shadow: 0 25px 60px rgba(0, 0, 0, 0.4);
+        }
+
+        .logo-section {
+            text-align: center;
+            margin-bottom: 32px;
+        }
+
+        .logo-icon {
+            width: 56px;
+            height: 56px;
+            background: linear-gradient(135deg, #ee1d52, #ff6f61);
+            border-radius: 16px;
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            margin-bottom: 12px;
+            box-shadow: 0 8px 24px rgba(238, 29, 82, 0.3);
+        }
+
+        .logo-title {
+            font-size: 22px;
+            font-weight: 800;
+            color: #fff;
+            letter-spacing: -0.5px;
+        }
+
+        .logo-sub {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.5);
+            margin-top: 4px;
+        }
+
+        /* Tab switcher */
+        .tab-switcher {
+            display: flex;
+            background: rgba(255, 255, 255, 0.06);
+            border-radius: 12px;
+            padding: 4px;
+            margin-bottom: 28px;
+            border: 1px solid rgba(255, 255, 255, 0.08);
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 10px 16px;
+            border: none;
+            background: transparent;
+            color: rgba(255, 255, 255, 0.5);
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            border-radius: 10px;
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+        }
+
+        .tab-btn.active {
+            background: linear-gradient(135deg, #ee1d52, #ff6f61);
+            color: #fff;
+            box-shadow: 0 4px 16px rgba(238, 29, 82, 0.3);
+        }
+
+        .tab-btn:hover:not(.active) {
+            color: rgba(255, 255, 255, 0.8);
+        }
+
+        /* Forms */
+        .form-panel { display: none; }
+        .form-panel.active { display: block; animation: fadeSlide 0.3s ease-out; }
+
+        @keyframes fadeSlide {
+            from { opacity: 0; transform: translateY(8px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .field-group {
+            margin-bottom: 18px;
+        }
+
+        .field-label {
+            display: block;
+            font-size: 12px;
+            font-weight: 600;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 6px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .field-input {
+            width: 100%;
+            padding: 12px 16px;
+            background: rgba(255, 255, 255, 0.07);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 12px;
+            color: #fff;
+            font-family: inherit;
+            font-size: 14px;
+            transition: all 0.2s;
+            outline: none;
+        }
+
+        .field-input::placeholder { color: rgba(255, 255, 255, 0.25); }
+        .field-input:focus {
+            border-color: #ee1d52;
+            background: rgba(255, 255, 255, 0.1);
+            box-shadow: 0 0 0 3px rgba(238, 29, 82, 0.15);
+        }
+
+        .btn-primary {
+            width: 100%;
+            padding: 14px;
+            border: none;
+            border-radius: 12px;
+            font-family: inherit;
+            font-size: 15px;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.2s;
+            background: linear-gradient(135deg, #ee1d52, #ff6f61);
+            color: #fff;
+            box-shadow: 0 4px 16px rgba(238, 29, 82, 0.3);
+            margin-top: 6px;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-1px);
+            box-shadow: 0 6px 24px rgba(238, 29, 82, 0.4);
+        }
+
+        .btn-primary:active { transform: translateY(0); }
+
+        .btn-primary:disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        /* Divider */
+        .divider {
+            display: flex;
+            align-items: center;
+            margin: 24px 0;
+            gap: 12px;
+        }
+
+        .divider::before, .divider::after {
+            content: '';
+            flex: 1;
+            height: 1px;
+            background: rgba(255, 255, 255, 0.1);
+        }
+
+        .divider span {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.35);
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+
+        /* Google button */
+        .btn-google {
+            width: 100%;
+            padding: 13px;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 12px;
+            background: rgba(255, 255, 255, 0.06);
+            color: #fff;
+            font-family: inherit;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            transition: all 0.2s;
+        }
+
+        .btn-google:hover {
+            background: rgba(255, 255, 255, 0.12);
+            border-color: rgba(255, 255, 255, 0.25);
+            transform: translateY(-1px);
+        }
+
+        .btn-google:active { transform: translateY(0); }
+
+        .btn-google svg { width: 20px; height: 20px; }
+
+        /* Messages */
+        .msg-box {
+            margin-top: 16px;
+            padding: 12px 16px;
+            border-radius: 10px;
+            font-size: 13px;
+            font-weight: 500;
+            display: none;
+            animation: fadeSlide 0.2s ease-out;
+        }
+
+        .msg-box.error {
+            display: block;
+            background: rgba(239, 68, 68, 0.15);
+            border: 1px solid rgba(239, 68, 68, 0.3);
+            color: #fca5a5;
+        }
+
+        .msg-box.success {
+            display: block;
+            background: rgba(34, 197, 94, 0.15);
+            border: 1px solid rgba(34, 197, 94, 0.3);
+            color: #86efac;
+        }
+
+        /* Loading spinner */
+        .spinner {
+            display: inline-block;
+            width: 16px;
+            height: 16px;
+            border: 2px solid rgba(255, 255, 255, 0.3);
+            border-top-color: #fff;
+            border-radius: 50%;
+            animation: spin 0.6s linear infinite;
+            margin-right: 8px;
+            vertical-align: middle;
+        }
+
+        @keyframes spin { to { transform: rotate(360deg); } }
+
+        /* Responsive */
+        @media (max-width: 480px) {
+            .login-card { padding: 28px 24px; }
+            .logo-title { font-size: 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="login-card">
+        <div class="logo-section">
+            <div class="logo-icon">🛒</div>
+            <div class="logo-title">TikTok Order Collector</div>
+            <div class="logo-sub">Quản lý đơn hàng chuyên nghiệp</div>
+        </div>
+
+        <!-- Tab Switcher -->
+        <div class="tab-switcher">
+            <button class="tab-btn active" id="tab-login" onclick="switchTab('login')">Đăng nhập</button>
+            <button class="tab-btn" id="tab-register" onclick="switchTab('register')">Đăng ký</button>
+        </div>
+
+        <!-- LOGIN FORM -->
+        <div id="panel-login" class="form-panel active">
+            <div class="field-group">
+                <label class="field-label" for="login-email">Email</label>
+                <input type="email" id="login-email" class="field-input" placeholder="admin@example.com" autocomplete="email">
+            </div>
+            <div class="field-group">
+                <label class="field-label" for="login-password">Mật khẩu</label>
+                <input type="password" id="login-password" class="field-input" placeholder="••••••••" autocomplete="current-password">
+            </div>
+            <button id="btn-login" class="btn-primary">Đăng nhập</button>
+        </div>
+
+        <!-- REGISTER FORM -->
+        <div id="panel-register" class="form-panel">
+            <div class="field-group">
+                <label class="field-label" for="reg-email">Email</label>
+                <input type="email" id="reg-email" class="field-input" placeholder="email@example.com" autocomplete="email">
+            </div>
+            <div class="field-group">
+                <label class="field-label" for="reg-password">Mật khẩu</label>
+                <input type="password" id="reg-password" class="field-input" placeholder="Tối thiểu 6 ký tự" autocomplete="new-password">
+            </div>
+            <div class="field-group">
+                <label class="field-label" for="reg-confirm">Xác nhận mật khẩu</label>
+                <input type="password" id="reg-confirm" class="field-input" placeholder="Nhập lại mật khẩu" autocomplete="new-password">
+            </div>
+            <button id="btn-register" class="btn-primary">Đăng ký</button>
+        </div>
+
+        <!-- DIVIDER + GOOGLE -->
+        <div class="divider"><span>hoặc</span></div>
+        <button id="btn-google" class="btn-google">
+            <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" fill="#4285F4"/>
+                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                <path d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" fill="#FBBC05"/>
+                <path d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" fill="#EA4335"/>
+            </svg>
+            Đăng nhập bằng Google
+        </button>
+
+        <!-- Message box -->
+        <div id="msg-box" class="msg-box"></div>
+    </div>
+
+    <script type="module">
+        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
+        import {
+            getAuth,
+            signInWithEmailAndPassword,
+            createUserWithEmailAndPassword,
+            GoogleAuthProvider,
+            signInWithPopup,
+            signOut
+        } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
+
+        const firebaseConfig = {
+            apiKey: "AIzaSyAAiCx0hRxK3IIJqHOs3e4xZsM5apUZXsU",
+            authDomain: "tikoder-app.firebaseapp.com",
+            projectId: "tikoder-app",
+            storageBucket: "tikoder-app.firebasestorage.app",
+            messagingSenderId: "195318473503",
+            appId: "1:195318473503:web:6e10d19826c59956ec062a",
+            measurementId: "G-ZBTFLL6VD4"
+        };
+
+        const app = initializeApp(firebaseConfig);
+        const auth = getAuth(app);
+        const googleProvider = new GoogleAuthProvider();
+
+        // --- UI Helpers ---
+        const msgBox = document.getElementById('msg-box');
+
+        function showMsg(text, type = 'error') {
+            msgBox.textContent = text;
+            msgBox.className = `msg-box ${type}`;
+        }
+
+        function clearMsg() {
+            msgBox.textContent = '';
+            msgBox.className = 'msg-box';
+        }
+
+        function setLoading(btn, loading) {
+            if (loading) {
+                btn.disabled = true;
+                btn.dataset.originalText = btn.textContent;
+                btn.innerHTML = '<span class="spinner"></span>Đang xử lý...';
+            } else {
+                btn.disabled = false;
+                btn.textContent = btn.dataset.originalText || btn.textContent;
+            }
+        }
+
+        function translateError(error) {
+            const code = error.code || '';
+            const map = {
+                'auth/email-already-in-use': 'Email này đã được sử dụng. Vui lòng đăng nhập hoặc dùng email khác.',
+                'auth/weak-password': 'Mật khẩu quá yếu. Vui lòng dùng ít nhất 6 ký tự.',
+                'auth/invalid-email': 'Địa chỉ email không hợp lệ.',
+                'auth/user-not-found': 'Sai email hoặc mật khẩu.',
+                'auth/wrong-password': 'Sai email hoặc mật khẩu.',
+                'auth/invalid-credential': 'Sai email hoặc mật khẩu.',
+                'auth/too-many-requests': 'Đăng nhập thất bại quá nhiều lần. Vui lòng thử lại sau.',
+                'auth/popup-closed-by-user': 'Bạn đã đóng cửa sổ đăng nhập Google.',
+                'auth/cancelled-popup-request': 'Yêu cầu đăng nhập bị hủy.',
+                'auth/popup-blocked': 'Trình duyệt đã chặn popup. Vui lòng cho phép popup và thử lại.',
+                'auth/network-request-failed': 'Lỗi mạng. Vui lòng kiểm tra kết nối internet.',
+            };
+            return map[code] || `Lỗi: ${error.message || code}`;
+        }
+
+        // --- Tab switching ---
+        window.switchTab = (tab) => {
+            clearMsg();
+            document.getElementById('tab-login').classList.toggle('active', tab === 'login');
+            document.getElementById('tab-register').classList.toggle('active', tab === 'register');
+            document.getElementById('panel-login').classList.toggle('active', tab === 'login');
+            document.getElementById('panel-register').classList.toggle('active', tab === 'register');
+        };
+
+        // --- Send token to backend ---
+        async function sendTokenToServer(user) {
+            const idToken = await user.getIdToken();
+            const res = await fetch('/sessionLogin', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ idToken })
+            });
+            const result = await res.json();
+            if (res.ok && result.success) {
+                window.location.href = '/';
+            } else {
+                // Backend rejected — sign out Firebase client
+                await signOut(auth);
+                throw new Error(result.message || result.error || 'Tài khoản không có quyền truy cập');
+            }
+        }
+
+        // --- EMAIL/PASSWORD LOGIN ---
+        document.getElementById('btn-login').addEventListener('click', async () => {
+            clearMsg();
+            const email = document.getElementById('login-email').value.trim();
+            const password = document.getElementById('login-password').value;
+            if (!email || !password) return showMsg('Vui lòng nhập email và mật khẩu.');
+
+            const btn = document.getElementById('btn-login');
+            setLoading(btn, true);
+            try {
+                const cred = await signInWithEmailAndPassword(auth, email, password);
+                await sendTokenToServer(cred.user);
+            } catch (error) {
+                showMsg(translateError(error));
+            } finally {
+                setLoading(btn, false);
+            }
+        });
+
+        // Enter key support for login
+        document.getElementById('login-password').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') document.getElementById('btn-login').click();
+        });
+        document.getElementById('login-email').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') document.getElementById('login-password').focus();
+        });
+
+        // --- EMAIL/PASSWORD REGISTER ---
+        document.getElementById('btn-register').addEventListener('click', async () => {
+            clearMsg();
+            const email = document.getElementById('reg-email').value.trim();
+            const password = document.getElementById('reg-password').value;
+            const confirm = document.getElementById('reg-confirm').value;
+
+            if (!email || !password || !confirm) return showMsg('Vui lòng điền đầy đủ thông tin.');
+            if (password !== confirm) return showMsg('Mật khẩu xác nhận không khớp.');
+            if (password.length < 6) return showMsg('Mật khẩu phải có ít nhất 6 ký tự.');
+
+            const btn = document.getElementById('btn-register');
+            setLoading(btn, true);
+            try {
+                const cred = await createUserWithEmailAndPassword(auth, email, password);
+                await sendTokenToServer(cred.user);
+            } catch (error) {
+                showMsg(translateError(error));
+            } finally {
+                setLoading(btn, false);
+            }
+        });
+
+        // Enter key support for register
+        document.getElementById('reg-confirm').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') document.getElementById('btn-register').click();
+        });
+
+        // --- GOOGLE SIGN-IN ---
+        document.getElementById('btn-google').addEventListener('click', async () => {
+            clearMsg();
+            const btn = document.getElementById('btn-google');
+            setLoading(btn, true);
+            try {
+                const result = await signInWithPopup(auth, googleProvider);
+                await sendTokenToServer(result.user);
+            } catch (error) {
+                if (error.code === 'auth/popup-closed-by-user' || error.code === 'auth/cancelled-popup-request') {
+                    // User closed popup, not really an error
+                } else {
+                    showMsg(translateError(error));
+                }
+            } finally {
+                setLoading(btn, false);
+            }
+        });
+    </script>
+</body>
+</html>
