@@ -36,12 +36,19 @@
 
         <!-- Settings Panel -->
         <div id="settings-panel" class="bg-white rounded-lg shadow-md p-6 mb-8 max-w-md mx-auto no-print hidden border-2 border-blue-500">
-            <h3 class="font-bold mb-2 text-sm text-blue-800">Cấu hình máy in</h3>
-            <div class="flex gap-2">
-                <input type="text" id="printer-ip" placeholder="tcp://192.168.1.9 hoặc /dev/usb/lp0" class="flex-1 border rounded px-3 py-2 text-xs">
-                <button onclick="savePrinterSettings()" class="bg-blue-600 text-white px-4 py-1 rounded text-xs font-bold">Lưu</button>
+            <h3 class="font-bold mb-2 text-sm text-blue-800">Cấu hình hệ thống</h3>
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">Máy in (IP hoặc Port)</label>
+                    <input type="text" id="printer-ip" placeholder="tcp://192.168.1.9" class="w-full border rounded px-3 py-2 text-xs">
+                </div>
+                <div>
+                    <label class="block text-[10px] font-bold text-gray-500 uppercase mb-1">TikTok Sign API Key (EulerStream)</label>
+                    <input type="password" id="tiktok-api-key" placeholder="Nhập API Key để tránh bị chặn" class="w-full border rounded px-3 py-2 text-xs">
+                </div>
+                <button onclick="saveSettings()" class="w-full bg-blue-600 text-white px-4 py-2 rounded text-xs font-bold hover:bg-blue-700 transition">Lưu cấu hình</button>
             </div>
-            <p id="printer-status-msg" class="mt-2 text-[10px] text-blue-600 italic"></p>
+            <p id="system-status-msg" class="mt-2 text-[10px] text-blue-600 italic text-center"></p>
         </div>
 
         <!-- Connection Form -->
@@ -79,7 +86,8 @@
         const btnConnect = document.getElementById('btn-connect');
         const statusMsg = document.getElementById('status-msg');
         const printerIpInput = document.getElementById('printer-ip');
-        const printerStatusMsg = document.getElementById('printer-status-msg');
+        const tiktokApiKeyInput = document.getElementById('tiktok-api-key');
+        const systemStatusMsg = document.getElementById('system-status-msg');
         const settingsPanel = document.getElementById('settings-panel');
         const historyModal = document.getElementById('history-modal');
         const historyListContent = document.getElementById('history-list-content');
@@ -87,7 +95,12 @@
         let ordersData = {};
 
         window.toggleSettings = () => settingsPanel.classList.toggle('hidden');
-        window.savePrinterSettings = () => socket.emit('update-printer', printerIpInput.value.trim());
+        window.saveSettings = () => {
+            socket.emit('update-settings', {
+                printerInterface: printerIpInput.value.trim(),
+                tiktokSignApiKey: tiktokApiKeyInput.value.trim()
+            });
+        };
         window.showHistory = () => { historyModal.classList.remove('hidden'); socket.emit('get-history-list'); };
         window.closeHistory = () => historyModal.classList.add('hidden');
 
@@ -117,8 +130,14 @@
             statusMsg.innerText = "Lịch sử: " + res.fileName;
         });
 
-        socket.on('printer-config', (currentIp) => { printerIpInput.value = currentIp; });
-        socket.on('printer-status', (msg) => { printerStatusMsg.innerText = msg; setTimeout(() => printerStatusMsg.innerText = '', 3000); });
+        socket.on('system-config', (config) => { 
+            printerIpInput.value = config.printerInterface; 
+            tiktokApiKeyInput.value = config.tiktokSignApiKey;
+        });
+        socket.on('system-status', (msg) => { 
+            systemStatusMsg.innerText = msg; 
+            setTimeout(() => systemStatusMsg.innerText = '', 3000); 
+        });
         socket.on('printer-error', (msg) => { alert(msg); });
 
         socket.on('all-confirmed-orders', (allOrders) => {

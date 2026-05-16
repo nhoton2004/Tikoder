@@ -1,7 +1,7 @@
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
-const { WebcastPushConnection } = require('tiktok-live-connector');
+const { WebcastPushConnection, SignConfig } = require('tiktok-live-connector');
 const cors = require('cors');
 const path = require('path');
 const fs = require('fs');
@@ -20,6 +20,7 @@ const CONFIG_FILE = path.join(__dirname, 'config.json');
 let tiktokConnection = null;
 let confirmedOrders = {}; 
 let printerInterface = 'tcp://192.168.1.9'; 
+let tiktokSignApiKey = '';
 let currentBroadcasterId = null;
 let printer = null;
 const processedMsgIds = new Set(); // Bộ lọc tin nhắn trùng lặp
@@ -28,7 +29,15 @@ if (fs.existsSync(CONFIG_FILE)) {
     try {
         const config = JSON.parse(fs.readFileSync(CONFIG_FILE));
         printerInterface = config.printerInterface || printerInterface;
+        tiktokSignApiKey = config.tiktokSignApiKey || '';
+        if (tiktokSignApiKey) {
+            SignConfig.apiKey = tiktokSignApiKey;
+        }
     } catch(e) {}
+}
+
+function saveConfig() {
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify({ printerInterface, tiktokSignApiKey }, null, 2));
 }
 
 function initPrinter(newInterface) {
@@ -40,7 +49,7 @@ function initPrinter(newInterface) {
         removeSpecialCharacters: false,
         width: 48,
     });
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify({ printerInterface }));
+    saveConfig();
 }
 initPrinter(printerInterface);
 
@@ -198,15 +207,24 @@ function parsePrice(text) {
 }
 
 io.on('connection', (socket) => {
-    socket.emit('printer-config', printerInterface);
+    socket.emit('system-config', { printerInterface, tiktokSignApiKey });
 
-    socket.on('update-printer', (newInterface) => {
-        initPrinter(newInterface);
-        socket.emit('printer-status', "Đã lưu IP máy in: " + newInterface);
+    socket.on('update-settings', (data) => {
+        if (data.printerInterface !== undefined) {
+            initPrinter(data.printerInterface);
+        }
+        if (data.tiktokSignApiKey !== undefined) {
+            tiktokSignApiKey = data.tiktokSignApiKey;
+            SignConfig.apiKey = tiktokSignApiKey;
+            saveConfig();
+        }
+        socket.emit('system-status', "Đã cập nhật cấu hình hệ thống!");
     });
 
     socket.on('start-live', (uniqueId) => {
-        if (tiktokConnection) tiktokConnection.disconnect();
+        if (tiktokConnection) {
+            try { tiktokConnection.disconnect(); } catch(e) {}
+        }
         currentBroadcasterId = uniqueId;
         const fileName = getSessionFileName(uniqueId);
         if (fs.existsSync(fileName)) {
@@ -215,12 +233,23 @@ io.on('connection', (socket) => {
             confirmedOrders = {};
         }
         socket.emit('all-confirmed-orders', confirmedOrders);
+        
         tiktokConnection = new WebcastPushConnection(uniqueId);
         tiktokConnection.connect().then(state => {
             socket.emit('status', { connected: true, roomId: state.roomId });
         }).catch(err => {
             console.error('TikTok Connection Error:', err);
-            socket.emit('status', { connected: false, error: (err && err.message) ? err.message : (err ? err.toString() : "Lỗi không xác định") });
+            let errorMessage = "Lỗi không xác định";
+            
+            if (err && (err.name === 'SignatureRateLimitError' || (err.message && err.message.includes('rate_limit')))) {
+                errorMessage = "Đại ca ơi, TikTok nó chặn rồi (Rate Limit)! Đợi xíu tầm 1-2 phút rồi thử lại nhé. Hoặc Đại ca nạp API Key của EulerStream vào phần cài đặt cho nó mượt!";
+            } else if (err && err.message && err.message.includes('Unexpected server response: 200')) {
+                errorMessage = "Kết nối bị từ chối (200). Đại ca thử lại phát nữa xem, hoặc kiểm tra xem ID TikTok đúng chưa nhé!";
+            } else {
+                errorMessage = (err && err.message) ? err.message : (err ? err.toString() : "Lỗi kết nối TikTok");
+            }
+            
+            socket.emit('status', { connected: false, error: errorMessage });
         });
         tiktokConnection.on('chat', (data) => {
             // Lọc tin nhắn trùng lặp
