@@ -246,6 +246,18 @@
             color: #86efac;
         }
 
+        .dev-mode-note {
+            display: none;
+            margin-bottom: 16px;
+            padding: 10px 12px;
+            border-radius: 10px;
+            font-size: 12px;
+            font-weight: 600;
+            background: rgba(245, 158, 11, 0.15);
+            border: 1px solid rgba(245, 158, 11, 0.35);
+            color: #fde68a;
+        }
+
         /* Loading spinner */
         .spinner {
             display: inline-block;
@@ -325,6 +337,7 @@
         </button>
 
         <!-- Message box -->
+        <div id="dev-mode-note" class="dev-mode-note"></div>
         <div id="msg-box" class="msg-box"></div>
     </div>
 
@@ -352,6 +365,7 @@
         const app = initializeApp(firebaseConfig);
         const auth = getAuth(app);
         const googleProvider = new GoogleAuthProvider();
+        let isDevSkipAuth = false;
 
         // --- UI Helpers ---
         const msgBox = document.getElementById('msg-box');
@@ -364,6 +378,12 @@
         function clearMsg() {
             msgBox.textContent = '';
             msgBox.className = 'msg-box';
+        }
+
+        function showDevNote(text) {
+            const note = document.getElementById('dev-mode-note');
+            note.textContent = text;
+            note.style.display = 'block';
         }
 
         function setLoading(btn, loading) {
@@ -403,6 +423,21 @@
             document.getElementById('panel-login').classList.toggle('active', tab === 'login');
             document.getElementById('panel-register').classList.toggle('active', tab === 'register');
         };
+
+        // DEV ONLY: nếu backend đang bật bypass auth, không cần thao tác tại trang login.
+        (async () => {
+            try {
+                const res = await fetch('/api/me');
+                const data = await res.json();
+                isDevSkipAuth = !!data.devSkipAuth;
+                if (isDevSkipAuth) {
+                    showDevNote('DEV MODE đang bật (VITE_DEV_SKIP_AUTH=true). Hệ thống sẽ tự vào app, không cần đăng nhập.');
+                    setTimeout(() => {
+                        window.location.href = '/';
+                    }, 700);
+                }
+            } catch (_) {}
+        })();
 
         // --- Send token to backend ---
         async function sendTokenToServer(user) {

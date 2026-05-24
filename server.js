@@ -12,6 +12,20 @@ const session = require('express-session');
 const liveSessionStore = require('./utils/liveSessionStore');
 const adminRoutes = require('./routes/admin');
 
+// DEV ONLY: Bật để bỏ qua đăng nhập Firebase trong môi trường local/dev.
+// Cần đặt VITE_DEV_SKIP_AUTH=false khi phát hành production.
+const DEV_SKIP_AUTH = String(process.env.VITE_DEV_SKIP_AUTH || 'false').toLowerCase() === 'true';
+const DEV_USER = {
+    uid: 'dev-user',
+    email: 'dev@local.test',
+    name: 'Dev User',
+    displayName: 'Dev User',
+    picture: '',
+    provider: 'dev-bypass',
+    role: 'admin',
+    permissions: []
+};
+
 let serviceAccount;
 try {
     serviceAccount = require('./firebase-service-account.json');
@@ -36,8 +50,20 @@ const sessionMiddleware = session({
 });
 app.use(sessionMiddleware);
 
+// DEV ONLY: tự inject session user giả để test nhanh không cần login.
+function ensureDevSession(req, _res, next) {
+    if (DEV_SKIP_AUTH && req.session && !req.session.user) {
+        req.session.user = { ...DEV_USER };
+    }
+    next();
+}
+app.use(ensureDevSession);
+
 app.get('/login', (req, res) => {
     if (req.session && req.session.user) {
+        return res.redirect('/');
+    }
+    if (DEV_SKIP_AUTH) {
         return res.redirect('/');
     }
     res.sendFile(path.join(__dirname, 'public', 'login.html'));
@@ -94,9 +120,9 @@ app.post('/sessionLogin', async (req, res) => {
 // --- API kiểm tra user hiện tại ---
 app.get('/api/me', (req, res) => {
     if (req.session && req.session.user) {
-        return res.json({ loggedIn: true, user: req.session.user });
+        return res.json({ loggedIn: true, user: req.session.user, devSkipAuth: DEV_SKIP_AUTH });
     }
-    res.json({ loggedIn: false });
+    res.json({ loggedIn: false, devSkipAuth: DEV_SKIP_AUTH });
 });
 
 app.post('/logout', (req, res) => {
@@ -234,6 +260,51 @@ app.post('/api/live-sessions/merge-summary', requireApiAuth, (req, res) => {
 });
 
 // ============================================================
+// === EXPORT/BACKUP DỮ LIỆU ===
+// ============================================================
+app.get('/api/export-data', requireApiAuth, (req, res) => {
+    try {
+        const format = String(req.query.format || 'json').toLowerCase(); // json | csv | excel
+        const scope = String(req.query.scope || 'mine').toLowerCase();   // mine | all
+        const user = req.session.user;
+
+        if (!['json', 'csv', 'excel'].includes(format)) {
+            return res.status(400).json({ error: 'Định dạng không hợp lệ. Dùng: json/csv/excel' });
+        }
+        if (!['mine', 'all'].includes(scope)) {
+            return res.status(400).json({ error: 'Phạm vi không hợp lệ. Dùng: mine/all' });
+        }
+        if (scope === 'all' && user.role !== 'admin' && user.role !== 'super_admin') {
+            return res.status(403).json({ error: 'Chỉ admin mới được export toàn bộ dữ liệu' });
+        }
+
+        const dataset = buildExportDataset(scope, user);
+        const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const fileBase = `backup-${scope}-${stamp}`;
+
+        if (format === 'json') {
+            res.setHeader('Content-Type', 'application/json; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename="${fileBase}.json"`);
+            return res.send(JSON.stringify(dataset, null, 2));
+        }
+        if (format === 'csv') {
+            const csvText = toCsv(dataset.rows);
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename="${fileBase}.csv"`);
+            return res.send('\uFEFF' + csvText); // BOM để Excel hiển thị UTF-8 đúng
+        }
+
+        const excelXml = toExcelXml(dataset.rows);
+        res.setHeader('Content-Type', 'application/vnd.ms-excel; charset=utf-8');
+        res.setHeader('Content-Disposition', `attachment; filename="${fileBase}.xls"`);
+        return res.send(excelXml);
+    } catch (error) {
+        console.error('Lỗi export dữ liệu:', error);
+        res.status(500).json({ error: 'Lỗi server khi export dữ liệu' });
+    }
+});
+
+// ============================================================
 // === ADMIN PANEL ===
 // ============================================================
 app.get('/admin', (req, res) => {
@@ -267,6 +338,7 @@ io.use((socket, next) => {
 
 const HISTORY_DIR = path.join(__dirname, 'history');
 const CONFIG_FILE = path.join(__dirname, 'config.json');
+const LIVE_SESSIONS_DIR = path.join(__dirname, 'data', 'live-sessions');
 
 let tiktokConnection = null;
 let confirmedOrders = {}; 
@@ -275,6 +347,8 @@ let tiktokSignApiKey = '';
 let currentBroadcasterId = null;
 let printer = null;
 const processedMsgIds = new Set(); // Bộ lọc tin nhắn trùng lặp
+const chatBufferByBroadcaster = new Map(); // { broadcasterId -> [chatItem...] }
+const CHAT_BUFFER_LIMIT = 300;
 
 if (fs.existsSync(CONFIG_FILE)) {
     try {
@@ -457,6 +531,202 @@ function parsePrice(text) {
     return 0;
 }
 
+function escapeCsvValue(value) {
+    const str = String(value ?? '');
+    if (str.includes('"') || str.includes(',') || str.includes('\n')) {
+        return `"${str.replace(/"/g, '""')}"`;
+    }
+    return str;
+}
+
+function readAllLiveSessionRows() {
+    if (!fs.existsSync(LIVE_SESSIONS_DIR)) return { rows: [], files: 0 };
+    const files = fs.readdirSync(LIVE_SESSIONS_DIR).filter(f => f.endsWith('.json'));
+    const rows = [];
+
+    files.forEach(fileName => {
+        const userIdFromFile = fileName.replace(/\.json$/i, '');
+        const fullPath = path.join(LIVE_SESSIONS_DIR, fileName);
+        try {
+            const parsed = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
+            const sessions = Array.isArray(parsed?.sessions) ? parsed.sessions : [];
+            sessions.forEach(session => {
+                const sessionUserId = session.userId || userIdFromFile || '';
+                const orders = Array.isArray(session.orders) ? session.orders : [];
+                if (orders.length === 0) {
+                    rows.push({
+                        source: 'live_session',
+                        userId: sessionUserId,
+                        sessionId: session.id || '',
+                        sessionName: session.liveName || '',
+                        sessionCreatedAt: session.createdAt || '',
+                        tiktokUsername: session.tiktokUsername || '',
+                        orderId: '',
+                        customerName: '',
+                        customerUsername: '',
+                        productName: '',
+                        quantity: 0,
+                        price: 0,
+                        total: 0,
+                        itemTime: ''
+                    });
+                    return;
+                }
+                orders.forEach(order => {
+                    rows.push({
+                        source: 'live_session',
+                        userId: sessionUserId,
+                        sessionId: session.id || '',
+                        sessionName: session.liveName || '',
+                        sessionCreatedAt: session.createdAt || '',
+                        tiktokUsername: session.tiktokUsername || '',
+                        orderId: order.id || '',
+                        customerName: order.customerName || '',
+                        customerUsername: order.customerUsername || '',
+                        productName: order.productName || order.text || '',
+                        quantity: Number(order.quantity || 1),
+                        price: Number(order.price || 0),
+                        total: Number(order.total || order.price || 0),
+                        itemTime: order.time || '',
+                        orderCreatedAt: order.createdAt || ''
+                    });
+                });
+            });
+        } catch (e) {
+            console.error(`Lỗi đọc file live session ${fileName}:`, e.message);
+        }
+    });
+
+    return { rows, files: files.length };
+}
+
+function readLegacyHistoryRows() {
+    if (!fs.existsSync(HISTORY_DIR)) return { rows: [], files: 0 };
+    const files = fs.readdirSync(HISTORY_DIR).filter(f => f.endsWith('.json'));
+    const rows = [];
+
+    files.forEach(fileName => {
+        const fullPath = path.join(HISTORY_DIR, fileName);
+        try {
+            const parsed = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
+            const users = Object.values(parsed || {});
+            users.forEach(customer => {
+                const items = Array.isArray(customer?.items) ? customer.items : [];
+                if (items.length === 0) return;
+                items.forEach(item => {
+                    rows.push({
+                        source: 'legacy_history',
+                        userId: '',
+                        historyFile: fileName,
+                        historyDate: fileName.split('_')[0] || '',
+                        sessionId: '',
+                        sessionName: fileName.replace('.json', ''),
+                        sessionCreatedAt: '',
+                        tiktokUsername: '',
+                        orderId: item.id || '',
+                        customerName: customer.nickname || '',
+                        customerUsername: customer.username || '',
+                        productName: item.text || '',
+                        quantity: 1,
+                        price: Number(item.price || 0),
+                        total: Number(item.price || 0),
+                        itemTime: item.time || '',
+                        orderCreatedAt: ''
+                    });
+                });
+            });
+        } catch (e) {
+            console.error(`Lỗi đọc file history ${fileName}:`, e.message);
+        }
+    });
+
+    return { rows, files: files.length };
+}
+
+function buildExportDataset(scope, currentUser) {
+    const live = readAllLiveSessionRows();
+    const history = readLegacyHistoryRows();
+    const allRows = [...live.rows, ...history.rows];
+
+    const rows = scope === 'all'
+        ? allRows
+        : allRows.filter(r => r.userId === currentUser.uid || r.source === 'legacy_history');
+
+    const totalRevenue = rows.reduce((sum, r) => sum + Number(r.total || 0), 0);
+    const uniqueUsers = new Set(rows.map(r => r.userId).filter(Boolean)).size;
+    const uniqueSessions = new Set(rows.map(r => r.sessionId || `${r.source}:${r.sessionName}`)).size;
+
+    return {
+        meta: {
+            exportedAt: new Date().toISOString(),
+            exportedBy: currentUser.email || currentUser.uid,
+            scope,
+            totalRows: rows.length,
+            totalRevenue,
+            uniqueUsers,
+            uniqueSessions,
+            sourceFiles: {
+                liveSessionFiles: live.files,
+                historyFiles: history.files
+            }
+        },
+        rows
+    };
+}
+
+function toCsv(rows) {
+    const headers = [
+        'source', 'userId', 'historyFile', 'historyDate', 'sessionId', 'sessionName',
+        'sessionCreatedAt', 'tiktokUsername', 'orderId', 'customerName', 'customerUsername',
+        'productName', 'quantity', 'price', 'total', 'itemTime', 'orderCreatedAt'
+    ];
+    const lines = [headers.join(',')];
+    rows.forEach(row => {
+        lines.push(headers.map(h => escapeCsvValue(row[h] ?? '')).join(','));
+    });
+    return lines.join('\n');
+}
+
+function escapeXml(value) {
+    return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&apos;');
+}
+
+function toExcelXml(rows) {
+    const headers = [
+        'source', 'userId', 'historyFile', 'historyDate', 'sessionId', 'sessionName',
+        'sessionCreatedAt', 'tiktokUsername', 'orderId', 'customerName', 'customerUsername',
+        'productName', 'quantity', 'price', 'total', 'itemTime', 'orderCreatedAt'
+    ];
+    const headerCells = headers.map(h => `<Cell><Data ss:Type="String">${escapeXml(h)}</Data></Cell>`).join('');
+    const bodyRows = rows.map(row => {
+        const cells = headers.map(h => {
+            const value = row[h] ?? '';
+            const isNumber = ['quantity', 'price', 'total'].includes(h) && typeof value === 'number' && Number.isFinite(value);
+            if (isNumber) return `<Cell><Data ss:Type="Number">${value}</Data></Cell>`;
+            return `<Cell><Data ss:Type="String">${escapeXml(value)}</Data></Cell>`;
+        }).join('');
+        return `<Row>${cells}</Row>`;
+    }).join('');
+
+    return `<?xml version="1.0"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet"
+ xmlns:o="urn:schemas-microsoft-com:office:office"
+ xmlns:x="urn:schemas-microsoft-com:office:excel"
+ xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
+ <Worksheet ss:Name="Orders Backup">
+  <Table>
+   <Row>${headerCells}</Row>
+   ${bodyRows}
+  </Table>
+ </Worksheet>
+</Workbook>`;
+}
+
 io.on('connection', (socket) => {
     socket.emit('system-config', { printerInterface, tiktokSignApiKey });
 
@@ -470,6 +740,13 @@ io.on('connection', (socket) => {
             saveConfig();
         }
         socket.emit('system-status', "Đã cập nhật cấu hình hệ thống!");
+    });
+
+    socket.on('get-chat-buffer', ({ broadcasterId } = {}) => {
+        const id = (broadcasterId || '').trim();
+        if (!id) return socket.emit('chat-buffer', { broadcasterId: '', comments: [] });
+        const comments = chatBufferByBroadcaster.get(id) || [];
+        socket.emit('chat-buffer', { broadcasterId: id, comments });
     });
 
     socket.on('start-live', (uniqueId) => {
@@ -487,7 +764,7 @@ io.on('connection', (socket) => {
         
         tiktokConnection = new WebcastPushConnection(uniqueId);
         tiktokConnection.connect().then(state => {
-            socket.emit('status', { connected: true, roomId: state.roomId });
+            socket.emit('status', { connected: true, roomId: state.roomId, broadcasterId: uniqueId });
         }).catch(err => {
             console.error('TikTok Connection Error:', err);
             let errorMessage = "Lỗi không xác định";
@@ -500,7 +777,7 @@ io.on('connection', (socket) => {
                 errorMessage = (err && err.message) ? err.message : (err ? err.toString() : "Lỗi kết nối TikTok");
             }
             
-            socket.emit('status', { connected: false, error: errorMessage });
+            socket.emit('status', { connected: false, error: errorMessage, broadcasterId: uniqueId });
         });
         tiktokConnection.on('chat', (data) => {
             // Lọc tin nhắn trùng lặp
@@ -508,7 +785,22 @@ io.on('connection', (socket) => {
             processedMsgIds.add(data.msgId);
             setTimeout(() => processedMsgIds.delete(data.msgId), 120000); // Lưu 2 phút cho chắc
 
-            io.emit('raw-chat', { ...data, suggestedPrice: parsePrice(data.comment) });
+            const chatPayload = {
+                ...data,
+                broadcasterId: uniqueId,
+                msgId: data.msgId || `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                suggestedPrice: parsePrice(data.comment),
+                timestamp: Date.now()
+            };
+
+            const currentBuffer = chatBufferByBroadcaster.get(uniqueId) || [];
+            currentBuffer.push(chatPayload);
+            if (currentBuffer.length > CHAT_BUFFER_LIMIT) {
+                currentBuffer.splice(0, currentBuffer.length - CHAT_BUFFER_LIMIT);
+            }
+            chatBufferByBroadcaster.set(uniqueId, currentBuffer);
+
+            io.emit('raw-chat', chatPayload);
         });
     });
 
