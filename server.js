@@ -10,6 +10,8 @@ const { ThermalPrinter, PrinterTypes, CharacterSet } = require("node-thermal-pri
 const admin = require('firebase-admin');
 const session = require('express-session');
 const liveSessionStore = require('./utils/liveSessionStore');
+const customerStore = require('./utils/customerStore');
+const orderExcelExporter = require('./utils/orderExcelExporter');
 const adminRoutes = require('./routes/admin');
 
 // DEV ONLY: Bật để bỏ qua đăng nhập Firebase trong môi trường local/dev.
@@ -329,6 +331,213 @@ app.get('/api/overview', requireApiAuth, (req, res) => {
     } catch (error) {
         console.error('Lỗi tổng hợp overview:', error);
         res.status(500).json({ error: 'Lỗi server khi tải tổng quan' });
+    }
+});
+
+// ============================================================
+// === API KHÁCH HÀNG (per-user) ===
+// ============================================================
+app.get('/api/customers', requireApiAuth, (req, res) => {
+    try {
+        const userId = req.session.user.uid;
+        const customers = customerStore.listCustomers(userId, req.query.q || '');
+        res.json({ customers });
+    } catch (error) {
+        console.error('Lỗi lấy danh sách khách hàng:', error);
+        res.status(500).json({ error: 'Lỗi server khi tải khách hàng' });
+    }
+});
+
+app.post('/api/customers/import-from-history', requireApiAuth, (req, res) => {
+    try {
+        const userId = req.session.user.uid;
+        const existingCustomers = customerStore.readUserCustomers(userId);
+        const existingTikToks = new Set(existingCustomers.map(c => customerStore.normalizeTikTokUsername(c.tiktokUsername)).filter(Boolean));
+        const existingNames = new Set(existingCustomers.map(c => String(c.displayName || '').trim().toLowerCase()).filter(Boolean));
+        const sessions = liveSessionStore.readUserSessions(userId);
+        const candidates = new Map();
+
+        sessions.forEach(session => {
+            (session.orders || []).forEach(order => {
+                const tiktokUsername = customerStore.normalizeTikTokUsername(order.customerUsername || order.tiktokUsername || '');
+                const displayName = String(order.customerName || order.nickname || '').trim();
+                if (!tiktokUsername && !displayName) return;
+
+                const key = tiktokUsername || displayName.toLowerCase();
+                if (!candidates.has(key)) {
+                    candidates.set(key, {
+                        tiktokUsername,
+                        displayName: displayName || tiktokUsername,
+                        sourceSessions: new Set()
+                    });
+                }
+                candidates.get(key).sourceSessions.add(session.liveName || session.id || '');
+            });
+        });
+
+        const imported = [];
+        const skipped = [];
+        candidates.forEach(candidate => {
+            const nameKey = String(candidate.displayName || '').trim().toLowerCase();
+            const exists = candidate.tiktokUsername
+                ? existingTikToks.has(candidate.tiktokUsername)
+                : existingNames.has(nameKey);
+            if (exists) {
+                skipped.push({
+                    tiktokUsername: candidate.tiktokUsername,
+                    displayName: candidate.displayName
+                });
+                return;
+            }
+
+            const customer = customerStore.createCustomer(userId, {
+                tiktokUsername: candidate.tiktokUsername,
+                displayName: candidate.displayName
+            });
+            imported.push({
+                ...customer,
+                sourceSessions: Array.from(candidate.sourceSessions).filter(Boolean)
+            });
+            if (customer.tiktokUsername) existingTikToks.add(customer.tiktokUsername);
+            if (customer.displayName) existingNames.add(String(customer.displayName).trim().toLowerCase());
+        });
+
+        res.json({
+            success: true,
+            imported,
+            skipped,
+            totalCandidates: candidates.size,
+            totalSessions: sessions.length
+        });
+    } catch (error) {
+        console.error('Lỗi import khách hàng từ lịch sử:', error);
+        res.status(500).json({ error: 'Lỗi server khi import khách hàng từ lịch sử' });
+    }
+});
+
+app.get('/api/customers/by-tiktok/:username', requireApiAuth, (req, res) => {
+    try {
+        const userId = req.session.user.uid;
+        const customer = customerStore.findCustomerByTikTok(userId, req.params.username);
+        if (!customer) {
+            return res.status(404).json({ error: 'Không tìm thấy khách hàng' });
+        }
+        res.json({ customer });
+    } catch (error) {
+        console.error('Lỗi tìm khách hàng theo TikTok:', error);
+        res.status(500).json({ error: 'Lỗi server khi tìm khách hàng' });
+    }
+});
+
+app.get('/api/customers/:id', requireApiAuth, (req, res) => {
+    try {
+        const userId = req.session.user.uid;
+        const customer = customerStore.getCustomerById(userId, req.params.id);
+        if (!customer) {
+            return res.status(404).json({ error: 'Không tìm thấy khách hàng' });
+        }
+        res.json({ customer });
+    } catch (error) {
+        console.error('Lỗi lấy chi tiết khách hàng:', error);
+        res.status(500).json({ error: 'Lỗi server khi tải khách hàng' });
+    }
+});
+
+app.post('/api/customers', requireApiAuth, (req, res) => {
+    try {
+        const userId = req.session.user.uid;
+        if (!String(req.body?.displayName || '').trim()) {
+            return res.status(400).json({ error: 'Tên người nhận là bắt buộc' });
+        }
+
+        const customer = customerStore.createCustomer(userId, req.body || {});
+        const warnings = [];
+        if (!String(customer.phone || '').trim()) {
+            warnings.push('Khách hàng chưa có số điện thoại');
+        }
+        res.status(201).json({ success: true, customer, warnings });
+    } catch (error) {
+        console.error('Lỗi tạo khách hàng:', error);
+        res.status(500).json({ error: 'Lỗi server khi tạo khách hàng' });
+    }
+});
+
+app.patch('/api/customers/:id', requireApiAuth, (req, res) => {
+    try {
+        const userId = req.session.user.uid;
+        const customer = customerStore.updateCustomer(userId, req.params.id, req.body || {});
+        if (!customer) {
+            return res.status(404).json({ error: 'Không tìm thấy khách hàng' });
+        }
+        const warnings = [];
+        if (!String(customer.phone || '').trim()) {
+            warnings.push('Khách hàng chưa có số điện thoại');
+        }
+        res.json({ success: true, customer, warnings });
+    } catch (error) {
+        console.error('Lỗi cập nhật khách hàng:', error);
+        res.status(500).json({ error: 'Lỗi server khi cập nhật khách hàng' });
+    }
+});
+
+app.delete('/api/customers/:id', requireApiAuth, (req, res) => {
+    try {
+        const userId = req.session.user.uid;
+        const deleted = customerStore.deleteCustomer(userId, req.params.id);
+        if (!deleted) {
+            return res.status(404).json({ error: 'Không tìm thấy khách hàng' });
+        }
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Lỗi xóa khách hàng:', error);
+        res.status(500).json({ error: 'Lỗi server khi xóa khách hàng' });
+    }
+});
+
+// ============================================================
+// === XUẤT EXCEL ĐI ĐƠN ===
+// ============================================================
+app.post('/api/orders/export-delivery-excel', requireApiAuth, async (req, res) => {
+    try {
+        const userId = req.session.user.uid;
+        const sessionIds = Array.isArray(req.body?.sessionIds) ? req.body.sessionIds : [];
+        const submittedOrders = Array.isArray(req.body?.orders) ? req.body.orders : [];
+        const orders = [];
+
+        sessionIds.forEach(sessionId => {
+            const session = liveSessionStore.getLiveSessionById(userId, sessionId);
+            if (!session) {
+                console.warn(`Không tìm thấy phiên ${sessionId} khi export Excel cho user ${userId}`);
+                return;
+            }
+            (session.orders || []).forEach(order => {
+                orders.push({ ...order, fromSession: session.liveName });
+            });
+        });
+
+        submittedOrders.forEach(order => orders.push(order));
+
+        if (orders.length === 0) {
+            return res.status(400).json({ error: 'Không có đơn hàng để xuất Excel' });
+        }
+
+        const result = await orderExcelExporter.exportDeliveryExcel({
+            userId,
+            orders,
+            options: req.body?.options || {}
+        });
+
+        const missingHeader = Buffer.from(JSON.stringify(result.missingCustomers || []), 'utf-8').toString('base64');
+        res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        res.setHeader('Content-Disposition', `attachment; filename="${result.filename}"`);
+        res.setHeader('X-Missing-Customers', missingHeader);
+        res.setHeader('X-Missing-Customers-Count', String((result.missingCustomers || []).length));
+        res.setHeader('X-Exported-Customers-Count', String(result.totalCustomers || 0));
+        res.send(Buffer.from(result.buffer));
+    } catch (error) {
+        console.error('Lỗi xuất Excel đi đơn:', error);
+        const status = error.code === 'TEMPLATE_NOT_FOUND' ? 500 : 500;
+        res.status(status).json({ error: error.message || 'Lỗi server khi xuất Excel' });
     }
 });
 

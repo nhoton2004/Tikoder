@@ -16,6 +16,7 @@
         const sectionOrders = document.getElementById('section-orders');
         const sectionLiveOrders = document.getElementById('section-live-orders');
         const sectionOverview = document.getElementById('section-overview');
+        const sectionCustomers = document.getElementById('section-customers');
         const rightCol = document.getElementById('right-col');
         const guidePanel = document.getElementById('guide-panel');
         const menuItems = document.querySelectorAll('.menu-item[data-view]');
@@ -24,13 +25,18 @@
         const overviewStartInput = document.getElementById('overview-start');
         const overviewEndInput = document.getElementById('overview-end');
         const overviewRangeButtons = document.querySelectorAll('.overview-range-btn');
+        const customerSearchInput = document.getElementById('customer-search');
+        const customerForm = document.getElementById('customer-form');
+        const customersTableBody = document.getElementById('customers-table-body');
 
         let ordersData = {};
+        let customersData = [];
         let kpiComments = 0;
         let currentLang = localStorage.getItem('app_lang') || 'vi';
         let topShopStats = [];
         let overviewData = null;
         let overviewRefreshTimer = null;
+        let customerSearchTimer = null;
         let activeBroadcasterId = '';
         let guideCollapsed = false;
         const seenChatMsgIds = new Set();
@@ -42,6 +48,7 @@
                 'menu.overview': 'Tổng quan',
                 'menu.live': 'Live',
                 'menu.orders': 'Đơn hàng',
+                'menu.customers': 'Khách hàng',
                 'menu.shop': 'Shop',
                 'menu.reports': 'Báo cáo',
                 'menu.settings': 'Cài đặt',
@@ -57,6 +64,10 @@
                 'kpi.liveStatus': 'Trạng thái',
                 'comments.title': 'Luồng bình luận',
                 'orders.current': 'Đơn hàng hiện tại',
+                'customers.title': 'Khách hàng',
+                'customers.subtitle': 'Lưu địa chỉ theo từng tài khoản để xuất file đi đơn.',
+                'customers.new': 'Thêm khách',
+                'customers.importHistory': 'Lấy từ lịch sử chốt',
                 'actions.saveSession': 'Lưu phiên',
                 'actions.printSummary': 'In tổng kết',
                 'settings.title': 'Cấu hình hệ thống',
@@ -116,6 +127,7 @@
                 'menu.overview': 'Overview',
                 'menu.live': 'Live',
                 'menu.orders': 'Orders',
+                'menu.customers': 'Customers',
                 'menu.shop': 'Shop',
                 'menu.reports': 'Reports',
                 'menu.settings': 'Settings',
@@ -131,6 +143,10 @@
                 'kpi.liveStatus': 'Status',
                 'comments.title': 'Comment Stream',
                 'orders.current': 'Current Orders',
+                'customers.title': 'Customers',
+                'customers.subtitle': 'Save delivery addresses per account for shipping exports.',
+                'customers.new': 'New customer',
+                'customers.importHistory': 'Import from history',
                 'actions.saveSession': 'Save Session',
                 'actions.printSummary': 'Print Summary',
                 'settings.title': 'System Settings',
@@ -227,6 +243,15 @@
                 refreshOverviewData();
             });
         });
+        if (customerSearchInput) {
+            customerSearchInput.addEventListener('input', () => {
+                if (customerSearchTimer) clearTimeout(customerSearchTimer);
+                customerSearchTimer = setTimeout(() => loadCustomers(), 250);
+            });
+        }
+        if (customerForm) {
+            customerForm.addEventListener('submit', saveCustomerForm);
+        }
 
         function calculateKpis() {
             let totalOrders = 0;
@@ -508,6 +533,7 @@
 
             if (view === 'overview') {
                 sectionOverview.classList.remove('hidden');
+                sectionCustomers.classList.add('hidden');
                 sectionConnect.classList.add('hidden');
                 sectionKpi.classList.add('hidden');
                 sectionComments.classList.add('hidden');
@@ -521,6 +547,7 @@
 
             if (view === 'live') {
                 sectionOverview.classList.add('hidden');
+                sectionCustomers.classList.add('hidden');
                 sectionConnect.classList.remove('hidden');
                 sectionKpi.classList.remove('hidden');
                 sectionComments.classList.remove('hidden');
@@ -534,6 +561,7 @@
 
             if (view === 'orders') {
                 sectionOverview.classList.add('hidden');
+                sectionCustomers.classList.add('hidden');
                 sectionConnect.classList.add('hidden');
                 sectionKpi.classList.add('hidden');
                 sectionComments.classList.add('hidden');
@@ -545,8 +573,24 @@
                 return;
             }
 
+            if (view === 'customers') {
+                sectionOverview.classList.add('hidden');
+                sectionCustomers.classList.remove('hidden');
+                sectionConnect.classList.add('hidden');
+                sectionKpi.classList.add('hidden');
+                sectionComments.classList.add('hidden');
+                sectionOrders.classList.add('hidden');
+                sectionLiveOrders.classList.add('hidden');
+                rightCol.classList.add('hidden');
+                settingsPanel.classList.add('hidden');
+                guidePanel.classList.add('hidden');
+                loadCustomers();
+                return;
+            }
+
             if (view === 'settings') {
                 sectionOverview.classList.add('hidden');
+                sectionCustomers.classList.add('hidden');
                 sectionConnect.classList.add('hidden');
                 sectionKpi.classList.add('hidden');
                 sectionComments.classList.add('hidden');
@@ -753,6 +797,147 @@
             return String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '');
         }
 
+        function getCustomerFormData() {
+            return {
+                tiktokUsername: document.getElementById('customer-tiktok').value.trim().replace(/^@+/, ''),
+                displayName: document.getElementById('customer-display-name').value.trim(),
+                phone: document.getElementById('customer-phone').value.trim(),
+                province: document.getElementById('customer-province').value.trim(),
+                district: document.getElementById('customer-district').value.trim(),
+                ward: document.getElementById('customer-ward').value.trim(),
+                addressDetail: document.getElementById('customer-address-detail').value.trim(),
+                addressNote: document.getElementById('customer-address-note').value.trim(),
+                customerCode: document.getElementById('customer-code').value.trim()
+            };
+        }
+
+        function setCustomerFormData(customer = {}) {
+            document.getElementById('customer-id').value = customer.id || '';
+            document.getElementById('customer-tiktok').value = customer.tiktokUsername || '';
+            document.getElementById('customer-display-name').value = customer.displayName || '';
+            document.getElementById('customer-phone').value = customer.phone || '';
+            document.getElementById('customer-province').value = customer.province || '';
+            document.getElementById('customer-district').value = customer.district || '';
+            document.getElementById('customer-ward').value = customer.ward || '';
+            document.getElementById('customer-address-detail').value = customer.addressDetail || '';
+            document.getElementById('customer-address-note').value = customer.addressNote || '';
+            document.getElementById('customer-code').value = customer.customerCode || '';
+            document.getElementById('customer-form-title').textContent = customer.id ? 'Sửa khách hàng' : 'Thêm khách hàng';
+            document.getElementById('customer-form-status').textContent = '';
+        }
+
+        async function loadCustomers() {
+            if (!customersTableBody) return;
+            const q = customerSearchInput ? customerSearchInput.value.trim() : '';
+            customersTableBody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-gray-400">Đang tải...</td></tr>`;
+            try {
+                const res = await fetch('/api/customers?q=' + encodeURIComponent(q));
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Load customers error');
+                customersData = data.customers || [];
+                renderCustomersTable();
+            } catch (error) {
+                customersTableBody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-red-500">${escapeHtml(error.message)}</td></tr>`;
+            }
+        }
+
+        function renderCustomersTable() {
+            if (!customersTableBody) return;
+            if (!customersData.length) {
+                customersTableBody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-gray-400">Chưa có khách hàng</td></tr>`;
+                return;
+            }
+
+            customersTableBody.innerHTML = customersData.map(customer => {
+                const address = [customer.addressDetail, customer.ward, customer.district, customer.province].filter(Boolean).join(', ');
+                return `
+                    <tr class="border-b hover:bg-gray-50">
+                        <td class="p-3 font-bold">${customer.tiktokUsername ? '@' + escapeHtml(customer.tiktokUsername) : '—'}</td>
+                        <td class="p-3">${escapeHtml(customer.displayName || '')}</td>
+                        <td class="p-3">${escapeHtml(customer.phone || '') || '<span class="text-amber-600">Thiếu SĐT</span>'}</td>
+                        <td class="p-3 max-w-[320px] truncate" title="${escapeHtml(address)}">${escapeHtml(address) || '<span class="text-amber-600">Thiếu địa chỉ</span>'}</td>
+                        <td class="p-3 text-right whitespace-nowrap">
+                            <button type="button" onclick="editCustomer('${escapeJsString(customer.id)}')" class="px-2 py-1 bg-blue-50 text-blue-600 rounded text-xs font-bold">Sửa</button>
+                            <button type="button" onclick="removeCustomer('${escapeJsString(customer.id)}')" class="px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-bold">Xóa</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        async function saveCustomerForm(event) {
+            event.preventDefault();
+            const customerId = document.getElementById('customer-id').value;
+            const payload = getCustomerFormData();
+            const status = document.getElementById('customer-form-status');
+            if (!payload.displayName) {
+                status.textContent = 'Tên người nhận là bắt buộc.';
+                status.className = 'text-xs text-red-500 mt-1';
+                return;
+            }
+
+            try {
+                const res = await fetch(customerId ? `/api/customers/${encodeURIComponent(customerId)}` : '/api/customers', {
+                    method: customerId ? 'PATCH' : 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Save customer error');
+                resetCustomerForm(false);
+                status.textContent = (data.warnings || []).join(', ') || 'Đã lưu khách hàng.';
+                status.className = data.warnings?.length ? 'text-xs text-amber-600 mt-1' : 'text-xs text-green-600 mt-1';
+                await loadCustomers();
+            } catch (error) {
+                status.textContent = error.message;
+                status.className = 'text-xs text-red-500 mt-1';
+            }
+        }
+
+        window.resetCustomerForm = (clearStatus = true) => {
+            setCustomerFormData({});
+            if (clearStatus) {
+                document.getElementById('customer-form-status').textContent = '';
+            }
+        };
+
+        window.editCustomer = (customerId) => {
+            const customer = customersData.find(item => item.id === customerId);
+            if (!customer) return;
+            setCustomerFormData(customer);
+        };
+
+        window.removeCustomer = async (customerId) => {
+            if (!confirm('Xóa khách hàng này?')) return;
+            try {
+                const res = await fetch('/api/customers/' + encodeURIComponent(customerId), { method: 'DELETE' });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) throw new Error(data.error || 'Delete customer error');
+                resetCustomerForm();
+                await loadCustomers();
+            } catch (error) {
+                alert('Lỗi xóa khách hàng: ' + error.message);
+            }
+        };
+
+        window.importCustomersFromHistory = async () => {
+            const msg = currentLang === 'en'
+                ? 'Import TikTok usernames and customer names from saved live-session history?'
+                : 'Lấy TikTok username và tên khách từ lịch sử phiên live đã lưu?';
+            if (!confirm(msg)) return;
+            try {
+                const res = await fetch('/api/customers/import-from-history', { method: 'POST' });
+                const data = await res.json();
+                if (!res.ok || !data.success) throw new Error(data.error || 'Import error');
+                await loadCustomers();
+                const importedCount = Array.isArray(data.imported) ? data.imported.length : 0;
+                const skippedCount = Array.isArray(data.skipped) ? data.skipped.length : 0;
+                alert(`Đã lấy ${importedCount} khách từ lịch sử. Bỏ qua ${skippedCount} khách đã có.`);
+            } catch (error) {
+                alert('Lỗi lấy khách từ lịch sử: ' + error.message);
+            }
+        };
+
         function renderLiveOrdersCompact() {
             if (!liveOrdersCompact) return;
             const orders = Object.values(ordersData || {});
@@ -768,9 +953,9 @@
                         <span class="truncate text-gray-700">${item.text || ''}</span>
                         <span class="font-black text-red-600 whitespace-nowrap">${formatMoney(Number(item.price || 0))}</span>
                         <div class="flex items-center gap-1">
-                            <button onclick="reprintItem('${order.username}', ${item.id})" class="live-order-action text-green-600 bg-green-50" title="In lại">🖨️</button>
-                            <button onclick="editItem('${order.username}', ${item.id}, ${item.price})" class="live-order-action text-blue-600 bg-blue-50" title="Sửa giá">✏️</button>
-                            <button onclick="deleteItem('${order.username}', ${item.id})" class="live-order-action text-red-600 bg-red-50" title="Xóa">🗑️</button>
+                            <button onclick="reprintItem('${order.username}', ${item.id})" class="live-order-action text-slate-700 bg-slate-100" title="In lại">IN</button>
+                            <button onclick="editItem('${order.username}', ${item.id}, ${item.price})" class="live-order-action text-slate-700 bg-slate-100" title="Sửa giá">SUA</button>
+                            <button onclick="deleteItem('${order.username}', ${item.id})" class="live-order-action text-red-600 bg-red-50" title="Xóa">XOA</button>
                         </div>
                     </div>
                 `).join('');
@@ -811,9 +996,9 @@
                     <div class="flex items-center gap-3 ml-2">
                         <span class="font-bold text-red-500 whitespace-nowrap">${formatMoney(i.price)}</span>
                         <div class="flex gap-2 border-l pl-2 border-gray-200">
-                            <button onclick="reprintItem('${order.username}', ${i.id})" class="text-green-600 p-1 bg-green-50 rounded">🖨️</button>
-                            <button onclick="editItem('${order.username}', ${i.id}, ${i.price})" class="text-blue-500 p-1 bg-blue-50 rounded">✏️</button>
-                            <button onclick="deleteItem('${order.username}', ${i.id})" class="text-red-500 p-1 bg-red-50 rounded">🗑️</button>
+                            <button onclick="reprintItem('${order.username}', ${i.id})" class="order-action-btn text-slate-700 bg-slate-100 rounded" title="In lại">IN</button>
+                            <button onclick="editItem('${order.username}', ${i.id}, ${i.price})" class="order-action-btn text-slate-700 bg-slate-100 rounded" title="Sửa giá">SUA</button>
+                            <button onclick="deleteItem('${order.username}', ${i.id})" class="order-action-btn text-red-600 bg-red-50 rounded" title="Xóa">XOA</button>
                         </div>
                     </div>
                 </div>
@@ -940,6 +1125,7 @@
         let selectedSessionIds = new Set();
         let lastMergeData = null;
         let lastMergeSourceIds = [];
+        let lastExportSessionIds = [];
 
         window.saveCurrentSession = async () => {
             if (Object.keys(ordersData).length === 0) {
@@ -992,12 +1178,15 @@
 
         function updateMergeBtn() {
             const btn = document.getElementById('btn-merge');
+            const exportBtn = document.getElementById('btn-export-selected');
             const count = document.getElementById('merge-count');
             if (selectedSessionIds.size > 0) {
                 btn.classList.remove('hidden');
+                exportBtn.classList.remove('hidden');
                 count.textContent = selectedSessionIds.size;
             } else {
                 btn.classList.add('hidden');
+                exportBtn.classList.add('hidden');
             }
         }
 
@@ -1033,11 +1222,11 @@
                 const actionButtons = isLegacy
                     ? `
                         <button onclick="openLegacyHistorySession('${safeFileName}')" class="text-blue-600 px-2 py-1 bg-blue-50 rounded text-xs font-bold">${openLabel}</button>
-                        <button onclick="deleteSession('${safeSessionId}', '${safeSessionName}')" class="text-red-500 p-1 bg-red-50 rounded text-xs">🗑️</button>
+                        <button onclick="deleteSession('${safeSessionId}', '${safeSessionName}')" class="text-red-600 px-2 py-1 bg-red-50 rounded text-xs font-bold">XOA</button>
                     `
                     : `
-                        <button onclick="viewSessionDetail('${safeSessionId}')" class="text-blue-500 p-1 bg-blue-50 rounded text-xs">👁️</button>
-                        <button onclick="deleteSession('${safeSessionId}', '${safeSessionName}')" class="text-red-500 p-1 bg-red-50 rounded text-xs">🗑️</button>
+                        <button onclick="viewSessionDetail('${safeSessionId}')" class="text-slate-700 px-2 py-1 bg-slate-100 rounded text-xs font-bold">XEM</button>
+                        <button onclick="deleteSession('${safeSessionId}', '${safeSessionName}')" class="text-red-600 px-2 py-1 bg-red-50 rounded text-xs font-bold">XOA</button>
                     `;
                 return `
                 <div class="flex items-start gap-3 p-3 border rounded-lg hover:bg-purple-50 transition group">
@@ -1091,6 +1280,7 @@
                     customerSummary: []
                 };
                 lastMergeSourceIds = [];
+                lastExportSessionIds = [s.id];
                 renderMergeResults(lastMergeData, s.liveName);
                 document.getElementById('merge-modal').classList.remove('hidden');
             } catch (e) { alert('Error: ' + e.message); }
@@ -1109,6 +1299,7 @@
                 if (data.error) return alert('Error: ' + data.error);
                 lastMergeData = data;
                 lastMergeSourceIds = sourceIds;
+                lastExportSessionIds = sourceIds;
                 renderMergeResults(data, `Merge ${data.summary.totalSessions} sessions`);
                 document.getElementById('merge-modal').classList.remove('hidden');
             } catch (e) { alert('Error: ' + e.message); }
@@ -1188,6 +1379,109 @@
             } catch (e) {
                 alert('Save error: ' + e.message);
             }
+        };
+
+        function parseFilenameFromDisposition(disposition) {
+            const match = String(disposition || '').match(/filename="?([^";]+)"?/i);
+            return match ? match[1] : `delivery-orders-${Date.now()}.xlsx`;
+        }
+
+        function decodeMissingCustomers(headerValue) {
+            if (!headerValue) return [];
+            try {
+                const bytes = Uint8Array.from(atob(headerValue), char => char.charCodeAt(0));
+                return JSON.parse(new TextDecoder('utf-8').decode(bytes));
+            } catch (error) {
+                console.warn('Could not decode missing customers header:', error);
+                return [];
+            }
+        }
+
+        async function downloadDeliveryExcel(payload) {
+            const res = await fetch('/api/orders/export-delivery-excel', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload)
+            });
+
+            if (!res.ok) {
+                const contentType = res.headers.get('Content-Type') || '';
+                const data = contentType.includes('application/json') ? await res.json() : { error: await res.text() };
+                throw new Error(data.error || 'Export Excel error');
+            }
+
+            const blob = await res.blob();
+            const filename = parseFilenameFromDisposition(res.headers.get('Content-Disposition'));
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = filename;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            URL.revokeObjectURL(url);
+
+            const missingCustomers = decodeMissingCustomers(res.headers.get('X-Missing-Customers'));
+            if (missingCustomers.length > 0) {
+                showDeliveryWarnings(missingCustomers);
+            }
+        }
+
+        window.exportSelectedSessionsExcel = async () => {
+            if (selectedSessionIds.size === 0) return alert('Chưa chọn phiên live.');
+            try {
+                const sourceIds = Array.from(selectedSessionIds);
+                const res = await fetch('/api/live-sessions/merge-summary', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionIds: sourceIds })
+                });
+                const data = await res.json();
+                if (!res.ok || data.error) throw new Error(data.error || 'Không lấy được đơn từ phiên đã chọn');
+                await downloadDeliveryExcel({ orders: data.mergedOrders || [] });
+            } catch (error) {
+                alert('Lỗi xuất Excel: ' + error.message);
+            }
+        };
+
+        window.exportMergedExcel = async () => {
+            if (!lastMergeData) return alert('Chưa có dữ liệu để xuất.');
+            try {
+                const orders = Array.isArray(lastMergeData.mergedOrders) ? lastMergeData.mergedOrders : [];
+                if (orders.length > 0) {
+                    await downloadDeliveryExcel({ orders });
+                    return;
+                }
+                await downloadDeliveryExcel({ sessionIds: lastExportSessionIds });
+            } catch (error) {
+                alert('Lỗi xuất Excel: ' + error.message);
+            }
+        };
+
+        function showDeliveryWarnings(missingCustomers) {
+            const modal = document.getElementById('delivery-warning-modal');
+            const list = document.getElementById('delivery-warning-list');
+            const labels = {
+                phone: 'Số điện thoại',
+                province: 'Tỉnh/Thành phố',
+                district: 'Quận/Huyện',
+                ward: 'Xã/Phường',
+                addressDetail: 'Địa chỉ chi tiết'
+            };
+            list.innerHTML = `
+                <p class="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-xl p-3">File đã được xuất, nhưng các khách dưới đây thiếu thông tin bắt buộc. Hãy bổ sung trong tab Khách hàng trước lần xuất tiếp theo.</p>
+                ${missingCustomers.map(customer => `
+                    <div class="border rounded-xl p-3">
+                        <p class="font-bold text-sm">${escapeHtml(customer.customerName || 'Khách TikTok')} ${customer.customerUsername ? '(@' + escapeHtml(customer.customerUsername) + ')' : ''}</p>
+                        <p class="text-xs text-gray-500 mt-1">Thiếu: ${(customer.missingFields || []).map(field => labels[field] || field).join(', ')}</p>
+                    </div>
+                `).join('')}
+            `;
+            modal.classList.remove('hidden');
+        }
+
+        window.closeDeliveryWarnings = () => {
+            document.getElementById('delivery-warning-modal').classList.add('hidden');
         };
 
         window.printMergeSummary = () => {

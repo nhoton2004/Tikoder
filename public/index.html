@@ -11,8 +11,8 @@
 <body>
     <div class="app-shell">
         <aside class="sidebar no-print">
-            <div class="flex items-center gap-2">
-                <div class="w-9 h-9 rounded-xl bg-red-50 border border-red-100 text-red-600 font-black text-xl flex items-center justify-center">d</div>
+            <div class="brand-lockup">
+                <div class="brand-mark">TO</div>
                 <div>
                     <div class="font-black text-2xl leading-6 text-red-600">TikTok Order</div>
                     <div class="text-[11px] text-gray-400">Dashboard</div>
@@ -21,12 +21,13 @@
             </div>
 
             <nav class="mt-3 space-y-1">
-                <button class="menu-item active w-full text-left" data-view="overview"><span>🏠</span><span data-i18n="menu.overview">Tổng quan</span></button>
-                <button class="menu-item w-full text-left" data-view="live"><span>📹</span><span data-i18n="menu.live">Live</span></button>
-                <button class="menu-item w-full text-left" data-view="orders"><span>🧾</span><span data-i18n="menu.orders">Đơn hàng</span></button>
-                <button class="menu-item soon w-full text-left"><span>🏬</span><span data-i18n="menu.shop">Shop</span></button>
-                <button class="menu-item soon w-full text-left"><span>📈</span><span data-i18n="menu.reports">Báo cáo</span></button>
-                <button class="menu-item w-full text-left" data-view="settings"><span>⚙️</span><span data-i18n="menu.settings">Cài đặt</span></button>
+                <button class="menu-item active w-full text-left" data-view="overview"><span class="nav-key">OV</span><span data-i18n="menu.overview">Tổng quan</span></button>
+                <button class="menu-item w-full text-left" data-view="live"><span class="nav-key">LV</span><span data-i18n="menu.live">Live</span></button>
+                <button class="menu-item w-full text-left" data-view="orders"><span class="nav-key">OD</span><span data-i18n="menu.orders">Đơn hàng</span></button>
+                <button class="menu-item w-full text-left" data-view="customers"><span class="nav-key">KH</span><span data-i18n="menu.customers">Khách hàng</span></button>
+                <button class="menu-item soon w-full text-left"><span class="nav-key">SH</span><span data-i18n="menu.shop">Shop</span></button>
+                <button class="menu-item soon w-full text-left"><span class="nav-key">BC</span><span data-i18n="menu.reports">Báo cáo</span></button>
+                <button class="menu-item w-full text-left" data-view="settings"><span class="nav-key">ST</span><span data-i18n="menu.settings">Cài đặt</span></button>
             </nav>
         </aside>
 
@@ -37,7 +38,7 @@
                     <p class="text-sm text-slate-500" data-i18n="subtitle">Quản lý đơn hàng & luồng bình luận chuyên nghiệp cho TikTok Live</p>
                 </div>
                 <div class="topbar-actions flex items-center gap-2">
-                    <button onclick="showLiveSessions()" class="topbar-session-btn p-2 bg-purple-50 border border-purple-100 rounded-xl" title="Lịch sử Phiên Live" aria-label="Lịch sử Phiên Live">📋</button>
+                    <button onclick="showLiveSessions()" class="topbar-session-btn p-2 bg-red-50 border border-red-100 rounded-xl" title="Lịch sử Phiên Live" aria-label="Lịch sử Phiên Live">LS</button>
                     <div id="user-bar" class="hidden items-center gap-2 bg-white border border-gray-200 rounded-full pl-1 pr-3 py-1 shadow-sm">
                         <img id="user-avatar" src="" alt="avatar" class="w-7 h-7 rounded-full border border-gray-300 hidden">
                         <div class="leading-tight">
@@ -109,7 +110,7 @@
 
                     <section id="section-connect" class="panel p-5 border-l-4 border-l-red-500">
                         <div class="flex gap-4 items-start">
-                            <div class="w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center text-xl">📡</div>
+                            <div class="live-mark w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center">ON</div>
                             <div class="flex-1">
                                 <h2 class="text-2xl font-black" data-i18n="live.connect">Kết nối Live</h2>
                                 <p class="text-xs text-gray-500 mb-2" data-i18n="live.helper">Nhập ID TikTok chủ live để theo dõi bình luận & đơn hàng realtime.</p>
@@ -160,6 +161,84 @@
                             <div class="grid grid-cols-1 xl:grid-cols-2 gap-3" id="orders-container"></div>
                         </div>
                     </section>
+
+                    <section id="section-customers" class="space-y-4 hidden no-print">
+                        <div class="panel p-4">
+                            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                <div>
+                                    <h2 class="text-3xl font-black" data-i18n="customers.title">Khách hàng</h2>
+                                    <p class="text-sm text-gray-500" data-i18n="customers.subtitle">Lưu địa chỉ theo từng tài khoản để xuất file đi đơn.</p>
+                                </div>
+                                <div class="flex flex-wrap gap-2">
+                                    <button type="button" onclick="importCustomersFromHistory()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl text-sm font-bold" data-i18n="customers.importHistory">Lấy từ lịch sử chốt</button>
+                                    <button type="button" onclick="resetCustomerForm()" class="bg-red-500 text-white px-4 py-2 rounded-xl text-sm font-bold" data-i18n="customers.new">Thêm khách</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-4">
+                            <div class="panel overflow-hidden">
+                                <div class="p-4 border-b bg-gray-50">
+                                    <input id="customer-search" type="search" class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm" placeholder="Tìm theo tên, TikTok username, số điện thoại">
+                                </div>
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm">
+                                        <thead class="bg-white border-b text-xs text-gray-500">
+                                            <tr>
+                                                <th class="p-3 text-left">TikTok</th>
+                                                <th class="p-3 text-left">Tên</th>
+                                                <th class="p-3 text-left">Số điện thoại</th>
+                                                <th class="p-3 text-left">Địa chỉ</th>
+                                                <th class="p-3 text-right">Thao tác</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="customers-table-body"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <form id="customer-form" class="panel p-4 space-y-3">
+                                <input type="hidden" id="customer-id">
+                                <div>
+                                    <h3 id="customer-form-title" class="font-black text-xl">Thêm khách hàng</h3>
+                                    <p id="customer-form-status" class="text-xs text-gray-400 mt-1"></p>
+                                </div>
+                                <label class="block text-xs font-bold text-gray-500">TikTok username
+                                    <input id="customer-tiktok" type="text" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm" placeholder="@username">
+                                </label>
+                                <label class="block text-xs font-bold text-gray-500">Tên người nhận *
+                                    <input id="customer-display-name" type="text" required class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm">
+                                </label>
+                                <label class="block text-xs font-bold text-gray-500">Số điện thoại
+                                    <input id="customer-phone" type="tel" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm">
+                                </label>
+                                <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-1 gap-3">
+                                    <label class="block text-xs font-bold text-gray-500">Tỉnh/Thành phố
+                                        <input id="customer-province" type="text" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm">
+                                    </label>
+                                    <label class="block text-xs font-bold text-gray-500">Quận/Huyện
+                                        <input id="customer-district" type="text" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm">
+                                    </label>
+                                    <label class="block text-xs font-bold text-gray-500">Xã/Phường
+                                        <input id="customer-ward" type="text" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm">
+                                    </label>
+                                </div>
+                                <label class="block text-xs font-bold text-gray-500">Địa chỉ chi tiết
+                                    <input id="customer-address-detail" type="text" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm">
+                                </label>
+                                <label class="block text-xs font-bold text-gray-500">Ghi chú
+                                    <textarea id="customer-address-note" rows="2" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm"></textarea>
+                                </label>
+                                <label class="block text-xs font-bold text-gray-500">Mã khách hàng
+                                    <input id="customer-code" type="text" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm">
+                                </label>
+                                <div class="flex gap-2 pt-2">
+                                    <button type="submit" class="flex-1 bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold">Lưu</button>
+                                    <button type="button" onclick="resetCustomerForm()" class="bg-white border border-gray-300 px-4 py-2 rounded-xl text-sm font-bold">Hủy</button>
+                                </div>
+                            </form>
+                        </div>
+                    </section>
                 </div>
 
                 <aside id="right-col" class="right-col space-y-4">
@@ -182,10 +261,10 @@
                                     <div class="settings-card-body settings-language-body">
                                         <div class="language-segment" role="group" aria-label="Language">
                                             <button onclick="setLang('vi')" id="btn-lang-vi" class="language-option" type="button">
-                                                <span>🇻🇳</span><span>Tiếng Việt</span>
+                                                <span class="language-code">VI</span><span>Tiếng Việt</span>
                                             </button>
                                             <button onclick="setLang('en')" id="btn-lang-en" class="language-option" type="button">
-                                                <span>🇺🇸</span><span>English</span>
+                                                <span class="language-code">EN</span><span>English</span>
                                             </button>
                                         </div>
                                     </div>
@@ -194,7 +273,7 @@
                                 <div class="settings-card">
                                     <div class="settings-card-head settings-card-head-between">
                                         <div class="settings-head-left">
-                                            <div class="settings-icon settings-icon-red">⚙</div>
+                                            <div class="settings-icon settings-icon-red">IN</div>
                                             <div>
                                                 <h4 data-i18n="settings.integrationTitle">Kết nối & Tích hợp</h4>
                                                 <p data-i18n="settings.integrationDesc">Cấu hình các dịch vụ bên thứ ba và thiết bị ngoại vi.</p>
@@ -221,7 +300,7 @@
                                         </div>
                                         <div class="settings-save-row">
                                             <button onclick="saveSettings()" class="settings-save-btn" type="button">
-                                                <span>♡</span><span data-i18n="settings.save">Lưu thay đổi</span>
+                                                <span>OK</span><span data-i18n="settings.save">Lưu thay đổi</span>
                                             </button>
                                             <p id="system-status-msg"></p>
                                         </div>
@@ -286,10 +365,11 @@
     </div>
 
     <nav class="mobile-bottom-nav no-print" aria-label="Mobile navigation">
-        <button type="button" class="mobile-nav-item active" data-view="overview"><span>🏠</span><span data-i18n="menu.overview">Tổng quan</span></button>
-        <button type="button" class="mobile-nav-item" data-view="live"><span>📹</span><span data-i18n="menu.live">Live</span></button>
-        <button type="button" class="mobile-nav-item" data-view="orders"><span>🧾</span><span data-i18n="menu.orders">Đơn hàng</span></button>
-        <button type="button" class="mobile-nav-item" data-view="settings"><span>⚙️</span><span data-i18n="menu.settings">Cài đặt</span></button>
+        <button type="button" class="mobile-nav-item active" data-view="overview"><span>OV</span><span data-i18n="menu.overview">Tổng quan</span></button>
+        <button type="button" class="mobile-nav-item" data-view="live"><span>LV</span><span data-i18n="menu.live">Live</span></button>
+        <button type="button" class="mobile-nav-item" data-view="orders"><span>OD</span><span data-i18n="menu.orders">Đơn hàng</span></button>
+        <button type="button" class="mobile-nav-item" data-view="customers"><span>KH</span><span data-i18n="menu.customers">Khách hàng</span></button>
+        <button type="button" class="mobile-nav-item" data-view="settings"><span>ST</span><span data-i18n="menu.settings">Cài đặt</span></button>
     </nav>
 
     <div id="print-section" class="p-4"></div>
@@ -312,6 +392,7 @@
                     <button onclick="mergeSelectedSessions()" id="btn-merge" class="bg-purple-600 text-white px-3 py-1.5 rounded text-xs font-bold hidden">
                         <span data-i18n="sessions.merge">Gộp phiên đã chọn</span> (<span id="merge-count">0</span>)
                     </button>
+                    <button onclick="exportSelectedSessionsExcel()" id="btn-export-selected" class="bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold hidden">Xuất Excel đi đơn</button>
                     <button onclick="closeLiveSessions()" class="text-gray-500 hover:text-black text-xl">✕</button>
                 </div>
             </div>
@@ -325,6 +406,7 @@
                 <h3 class="font-bold text-lg text-green-800" data-i18n="merge.title">Kết quả gộp phiên</h3>
                 <div class="flex items-center gap-2 flex-wrap justify-end">
                     <span id="merge-save-status" class="text-xs font-bold text-green-700"></span>
+                    <button onclick="exportMergedExcel()" class="bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold">Xuất Excel đi đơn</button>
                     <button onclick="saveMergedSession()" id="btn-save-merged" class="bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold hidden" data-i18n="merge.save">Lưu phiên gộp</button>
                     <button onclick="printMergeSummary()" class="bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-bold" data-i18n="merge.printSummary">In tổng hợp</button>
                     <button onclick="printMergeDetails()" class="bg-slate-800 text-white px-3 py-1.5 rounded text-xs font-bold" data-i18n="merge.printDetails">In chi tiết</button>
@@ -332,6 +414,16 @@
                 </div>
             </div>
             <div id="merge-results-content" class="overflow-y-auto p-4 flex-1"></div>
+        </div>
+    </div>
+
+    <div id="delivery-warning-modal" class="fixed inset-0 bg-black bg-opacity-60 z-[70] hidden flex items-center justify-center p-4 no-print">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
+            <div class="p-4 border-b flex justify-between items-center bg-amber-50 rounded-t-xl">
+                <h3 class="font-bold text-lg text-amber-800">Cảnh báo thông tin giao hàng</h3>
+                <button onclick="closeDeliveryWarnings()" class="text-gray-500 hover:text-black text-xl">✕</button>
+            </div>
+            <div id="delivery-warning-list" class="overflow-y-auto p-4 space-y-2"></div>
         </div>
     </div>
 
