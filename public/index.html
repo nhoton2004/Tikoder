@@ -26,24 +26,18 @@
                 <button class="menu-item w-full text-left" data-view="orders"><span>🧾</span><span data-i18n="menu.orders">Đơn hàng</span></button>
                 <button class="menu-item soon w-full text-left"><span>🏬</span><span data-i18n="menu.shop">Shop</span></button>
                 <button class="menu-item soon w-full text-left"><span>📈</span><span data-i18n="menu.reports">Báo cáo</span></button>
-                <button class="menu-item w-full text-left" onclick="toggleSettings()"><span>⚙️</span><span data-i18n="menu.settings">Cài đặt</span></button>
+                <button class="menu-item w-full text-left" data-view="settings"><span>⚙️</span><span data-i18n="menu.settings">Cài đặt</span></button>
             </nav>
         </aside>
 
         <div class="main-wrap">
             <header class="topbar no-print">
-                <div>
+                <div class="topbar-title">
                     <h1 class="text-4xl font-black text-slate-900 leading-9">TikTok Order</h1>
                     <p class="text-sm text-slate-500" data-i18n="subtitle">Quản lý đơn hàng & luồng bình luận chuyên nghiệp cho TikTok Live</p>
                 </div>
-                <div class="flex items-center gap-2">
-                    <button onclick="setLang('vi')" id="btn-lang-vi" class="px-2 py-1 text-xs rounded border bg-white">VI</button>
-                    <button onclick="setLang('en')" id="btn-lang-en" class="px-2 py-1 text-xs rounded border bg-white">EN</button>
-                    <button onclick="showHistory()" class="p-2 bg-blue-50 border border-blue-100 rounded-xl" title="History">📜</button>
-                    <button onclick="showLiveSessions()" class="p-2 bg-purple-50 border border-purple-100 rounded-xl" title="Sessions">📋</button>
-                    <button id="btn-admin" onclick="location.href='/admin'" class="p-2 bg-amber-50 border border-amber-100 rounded-xl hidden" title="Admin">🛡️</button>
-                    <button onclick="toggleSettings()" class="p-2 bg-slate-100 border border-slate-200 rounded-xl" title="Settings">⚙️</button>
-                    <button onclick="logout()" class="p-2 bg-red-50 border border-red-100 rounded-xl" title="Logout">🚪</button>
+                <div class="topbar-actions flex items-center gap-2">
+                    <button onclick="showLiveSessions()" class="topbar-session-btn p-2 bg-purple-50 border border-purple-100 rounded-xl" title="Lịch sử Phiên Live" aria-label="Lịch sử Phiên Live">📋</button>
                     <div id="user-bar" class="hidden items-center gap-2 bg-white border border-gray-200 rounded-full pl-1 pr-3 py-1 shadow-sm">
                         <img id="user-avatar" src="" alt="avatar" class="w-7 h-7 rounded-full border border-gray-300 hidden">
                         <div class="leading-tight">
@@ -58,48 +52,43 @@
                 <div class="left-col space-y-4">
                     <section id="section-overview" class="space-y-4">
                         <div class="panel p-4">
-                            <div class="flex items-center justify-between">
+                            <div class="overview-header-row flex items-center justify-between">
                                 <div>
                                     <h2 class="text-3xl font-black" data-i18n="ov.title">Tổng quan</h2>
                                     <p class="text-sm text-gray-500" data-i18n="ov.subtitle">Theo dõi nhanh tình hình đơn hàng, live và doanh thu</p>
                                 </div>
-                                <div class="flex items-center gap-2 text-xs">
-                                    <button class="px-3 py-2 bg-white border border-gray-200 rounded-xl">03/05/2025 - 09/05/2025</button>
-                                    <button class="px-3 py-2 bg-white border border-gray-200 rounded-xl" data-i18n="ov.range">7 ngày qua</button>
+                                <div class="overview-controls flex flex-wrap items-center justify-end gap-2 text-xs">
+                                    <button type="button" class="overview-range-btn px-3 py-2 bg-white border border-gray-200 rounded-xl font-bold" data-range="today" data-i18n="ov.today">Hôm nay</button>
+                                    <button type="button" class="overview-range-btn px-3 py-2 bg-white border border-gray-200 rounded-xl font-bold" data-range="7" data-i18n="ov.range">7 ngày qua</button>
+                                    <button type="button" class="overview-range-btn px-3 py-2 bg-white border border-gray-200 rounded-xl font-bold" data-range="30" data-i18n="ov.last30">30 ngày</button>
+                                    <input id="overview-start" type="text" inputmode="numeric" placeholder="dd/mm/yyyy" class="px-3 py-2 bg-white border border-gray-200 rounded-xl">
+                                    <input id="overview-end" type="text" inputmode="numeric" placeholder="dd/mm/yyyy" class="px-3 py-2 bg-white border border-gray-200 rounded-xl">
                                 </div>
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-1 xl:grid-cols-5 gap-3">
-                            <div class="kpi-card"><p class="text-xs text-gray-500" data-i18n="kpi.orders">Đơn hôm nay</p><p class="text-4xl font-black mt-1" id="ov-orders">0</p><p class="text-xs text-emerald-600 mt-1">↑ 41%</p></div>
-                            <div class="kpi-card"><p class="text-xs text-gray-500" data-i18n="kpi.comments">Bình luận hôm nay</p><p class="text-4xl font-black mt-1" id="ov-comments">0</p><p class="text-xs text-emerald-600 mt-1">↑ 28%</p></div>
-                            <div class="kpi-card"><p class="text-xs text-gray-500" data-i18n="kpi.revenue">Doanh thu hôm nay</p><p class="text-2xl font-black mt-2" id="ov-revenue">0đ</p><p class="text-xs text-emerald-600 mt-1">↑ 32%</p></div>
+                        <div class="overview-kpi-grid grid grid-cols-1 xl:grid-cols-5 gap-3">
+                            <div class="kpi-card"><p class="text-xs text-gray-500" data-i18n="ov.orders">Đơn đã chốt</p><p class="text-4xl font-black mt-1" id="ov-orders">0</p><p class="text-xs text-gray-400 mt-1" id="ov-orders-note">—</p></div>
+                            <div class="kpi-card"><p class="text-xs text-gray-500" data-i18n="ov.comments">Bình luận live</p><p class="text-4xl font-black mt-1" id="ov-comments">0</p><p class="text-xs text-gray-400 mt-1" id="ov-comments-note">—</p></div>
+                            <div class="kpi-card"><p class="text-xs text-gray-500" data-i18n="ov.revenue">Doanh thu</p><p class="text-2xl font-black mt-2" id="ov-revenue">0đ</p><p class="text-xs text-gray-400 mt-1" id="ov-revenue-note">—</p></div>
                             <div class="kpi-card"><p class="text-xs text-gray-500" data-i18n="ov.liveActive">Live đang hoạt động</p><p class="text-4xl font-black mt-1" id="ov-live-active">0</p><p class="text-xs text-gray-500 mt-1">—</p></div>
-                            <div class="kpi-card"><p class="text-xs text-gray-500" data-i18n="ov.closeRate">Tỷ lệ chốt</p><p class="text-4xl font-black mt-1" id="ov-close-rate">0%</p><p class="text-xs text-emerald-600 mt-1">↑ 6.2%</p></div>
+                            <div class="kpi-card"><p class="text-xs text-gray-500" data-i18n="ov.closeRate">Tỷ lệ chốt</p><p class="text-4xl font-black mt-1" id="ov-close-rate">0%</p><p class="text-xs text-gray-500 mt-1">—</p></div>
                         </div>
 
-                        <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                        <div class="overview-split-grid grid grid-cols-1 xl:grid-cols-2 gap-3">
                             <div class="panel p-4">
                                 <h3 class="font-black text-2xl mb-2" data-i18n="ov.orders7d">Đơn hàng 7 ngày gần đây</h3>
-                                <svg viewBox="0 0 560 220" class="w-full h-[220px]">
-                                    <polyline fill="rgba(239,68,68,0.1)" stroke="none" points="20,190 80,150 160,170 240,130 320,90 400,125 520,95 520,210 20,210"></polyline>
-                                    <polyline fill="none" stroke="#ef4444" stroke-width="3" points="20,190 80,150 160,170 240,130 320,90 400,125 520,95"></polyline>
-                                    <circle cx="20" cy="190" r="5" fill="#ef4444"></circle><circle cx="80" cy="150" r="5" fill="#ef4444"></circle><circle cx="160" cy="170" r="5" fill="#ef4444"></circle><circle cx="240" cy="130" r="5" fill="#ef4444"></circle><circle cx="320" cy="90" r="5" fill="#ef4444"></circle><circle cx="400" cy="125" r="5" fill="#ef4444"></circle><circle cx="520" cy="95" r="5" fill="#ef4444"></circle>
-                                </svg>
+                                <div id="overview-orders-chart" class="overview-chart h-[220px]"></div>
                             </div>
                             <div class="panel p-4">
                                 <h3 class="font-black text-2xl mb-2" data-i18n="ov.revenue7d">Doanh thu 7 ngày gần đây</h3>
-                                <svg viewBox="0 0 560 220" class="w-full h-[220px]">
-                                    <polyline fill="rgba(239,68,68,0.1)" stroke="none" points="20,185 100,155 180,165 280,120 360,95 430,125 520,100 520,210 20,210"></polyline>
-                                    <polyline fill="none" stroke="#ef4444" stroke-width="3" points="20,185 100,155 180,165 280,120 360,95 430,125 520,100"></polyline>
-                                    <circle cx="20" cy="185" r="5" fill="#ef4444"></circle><circle cx="100" cy="155" r="5" fill="#ef4444"></circle><circle cx="180" cy="165" r="5" fill="#ef4444"></circle><circle cx="280" cy="120" r="5" fill="#ef4444"></circle><circle cx="360" cy="95" r="5" fill="#ef4444"></circle><circle cx="430" cy="125" r="5" fill="#ef4444"></circle><circle cx="520" cy="100" r="5" fill="#ef4444"></circle>
-                                </svg>
+                                <div id="overview-revenue-chart" class="overview-chart h-[220px]"></div>
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-1 xl:grid-cols-2 gap-3">
+                        <div class="overview-split-grid grid grid-cols-1 xl:grid-cols-2 gap-3">
                             <div class="panel p-4">
-                                <h3 class="font-black text-2xl mb-4" data-i18n="ov.topShop">Top shop doanh thu</h3>
+                                <h3 class="font-black text-2xl mb-4" data-i18n="ov.topShop">Top khách chốt đơn</h3>
                                 <div id="overview-top-shop-list" class="space-y-3 text-sm"></div>
                             </div>
                             <div class="panel p-4">
@@ -107,12 +96,13 @@
                                     <h3 class="font-black text-2xl" data-i18n="ov.latestOrders">Đơn mới nhất</h3>
                                     <button class="text-red-500 text-xs font-bold" data-i18n="ov.viewAll">Xem tất cả</button>
                                 </div>
-                                <div class="overflow-x-auto">
+                                <div class="latest-orders-table-wrap overflow-x-auto">
                                     <table class="w-full text-xs">
-                                        <thead class="text-gray-500 border-b"><tr><th class="py-2 text-left">ID</th><th class="py-2 text-left" data-i18n="tb.customer">Khách</th><th class="py-2 text-left">Shop</th><th class="py-2 text-left" data-i18n="tb.value">Giá trị</th><th class="py-2 text-left" data-i18n="tb.status">Trạng thái</th></tr></thead>
+                                        <thead class="text-gray-500 border-b"><tr><th class="py-2 text-left">ID</th><th class="py-2 text-left" data-i18n="tb.customer">Khách</th><th class="py-2 text-left" data-i18n="tb.time">Thời gian</th><th class="py-2 text-left" data-i18n="tb.value">Giá trị</th><th class="py-2 text-left" data-i18n="tb.status">Trạng thái</th></tr></thead>
                                         <tbody id="overview-latest-orders"></tbody>
                                     </table>
                                 </div>
+                                <div id="overview-latest-cards" class="overview-latest-cards hidden"></div>
                             </div>
                         </div>
                     </section>
@@ -139,6 +129,17 @@
                         <div class="kpi-card"><p class="text-xs text-gray-500" data-i18n="kpi.liveStatus">Trạng thái</p><p id="kpi-status" class="text-base font-bold mt-3 text-gray-500" data-i18n="status.disconnected">Chưa kết nối</p></div>
                     </section>
 
+                    <section id="section-live-orders" class="panel overflow-hidden hidden no-print">
+                        <div class="p-4 border-b bg-gray-50 flex items-center justify-between">
+                            <h3 class="font-black text-xl" data-i18n="orders.current">Đơn hàng hiện tại</h3>
+                            <div class="flex gap-2">
+                                <button onclick="window.saveCurrentSession()" class="bg-purple-600 text-white px-3 py-2 rounded-lg text-sm font-bold" data-i18n="actions.saveSession">Lưu phiên</button>
+                                <button onclick="window.printAllSummary()" class="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-bold" data-i18n="actions.printSummary">In tổng kết</button>
+                            </div>
+                        </div>
+                        <div id="live-orders-compact" class="p-3 space-y-2"></div>
+                    </section>
+
                     <section id="section-comments" class="panel overflow-hidden">
                         <div class="p-4 border-b bg-gray-50 flex items-center justify-between">
                             <h3 class="font-black text-xl" data-i18n="comments.title">Luồng bình luận</h3>
@@ -162,42 +163,134 @@
                 </div>
 
                 <aside id="right-col" class="right-col space-y-4">
-                    <section id="settings-panel" class="panel p-4 hidden no-print">
-                        <h3 class="font-black text-lg mb-3" data-i18n="settings.title">Cấu hình hệ thống</h3>
-                        <div class="space-y-3">
-                            <div>
-                                <label class="block text-xs font-bold text-gray-500 mb-1" data-i18n="settings.printer">Máy in</label>
-                                <input type="text" id="printer-ip" placeholder="tcp://192.168.1.9" class="w-full border rounded px-3 py-2 text-xs">
-                            </div>
-                            <div>
-                                <label class="block text-xs font-bold text-gray-500 mb-1" data-i18n="settings.apiKey">TikTok Sign API Key</label>
-                                <input type="password" id="tiktok-api-key" placeholder="API key" class="w-full border rounded px-3 py-2 text-xs">
-                            </div>
-                            <button onclick="saveSettings()" class="w-full bg-blue-600 text-white px-4 py-2 rounded text-xs font-bold" data-i18n="settings.save">Lưu cấu hình</button>
+                    <section id="settings-panel" class="settings-page hidden no-print">
+                        <div class="settings-page-heading">
+                            <h3 data-i18n="settings.title">Cấu hình hệ thống</h3>
+                            <p data-i18n="settings.subtitle">Quản lý tùy chọn kết nối, hiển thị và dữ liệu của bạn.</p>
                         </div>
-                        <div class="mt-4 pt-3 border-t">
-                            <h4 class="text-xs font-bold text-gray-600 mb-2" data-i18n="backup.title">Backup dữ liệu</h4>
-                            <select id="backup-scope" class="w-full border rounded px-3 py-2 text-xs mb-2">
-                                <option value="mine" data-i18n="backup.mine">Dữ liệu tài khoản hiện tại</option>
-                                <option value="all" data-i18n="backup.all">Toàn bộ dữ liệu (Admin)</option>
-                            </select>
-                            <div class="grid grid-cols-3 gap-2">
-                                <button onclick="downloadBackup('excel')" class="bg-emerald-600 text-white px-2 py-2 rounded text-[11px] font-bold">Excel</button>
-                                <button onclick="downloadBackup('csv')" class="bg-sky-600 text-white px-2 py-2 rounded text-[11px] font-bold">CSV</button>
-                                <button onclick="downloadBackup('json')" class="bg-indigo-600 text-white px-2 py-2 rounded text-[11px] font-bold">JSON</button>
+
+                        <div class="settings-layout">
+                            <div class="settings-main-col">
+                                <div class="settings-card">
+                                    <div class="settings-card-head">
+                                        <div class="settings-icon settings-icon-blue">◎</div>
+                                        <div>
+                                            <h4 data-i18n="settings.languageTitle">Ngôn ngữ hiển thị</h4>
+                                            <p data-i18n="settings.languageDesc">Chọn ngôn ngữ giao diện cho ứng dụng.</p>
+                                        </div>
+                                    </div>
+                                    <div class="settings-card-body settings-language-body">
+                                        <div class="language-segment" role="group" aria-label="Language">
+                                            <button onclick="setLang('vi')" id="btn-lang-vi" class="language-option" type="button">
+                                                <span>🇻🇳</span><span>Tiếng Việt</span>
+                                            </button>
+                                            <button onclick="setLang('en')" id="btn-lang-en" class="language-option" type="button">
+                                                <span>🇺🇸</span><span>English</span>
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div class="settings-card">
+                                    <div class="settings-card-head settings-card-head-between">
+                                        <div class="settings-head-left">
+                                            <div class="settings-icon settings-icon-red">⚙</div>
+                                            <div>
+                                                <h4 data-i18n="settings.integrationTitle">Kết nối & Tích hợp</h4>
+                                                <p data-i18n="settings.integrationDesc">Cấu hình các dịch vụ bên thứ ba và thiết bị ngoại vi.</p>
+                                            </div>
+                                        </div>
+                                        <span class="settings-status-dot" data-i18n="settings.online">Online</span>
+                                    </div>
+                                    <div class="settings-card-body">
+                                        <div class="settings-field">
+                                            <label for="printer-ip" data-i18n="settings.printer">Máy in hóa đơn</label>
+                                            <p data-i18n="settings.printerDesc">Địa chỉ IP hoặc cổng kết nối của máy in.</p>
+                                            <div class="settings-input-wrap">
+                                                <span>▣</span>
+                                                <input type="text" id="printer-ip" placeholder="tcp://192.168.1.9">
+                                            </div>
+                                        </div>
+                                        <div class="settings-field">
+                                            <label for="tiktok-api-key" data-i18n="settings.apiKey">TikTok Sign API Key</label>
+                                            <p data-i18n="settings.apiKeyDesc">Khóa bảo mật để đồng bộ với hệ thống TikTok.</p>
+                                            <div class="settings-input-wrap">
+                                                <span>⌁</span>
+                                                <input type="password" id="tiktok-api-key" placeholder="Nhập API key tại đây...">
+                                            </div>
+                                        </div>
+                                        <div class="settings-save-row">
+                                            <button onclick="saveSettings()" class="settings-save-btn" type="button">
+                                                <span>♡</span><span data-i18n="settings.save">Lưu thay đổi</span>
+                                            </button>
+                                            <p id="system-status-msg"></p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="settings-side-col">
+                                <div class="settings-side-card">
+                                    <div class="settings-side-title">
+                                        <span>▱</span>
+                                        <div>
+                                            <h4 data-i18n="settings.quickTools">Tiện ích hệ thống</h4>
+                                        </div>
+                                    </div>
+                                    <div class="settings-tool-list">
+                                        <button id="btn-admin" onclick="location.href='/admin'" class="settings-tool-row hidden" type="button">
+                                            <span class="settings-tool-icon amber">⌁</span>
+                                            <span>Admin</span>
+                                            <span class="settings-tool-arrow">↗</span>
+                                        </button>
+                                        <button onclick="logout()" class="settings-tool-row danger" type="button">
+                                            <span class="settings-tool-icon red">↪</span>
+                                            <span data-i18n="settings.logout">Đăng xuất</span>
+                                            <span class="settings-tool-arrow">›</span>
+                                        </button>
+                                    </div>
+                                </div>
+
+                                <div class="settings-side-card">
+                                    <div class="settings-side-title">
+                                        <span>▤</span>
+                                        <div>
+                                            <h4 data-i18n="backup.title">Quản lý dữ liệu</h4>
+                                            <p data-i18n="backup.desc">Sao lưu và xuất dữ liệu hệ thống.</p>
+                                        </div>
+                                    </div>
+                                    <select id="backup-scope" class="settings-select">
+                                        <option value="mine" data-i18n="backup.mine">Dữ liệu tài khoản hiện tại</option>
+                                        <option value="all" data-i18n="backup.all">Toàn bộ dữ liệu (Admin)</option>
+                                    </select>
+                                    <div class="settings-export-list">
+                                        <button onclick="downloadBackup('excel')" class="settings-export-btn excel" type="button">▦ <span data-i18n="backup.exportExcel">Xuất Excel</span></button>
+                                        <button onclick="downloadBackup('csv')" class="settings-export-btn csv" type="button">▤ <span data-i18n="backup.exportCsv">Xuất CSV</span></button>
+                                        <button onclick="downloadBackup('json')" class="settings-export-btn json" type="button">▧ <span data-i18n="backup.exportJson">Xuất JSON</span></button>
+                                    </div>
+                                </div>
                             </div>
                         </div>
-                        <p id="system-status-msg" class="mt-2 text-[10px] text-blue-600 italic"></p>
                     </section>
 
-                    <section class="panel p-4">
-                        <h3 class="font-black text-lg mb-3" data-i18n="tips.title">Hướng dẫn</h3>
-                        <p class="text-sm text-gray-500" data-i18n="tips.desc">Nhập ID TikTok của chủ live để kết nối và bắt đầu theo dõi luồng bình luận, đơn hàng theo thời gian thực.</p>
+                    <section class="panel p-4 no-print" id="guide-panel">
+                        <button type="button" onclick="toggleGuide()" class="w-full flex items-center justify-between text-left">
+                            <span class="font-black text-lg" data-i18n="tips.title">Hướng dẫn</span>
+                            <span id="guide-toggle-icon" class="text-gray-400 text-sm">-</span>
+                        </button>
+                        <p id="guide-body" class="text-sm text-gray-500 mt-3" data-i18n="tips.desc">Nhập ID TikTok của chủ live để kết nối và bắt đầu theo dõi luồng bình luận, đơn hàng theo thời gian thực.</p>
                     </section>
                 </aside>
             </main>
         </div>
     </div>
+
+    <nav class="mobile-bottom-nav no-print" aria-label="Mobile navigation">
+        <button type="button" class="mobile-nav-item active" data-view="overview"><span>🏠</span><span data-i18n="menu.overview">Tổng quan</span></button>
+        <button type="button" class="mobile-nav-item" data-view="live"><span>📹</span><span data-i18n="menu.live">Live</span></button>
+        <button type="button" class="mobile-nav-item" data-view="orders"><span>🧾</span><span data-i18n="menu.orders">Đơn hàng</span></button>
+        <button type="button" class="mobile-nav-item" data-view="settings"><span>⚙️</span><span data-i18n="menu.settings">Cài đặt</span></button>
+    </nav>
 
     <div id="print-section" class="p-4"></div>
 
@@ -230,8 +323,11 @@
         <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
             <div class="p-4 border-b flex justify-between items-center bg-green-50 rounded-t-xl">
                 <h3 class="font-bold text-lg text-green-800" data-i18n="merge.title">Kết quả gộp phiên</h3>
-                <div class="flex items-center gap-2">
-                    <button onclick="printMergeResults()" class="bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-bold" data-i18n="merge.print">In đơn gộp</button>
+                <div class="flex items-center gap-2 flex-wrap justify-end">
+                    <span id="merge-save-status" class="text-xs font-bold text-green-700"></span>
+                    <button onclick="saveMergedSession()" id="btn-save-merged" class="bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold hidden" data-i18n="merge.save">Lưu phiên gộp</button>
+                    <button onclick="printMergeSummary()" class="bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-bold" data-i18n="merge.printSummary">In tổng hợp</button>
+                    <button onclick="printMergeDetails()" class="bg-slate-800 text-white px-3 py-1.5 rounded text-xs font-bold" data-i18n="merge.printDetails">In chi tiết</button>
                     <button onclick="closeMergeModal()" class="text-gray-500 hover:text-black text-xl">✕</button>
                 </div>
             </div>

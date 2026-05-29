@@ -14,15 +14,25 @@
         const sectionKpi = document.getElementById('section-kpi');
         const sectionComments = document.getElementById('section-comments');
         const sectionOrders = document.getElementById('section-orders');
+        const sectionLiveOrders = document.getElementById('section-live-orders');
         const sectionOverview = document.getElementById('section-overview');
         const rightCol = document.getElementById('right-col');
+        const guidePanel = document.getElementById('guide-panel');
         const menuItems = document.querySelectorAll('.menu-item[data-view]');
+        const mobileNavItems = document.querySelectorAll('.mobile-nav-item');
+        const liveOrdersCompact = document.getElementById('live-orders-compact');
+        const overviewStartInput = document.getElementById('overview-start');
+        const overviewEndInput = document.getElementById('overview-end');
+        const overviewRangeButtons = document.querySelectorAll('.overview-range-btn');
 
         let ordersData = {};
         let kpiComments = 0;
         let currentLang = localStorage.getItem('app_lang') || 'vi';
         let topShopStats = [];
+        let overviewData = null;
+        let overviewRefreshTimer = null;
         let activeBroadcasterId = '';
+        let guideCollapsed = false;
         const seenChatMsgIds = new Set();
         let mobilePopoverEl = null;
         let mobilePopoverHideTimer = null;
@@ -50,30 +60,55 @@
                 'actions.saveSession': 'Lưu phiên',
                 'actions.printSummary': 'In tổng kết',
                 'settings.title': 'Cấu hình hệ thống',
-                'settings.printer': 'Máy in',
+                'settings.subtitle': 'Quản lý tùy chọn kết nối, hiển thị và dữ liệu của bạn.',
+                'settings.languageTitle': 'Ngôn ngữ hiển thị',
+                'settings.languageDesc': 'Chọn ngôn ngữ giao diện cho ứng dụng.',
+                'settings.integrationTitle': 'Kết nối & Tích hợp',
+                'settings.integrationDesc': 'Cấu hình các dịch vụ bên thứ ba và thiết bị ngoại vi.',
+                'settings.online': 'Online',
+                'settings.printer': 'Máy in hóa đơn',
+                'settings.printerDesc': 'Địa chỉ IP hoặc cổng kết nối của máy in.',
                 'settings.apiKey': 'TikTok Sign API Key',
-                'settings.save': 'Lưu cấu hình',
-                'backup.title': 'Backup dữ liệu',
+                'settings.apiKeyDesc': 'Khóa bảo mật để đồng bộ với hệ thống TikTok.',
+                'settings.save': 'Lưu thay đổi',
+                'settings.quickTools': 'Tiện ích hệ thống',
+                'settings.logout': 'Đăng xuất',
+                'backup.title': 'Quản lý dữ liệu',
+                'backup.desc': 'Sao lưu và xuất dữ liệu hệ thống.',
                 'backup.mine': 'Dữ liệu tài khoản hiện tại',
                 'backup.all': 'Toàn bộ dữ liệu (Admin)',
+                'backup.exportExcel': 'Xuất Excel',
+                'backup.exportCsv': 'Xuất CSV',
+                'backup.exportJson': 'Xuất JSON',
                 'tips.title': 'Hướng dẫn',
                 'tips.desc': 'Nhập ID TikTok của chủ live để kết nối và bắt đầu theo dõi luồng bình luận, đơn hàng theo thời gian thực.',
                 'history.title': 'Lịch sử phiên Live',
                 'sessions.title': 'Lịch sử Phiên Live',
+                'sessions.emptyTitle': 'Chưa có phiên live nào được lưu',
+                'sessions.emptyDesc': 'Sau khi có đơn trong màn Live, hệ thống sẽ tự lưu lịch sử và hiển thị lại ở đây.',
                 'sessions.merge': 'Gộp phiên đã chọn',
                 'merge.title': 'Kết quả gộp phiên',
-                'merge.print': 'In đơn gộp',
+                'merge.save': 'Lưu phiên gộp',
+                'merge.saved': 'Đã lưu phiên gộp',
+                'merge.printSummary': 'In tổng hợp',
+                'merge.printDetails': 'In chi tiết',
                 'ov.title': 'Tổng quan',
                 'ov.subtitle': 'Theo dõi nhanh tình hình đơn hàng, live và doanh thu',
+                'ov.orders': 'Đơn đã chốt',
+                'ov.comments': 'Bình luận live',
+                'ov.revenue': 'Doanh thu',
+                'ov.today': 'Hôm nay',
                 'ov.range': '7 ngày qua',
+                'ov.last30': '30 ngày',
                 'ov.liveActive': 'Live đang hoạt động',
                 'ov.closeRate': 'Tỷ lệ chốt',
                 'ov.orders7d': 'Đơn hàng 7 ngày gần đây',
                 'ov.revenue7d': 'Doanh thu 7 ngày gần đây',
-                'ov.topShop': 'Top shop doanh thu',
+                'ov.topShop': 'Top khách chốt đơn',
                 'ov.latestOrders': 'Đơn mới nhất',
                 'ov.viewAll': 'Xem tất cả',
                 'tb.customer': 'Khách',
+                'tb.time': 'Thời gian',
                 'tb.value': 'Giá trị',
                 'tb.status': 'Trạng thái'
             },
@@ -99,30 +134,55 @@
                 'actions.saveSession': 'Save Session',
                 'actions.printSummary': 'Print Summary',
                 'settings.title': 'System Settings',
-                'settings.printer': 'Printer',
+                'settings.subtitle': 'Manage your connection, display and data preferences.',
+                'settings.languageTitle': 'Display language',
+                'settings.languageDesc': 'Choose the app interface language.',
+                'settings.integrationTitle': 'Connections & Integrations',
+                'settings.integrationDesc': 'Configure third-party services and external devices.',
+                'settings.online': 'Online',
+                'settings.printer': 'Invoice printer',
+                'settings.printerDesc': 'Printer IP address or connection port.',
                 'settings.apiKey': 'TikTok Sign API Key',
-                'settings.save': 'Save settings',
-                'backup.title': 'Data Backup',
+                'settings.apiKeyDesc': 'Security key used to sync with TikTok services.',
+                'settings.save': 'Save changes',
+                'settings.quickTools': 'System tools',
+                'settings.logout': 'Logout',
+                'backup.title': 'Data management',
+                'backup.desc': 'Back up and export system data.',
                 'backup.mine': 'Current account data',
                 'backup.all': 'All data (Admin)',
+                'backup.exportExcel': 'Export Excel',
+                'backup.exportCsv': 'Export CSV',
+                'backup.exportJson': 'Export JSON',
                 'tips.title': 'Guide',
                 'tips.desc': 'Input TikTok broadcaster ID to connect and monitor comments and orders in real time.',
                 'history.title': 'Live Session History',
                 'sessions.title': 'Saved Live Sessions',
+                'sessions.emptyTitle': 'No saved live sessions yet',
+                'sessions.emptyDesc': 'After orders are created in Live, the system auto-saves history and shows it here.',
                 'sessions.merge': 'Merge selected sessions',
                 'merge.title': 'Merged session result',
-                'merge.print': 'Print merged orders',
+                'merge.save': 'Save merged session',
+                'merge.saved': 'Merged session saved',
+                'merge.printSummary': 'Print summary',
+                'merge.printDetails': 'Print details',
                 'ov.title': 'Overview',
                 'ov.subtitle': 'Track orders, live sessions and revenue at a glance',
+                'ov.orders': 'Confirmed orders',
+                'ov.comments': 'Live comments',
+                'ov.revenue': 'Revenue',
+                'ov.today': 'Today',
                 'ov.range': 'Last 7 days',
+                'ov.last30': 'Last 30 days',
                 'ov.liveActive': 'Active live sessions',
                 'ov.closeRate': 'Close rate',
                 'ov.orders7d': 'Orders in last 7 days',
                 'ov.revenue7d': 'Revenue in last 7 days',
-                'ov.topShop': 'Top revenue shops',
+                'ov.topShop': 'Top closing customers',
                 'ov.latestOrders': 'Latest orders',
                 'ov.viewAll': 'View all',
                 'tb.customer': 'Customer',
+                'tb.time': 'Time',
                 'tb.value': 'Value',
                 'tb.status': 'Status'
             }
@@ -140,12 +200,32 @@
                 const key = el.getAttribute('data-i18n');
                 el.textContent = t(key);
             });
-            document.getElementById('btn-lang-vi').classList.toggle('bg-red-50', lang === 'vi');
-            document.getElementById('btn-lang-en').classList.toggle('bg-red-50', lang === 'en');
+            document.getElementById('btn-lang-vi').classList.toggle('active', lang === 'vi');
+            document.getElementById('btn-lang-en').classList.toggle('active', lang === 'en');
         }
         window.setLang = setLang;
         menuItems.forEach(btn => {
             btn.addEventListener('click', () => switchView(btn.dataset.view));
+        });
+        mobileNavItems.forEach(btn => {
+            btn.addEventListener('click', () => {
+                if (btn.dataset.view) {
+                    switchView(btn.dataset.view);
+                }
+            });
+        });
+        overviewRangeButtons.forEach(btn => {
+            btn.addEventListener('click', () => setOverviewRange(btn.dataset.range || '7'));
+        });
+        [overviewStartInput, overviewEndInput].forEach(input => {
+            input.addEventListener('change', () => {
+                const apiDate = parseDisplayDate(input.value);
+                if (apiDate) input.value = formatApiDate(apiDate);
+                overviewRangeButtons.forEach(btn => {
+                    btn.classList.remove('bg-red-50', 'border-red-200', 'text-red-600');
+                });
+                refreshOverviewData();
+            });
         });
 
         function calculateKpis() {
@@ -159,21 +239,8 @@
             document.getElementById('kpi-comments').textContent = kpiComments;
             document.getElementById('kpi-revenue').textContent = formatMoney(totalRevenue);
             document.getElementById('chat-count').textContent = `${chatFeed.children.length} items`;
-            const ovOrders = document.getElementById('ov-orders');
-            const ovComments = document.getElementById('ov-comments');
-            const ovRevenue = document.getElementById('ov-revenue');
-            const ovLiveActive = document.getElementById('ov-live-active');
-            const ovCloseRate = document.getElementById('ov-close-rate');
-            if (ovOrders) ovOrders.textContent = totalOrders;
-            if (ovComments) ovComments.textContent = kpiComments;
-            if (ovRevenue) ovRevenue.textContent = formatMoney(totalRevenue);
-            if (ovLiveActive) ovLiveActive.textContent = Object.keys(ordersData).length > 0 ? '1' : '0';
-            if (ovCloseRate) {
-                const totalVisitors = Math.max(kpiComments, 1);
-                const closeRate = Math.min(99.9, (totalOrders / totalVisitors) * 100);
-                ovCloseRate.textContent = `${closeRate.toFixed(1)}%`;
-            }
-            renderOverviewLatestOrders();
+            renderLiveOrdersCompact();
+            scheduleOverviewRefresh();
         }
 
         function buildConfirmedAmountTooltip(userId) {
@@ -240,65 +307,170 @@
             });
         }
 
+        function toDateInputValue(date) {
+            const d = String(date.getDate()).padStart(2, '0');
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const y = date.getFullYear();
+            return `${d}/${m}/${y}`;
+        }
+
+        function toApiDateValue(date) {
+            const y = date.getFullYear();
+            const m = String(date.getMonth() + 1).padStart(2, '0');
+            const d = String(date.getDate()).padStart(2, '0');
+            return `${y}-${m}-${d}`;
+        }
+
+        function parseDisplayDate(value) {
+            const match = String(value || '').trim().match(/^(\d{1,2})[\/.-](\d{1,2})[\/.-](\d{4})$/);
+            if (!match) return '';
+            const day = Number(match[1]);
+            const month = Number(match[2]);
+            const year = Number(match[3]);
+            const date = new Date(year, month - 1, day);
+            if (date.getFullYear() !== year || date.getMonth() !== month - 1 || date.getDate() !== day) return '';
+            return toApiDateValue(date);
+        }
+
+        function formatApiDate(value) {
+            const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (!match) return value || '';
+            return `${match[3]}/${match[2]}/${match[1]}`;
+        }
+
+        function setOverviewRange(mode) {
+            const today = new Date();
+            let start = new Date(today);
+            if (mode === 'today') {
+                start = new Date(today);
+            } else {
+                start.setDate(start.getDate() - (Number(mode || 7) - 1));
+            }
+            overviewStartInput.value = toDateInputValue(start);
+            overviewEndInput.value = toDateInputValue(today);
+            overviewRangeButtons.forEach(btn => {
+                btn.classList.toggle('bg-red-50', btn.dataset.range === mode);
+                btn.classList.toggle('border-red-200', btn.dataset.range === mode);
+                btn.classList.toggle('text-red-600', btn.dataset.range === mode);
+            });
+            refreshOverviewData();
+        }
+
+        function scheduleOverviewRefresh() {
+            if (!parseDisplayDate(overviewStartInput.value) || !parseDisplayDate(overviewEndInput.value)) return;
+            if (overviewRefreshTimer) clearTimeout(overviewRefreshTimer);
+            overviewRefreshTimer = setTimeout(() => refreshOverviewData(false), 800);
+        }
+
+        async function refreshOverviewData(showLoading = true) {
+            const startDate = parseDisplayDate(overviewStartInput.value);
+            const endDate = parseDisplayDate(overviewEndInput.value);
+            if (!startDate || !endDate) return;
+            if (showLoading) {
+                document.getElementById('overview-top-shop-list').innerHTML = `<p class="text-gray-400 text-sm">${currentLang === 'en' ? 'Loading...' : 'Đang tải...'}</p>`;
+            }
+            try {
+                const params = new URLSearchParams({
+                    start: startDate,
+                    end: endDate
+                });
+                const res = await fetch(`/api/overview?${params.toString()}`);
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Load overview error');
+                overviewData = data;
+                renderOverview(data);
+            } catch (e) {
+                console.warn('Overview load error:', e);
+            }
+        }
+
+        function renderOverview(data) {
+            const summary = data?.summary || {};
+            document.getElementById('ov-orders').textContent = Number(summary.orders || 0);
+            document.getElementById('ov-comments').textContent = Number(summary.comments || 0);
+            document.getElementById('ov-revenue').textContent = formatMoney(Number(summary.revenue || 0));
+            document.getElementById('ov-live-active').textContent = Number(summary.activeLive || 0);
+            document.getElementById('ov-close-rate').textContent = `${Number(summary.closeRate || 0).toFixed(1)}%`;
+            document.getElementById('ov-orders-note').textContent = `${formatApiDate(data.meta?.start)} → ${formatApiDate(data.meta?.end)}`;
+            document.getElementById('ov-comments-note').textContent = currentLang === 'en' ? 'Current live only' : 'Chỉ live hiện tại';
+            document.getElementById('ov-revenue-note').textContent = currentLang === 'en' ? 'Real orders' : 'Đơn thật';
+            topShopStats = Array.isArray(data.topShops) ? data.topShops : [];
+            renderOverviewChart('overview-orders-chart', data.daily || [], 'orders');
+            renderOverviewChart('overview-revenue-chart', data.daily || [], 'revenue');
+            renderOverviewTopShops();
+            renderOverviewLatestOrders();
+        }
+
+        function renderOverviewChart(containerId, daily, metric) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+            const values = daily.map(d => Number(d[metric] || 0));
+            const maxValue = Math.max(...values, 0);
+            if (!daily.length || maxValue === 0) {
+                container.innerHTML = `<div class="h-full flex items-center justify-center text-sm text-gray-400">${currentLang === 'en' ? 'No data in this range' : 'Không có dữ liệu trong khoảng này'}</div>`;
+                return;
+            }
+            container.innerHTML = `
+                <div class="overview-bars">
+                    ${daily.map(d => {
+                        const value = Number(d[metric] || 0);
+                        const height = Math.max(6, Math.round((value / maxValue) * 100));
+                        const label = metric === 'revenue' ? formatMoney(value) : value;
+                        return `
+                            <div class="overview-bar" title="${d.date}: ${label}">
+                                <div class="overview-bar-value" style="height:${height}%"></div>
+                                <span>${d.date.slice(5)}</span>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
+
         function renderOverviewLatestOrders() {
             const tbody = document.getElementById('overview-latest-orders');
+            const cards = document.getElementById('overview-latest-cards');
             if (!tbody) return;
-            const rows = [];
-            Object.values(ordersData).forEach(customer => {
-                (customer.items || []).forEach(item => {
-                    rows.push({
-                        id: String(item.id || '').slice(-10) || '—',
-                        customer: customer.nickname || customer.username || '—',
-                        shop: (tiktokIdInput.value || '').replace('@', '').trim() || '—',
-                        value: Number(item.price || 0),
-                        status: 'done',
-                        time: item.time || ''
-                    });
-                });
-            });
-            const latest = rows.slice(-5).reverse();
+            const latest = Array.isArray(overviewData?.latestOrders) ? overviewData.latestOrders : [];
             if (latest.length === 0) {
                 tbody.innerHTML = `<tr><td colspan="5" class="py-4 text-center text-gray-400">${currentLang === 'en' ? 'No orders yet' : 'Chưa có đơn hàng'}</td></tr>`;
+                if (cards) cards.innerHTML = `<p class="py-4 text-center text-gray-400 text-sm">${currentLang === 'en' ? 'No orders yet' : 'Chưa có đơn hàng'}</p>`;
                 return;
             }
             tbody.innerHTML = latest.map(r => `
                 <tr class="border-b">
-                    <td class="py-2">#${r.id}</td>
-                    <td class="py-2">${r.customer}</td>
-                    <td class="py-2">${r.shop}</td>
-                    <td class="py-2">${formatMoney(r.value)}</td>
+                    <td class="py-2">#${String(r.id || '').slice(-10) || '—'}</td>
+                    <td class="py-2">${r.customer || '—'}</td>
+                    <td class="py-2">${[r.date, r.time].filter(Boolean).join(' ') || '—'}</td>
+                    <td class="py-2">${formatMoney(Number(r.value || 0))}</td>
                     <td class="py-2"><span class="px-2 py-1 rounded text-[10px] font-bold ${r.status === 'done' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}">${r.status === 'done' ? (currentLang === 'en' ? 'Done' : 'Đã chốt') : (currentLang === 'en' ? 'Pending' : 'Chờ chốt')}</span></td>
                 </tr>
             `).join('');
+            if (cards) {
+                cards.innerHTML = latest.map(r => `
+                    <div class="overview-order-card">
+                        <div class="min-w-0">
+                            <p class="font-bold text-sm truncate">${r.customer || '—'}</p>
+                            <p class="text-[10px] text-gray-400 truncate">#${String(r.id || '').slice(-10) || '—'} • ${[r.date, r.time].filter(Boolean).join(' ') || '—'}</p>
+                        </div>
+                        <div class="text-right">
+                            <p class="font-black text-red-600 whitespace-nowrap">${formatMoney(Number(r.value || 0))}</p>
+                            <span class="inline-block mt-1 px-2 py-1 rounded text-[10px] font-bold ${r.status === 'done' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}">${r.status === 'done' ? (currentLang === 'en' ? 'Done' : 'Đã chốt') : (currentLang === 'en' ? 'Pending' : 'Chờ chốt')}</span>
+                        </div>
+                    </div>
+                `).join('');
+            }
         }
 
         async function refreshOverviewTopShops() {
-            const container = document.getElementById('overview-top-shop-list');
-            if (!container) return;
-            try {
-                const res = await fetch('/api/live-sessions');
-                const data = await res.json();
-                const sessions = Array.isArray(data.sessions) ? data.sessions : [];
-                const shopMap = {};
-                sessions.forEach(s => {
-                    const shopKey = (s.tiktokUsername || '').trim() || 'unknown';
-                    if (!shopMap[shopKey]) {
-                        shopMap[shopKey] = { shop: shopKey, revenue: 0 };
-                    }
-                    shopMap[shopKey].revenue += Number(s.summary?.totalRevenue || 0);
-                });
-                topShopStats = Object.values(shopMap).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
-            } catch (e) {
-                topShopStats = [];
-            }
-            renderOverviewTopShops();
+            await refreshOverviewData();
         }
 
         function renderOverviewTopShops() {
             const container = document.getElementById('overview-top-shop-list');
             if (!container) return;
             if (!topShopStats.length) {
-                container.innerHTML = `<p class="text-gray-400 text-sm">${currentLang === 'en' ? 'No saved session data yet' : 'Chưa có dữ liệu phiên đã lưu'}</p>`;
+                container.innerHTML = `<p class="text-gray-400 text-sm">${currentLang === 'en' ? 'No closing customers in this range' : 'Chưa có khách chốt đơn trong khoảng này'}</p>`;
                 return;
             }
             const maxRevenue = Math.max(...topShopStats.map(s => s.revenue), 1);
@@ -312,18 +484,25 @@
                 return `
                     <div class="flex items-center gap-3">
                         <span class="w-7 h-7 rounded-full ${rankClass} font-bold flex items-center justify-center">${idx + 1}</span>
-                        <span class="w-28 truncate">@${s.shop}</span>
+                        <span class="w-36 min-w-0">
+                            <span class="block truncate font-bold">${s.customer || s.customerUsername || '—'}</span>
+                            ${s.customerUsername ? `<span class="block truncate text-[10px] text-gray-400">@${s.customerUsername}</span>` : ''}
+                        </span>
                         <div class="h-2 bg-gray-100 rounded-full flex-1">
                             <div class="h-2 bg-red-500 rounded-full" style="width:${width}%"></div>
                         </div>
-                        <span class="font-bold">${formatMoney(s.revenue)}</span>
+                        <span class="font-bold text-right whitespace-nowrap">${formatMoney(s.revenue)}<span class="block text-[10px] text-gray-400">${s.orders || 0} đơn</span></span>
                     </div>
                 `;
             }).join('');
         }
 
         function switchView(view) {
+            document.body.dataset.view = view;
             menuItems.forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.view === view);
+            });
+            mobileNavItems.forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.view === view);
             });
 
@@ -333,7 +512,10 @@
                 sectionKpi.classList.add('hidden');
                 sectionComments.classList.add('hidden');
                 sectionOrders.classList.add('hidden');
+                sectionLiveOrders.classList.add('hidden');
                 rightCol.classList.add('hidden');
+                settingsPanel.classList.add('hidden');
+                guidePanel.classList.add('hidden');
                 return;
             }
 
@@ -343,7 +525,10 @@
                 sectionKpi.classList.remove('hidden');
                 sectionComments.classList.remove('hidden');
                 sectionOrders.classList.add('hidden');
+                sectionLiveOrders.classList.remove('hidden');
                 rightCol.classList.remove('hidden');
+                settingsPanel.classList.add('hidden');
+                guidePanel.classList.remove('hidden');
                 return;
             }
 
@@ -353,12 +538,39 @@
                 sectionKpi.classList.add('hidden');
                 sectionComments.classList.add('hidden');
                 sectionOrders.classList.remove('hidden');
+                sectionLiveOrders.classList.add('hidden');
                 rightCol.classList.add('hidden');
+                settingsPanel.classList.add('hidden');
+                guidePanel.classList.add('hidden');
+                return;
+            }
+
+            if (view === 'settings') {
+                sectionOverview.classList.add('hidden');
+                sectionConnect.classList.add('hidden');
+                sectionKpi.classList.add('hidden');
+                sectionComments.classList.add('hidden');
+                sectionOrders.classList.add('hidden');
+                sectionLiveOrders.classList.add('hidden');
+                rightCol.classList.remove('hidden');
+                settingsPanel.classList.remove('hidden');
+                guidePanel.classList.add('hidden');
             }
         }
         window.switchView = switchView;
 
-        window.toggleSettings = () => settingsPanel.classList.toggle('hidden');
+        function setGuideCollapsed(collapsed) {
+            guideCollapsed = collapsed;
+            const body = document.getElementById('guide-body');
+            const icon = document.getElementById('guide-toggle-icon');
+            if (!body || !icon) return;
+            body.classList.toggle('hidden', collapsed);
+            icon.textContent = collapsed ? '+' : '-';
+        }
+
+        window.toggleGuide = () => setGuideCollapsed(!guideCollapsed);
+
+        window.toggleSettings = () => switchView('settings');
         window.saveSettings = () => {
             socket.emit('update-settings', {
                 printerInterface: printerIpInput.value.trim(),
@@ -389,6 +601,13 @@
             if (confirm(currentLang === 'en' ? 'Load this history and overwrite current list?' : 'Tải lịch sử này sẽ ghi đè danh sách đang hiện?')) {
                 socket.emit('load-history-file', fileName);
                 closeHistory();
+            }
+        };
+
+        window.openLegacyHistorySession = (fileName) => {
+            if (confirm(currentLang === 'en' ? 'Load this history and overwrite current list?' : 'Tải lịch sử này sẽ ghi đè danh sách đang hiện?')) {
+                socket.emit('load-history-file', fileName);
+                closeLiveSessions();
             }
         };
 
@@ -481,11 +700,13 @@
             statusMsg.className = data.connected ? 'mt-3 text-sm text-green-600 font-semibold' : 'mt-3 text-sm text-red-600 font-semibold';
             document.getElementById('kpi-status').textContent = data.connected ? t('status.connected') : t('status.disconnected');
             document.getElementById('kpi-status').className = data.connected ? 'text-base font-bold mt-3 text-green-600' : 'text-base font-bold mt-3 text-gray-500';
+            if (data.connected) setGuideCollapsed(true);
             if (data.connected && data.broadcasterId) {
                 activeBroadcasterId = data.broadcasterId;
                 localStorage.setItem('lastBroadcasterId', data.broadcasterId);
                 socket.emit('get-chat-buffer', { broadcasterId: data.broadcasterId });
             }
+            scheduleOverviewRefresh();
         });
 
         socket.on('raw-chat', (data) => {
@@ -517,6 +738,63 @@
 
         function formatMoney(amount) {
             return new Intl.NumberFormat('vi-VN', { style: 'currency', currency: 'VND' }).format(amount).replace('₫', 'đ');
+        }
+
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+
+        function escapeJsString(value) {
+            return String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '');
+        }
+
+        function renderLiveOrdersCompact() {
+            if (!liveOrdersCompact) return;
+            const orders = Object.values(ordersData || {});
+            if (orders.length === 0) {
+                liveOrdersCompact.innerHTML = `<p class="text-center text-gray-400 py-6 text-sm">${currentLang === 'en' ? 'No current orders' : 'Chưa có đơn hàng hiện tại'}</p>`;
+                return;
+            }
+
+            liveOrdersCompact.innerHTML = orders.map(order => {
+                const items = Array.isArray(order.items) ? order.items : [];
+                const itemsHtml = items.map(item => `
+                    <div class="live-order-item">
+                        <span class="truncate text-gray-700">${item.text || ''}</span>
+                        <span class="font-black text-red-600 whitespace-nowrap">${formatMoney(Number(item.price || 0))}</span>
+                        <div class="flex items-center gap-1">
+                            <button onclick="reprintItem('${order.username}', ${item.id})" class="live-order-action text-green-600 bg-green-50" title="In lại">🖨️</button>
+                            <button onclick="editItem('${order.username}', ${item.id}, ${item.price})" class="live-order-action text-blue-600 bg-blue-50" title="Sửa giá">✏️</button>
+                            <button onclick="deleteItem('${order.username}', ${item.id})" class="live-order-action text-red-600 bg-red-50" title="Xóa">🗑️</button>
+                        </div>
+                    </div>
+                `).join('');
+
+                return `
+                    <div class="live-order-card">
+                        <div class="flex items-center justify-between gap-2">
+                            <div class="min-w-0">
+                                <p class="font-bold text-sm truncate">${order.nickname || order.username}</p>
+                                <p class="text-[10px] text-gray-400 truncate">@${order.username}</p>
+                            </div>
+                            <div class="flex items-center gap-1">
+                                <button onclick="reprintTotal('${order.username}')" class="text-[10px] bg-white border border-gray-200 px-2 py-1 rounded font-bold">${currentLang === 'en' ? 'Print' : 'In'}</button>
+                                <button onclick="deleteCustomer('${order.username}')" class="text-[10px] bg-red-50 text-red-600 px-2 py-1 rounded font-bold">${currentLang === 'en' ? 'Delete' : 'Xóa'}</button>
+                            </div>
+                        </div>
+                        <div class="mt-2 space-y-1">${itemsHtml}</div>
+                        <div class="mt-2 pt-2 border-t flex items-center justify-between">
+                            <span class="text-[10px] font-bold text-gray-500 uppercase">TOTAL</span>
+                            <span class="text-sm font-black text-red-600">${formatMoney(Number(order.total || 0))}</span>
+                        </div>
+                    </div>
+                `;
+            }).join('');
         }
 
         function renderOrderCard(order) {
@@ -617,7 +895,8 @@
             switchView('overview');
             setLang(currentLang);
             setupMobileCommentPopover();
-            refreshOverviewTopShops();
+            setGuideCollapsed(false);
+            setOverviewRange('7');
             const lastBroadcasterId = (localStorage.getItem('lastBroadcasterId') || '').trim();
             if (lastBroadcasterId) {
                 tiktokIdInput.value = lastBroadcasterId;
@@ -660,6 +939,7 @@
 
         let selectedSessionIds = new Set();
         let lastMergeData = null;
+        let lastMergeSourceIds = [];
 
         window.saveCurrentSession = async () => {
             if (Object.keys(ordersData).length === 0) {
@@ -732,7 +1012,12 @@
         function renderLiveSessionsList(sessions) {
             const container = document.getElementById('live-sessions-list');
             if (sessions.length === 0) {
-                container.innerHTML = '<p class="text-center text-gray-400 py-10">No session saved yet.</p>';
+                container.innerHTML = `
+                    <div class="text-center py-12 px-4">
+                        <p class="text-base font-bold text-gray-700">${t('sessions.emptyTitle')}</p>
+                        <p class="text-sm text-gray-400 mt-2 max-w-md mx-auto">${t('sessions.emptyDesc')}</p>
+                    </div>
+                `;
                 return;
             }
             container.innerHTML = sessions.map(s => {
@@ -740,14 +1025,28 @@
                 const revenue = s.summary ? formatMoney(s.summary.totalRevenue) : '0đ';
                 const orders = s.summary ? s.summary.totalOrders : 0;
                 const qty = s.summary ? s.summary.totalQuantity : 0;
+                const isLegacy = s.source === 'legacy_history';
+                const openLabel = currentLang === 'en' ? 'OPEN' : 'MỞ';
+                const safeSessionId = escapeJsString(s.id);
+                const safeSessionName = escapeJsString(s.liveName);
+                const safeFileName = escapeJsString(s.fileName || '');
+                const actionButtons = isLegacy
+                    ? `
+                        <button onclick="openLegacyHistorySession('${safeFileName}')" class="text-blue-600 px-2 py-1 bg-blue-50 rounded text-xs font-bold">${openLabel}</button>
+                        <button onclick="deleteSession('${safeSessionId}', '${safeSessionName}')" class="text-red-500 p-1 bg-red-50 rounded text-xs">🗑️</button>
+                    `
+                    : `
+                        <button onclick="viewSessionDetail('${safeSessionId}')" class="text-blue-500 p-1 bg-blue-50 rounded text-xs">👁️</button>
+                        <button onclick="deleteSession('${safeSessionId}', '${safeSessionName}')" class="text-red-500 p-1 bg-red-50 rounded text-xs">🗑️</button>
+                    `;
                 return `
                 <div class="flex items-start gap-3 p-3 border rounded-lg hover:bg-purple-50 transition group">
-                    <input type="checkbox" id="cb-${s.id}" class="mt-1 accent-purple-600 w-4 h-4 cursor-pointer" onchange="toggleSessionSelect('${s.id}')" ${selectedSessionIds.has(s.id) ? 'checked' : ''}>
+                    <input type="checkbox" id="cb-${escapeHtml(s.id)}" class="mt-1 accent-purple-600 w-4 h-4 cursor-pointer" onchange="toggleSessionSelect('${safeSessionId}')" ${selectedSessionIds.has(s.id) ? 'checked' : ''}>
                     <div class="flex-1 min-w-0">
                         <div class="flex justify-between items-start">
                             <div>
-                                <p class="font-bold text-gray-800 text-sm">${s.liveName}</p>
-                                <p class="text-[10px] text-gray-400">${date}${s.tiktokUsername ? ' • @' + s.tiktokUsername : ''}</p>
+                                <p class="font-bold text-gray-800 text-sm">${escapeHtml(s.liveName)}</p>
+                                <p class="text-[10px] text-gray-400">${date}${s.tiktokUsername ? ' • @' + escapeHtml(s.tiktokUsername) : ''}</p>
                             </div>
                             <div class="text-right">
                                 <span class="text-xs font-bold text-red-500">${revenue}</span>
@@ -755,20 +1054,26 @@
                             </div>
                         </div>
                     </div>
-                    <div class="flex gap-1 opacity-0 group-hover:opacity-100 transition">
-                        <button onclick="viewSessionDetail('${s.id}')" class="text-blue-500 p-1 bg-blue-50 rounded text-xs">👁️</button>
-                        <button onclick="deleteSession('${s.id}')" class="text-red-500 p-1 bg-red-50 rounded text-xs">🗑️</button>
+                    <div class="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition">
+                        ${actionButtons}
                     </div>
                 </div>`;
             }).join('');
         }
 
-        window.deleteSession = async (sessionId) => {
-            if (!confirm('Delete this session?')) return;
+        window.deleteSession = async (sessionId, sessionName = '') => {
+            const displayName = sessionName || sessionId;
+            const msg = currentLang === 'en'
+                ? `Delete live session history "${displayName}"?`
+                : `Xóa lịch sử "${displayName}"?`;
+            if (!confirm(msg)) return;
             try {
-                await fetch('/api/live-sessions/' + sessionId, { method: 'DELETE' });
+                const res = await fetch('/api/live-sessions/' + encodeURIComponent(sessionId), { method: 'DELETE' });
+                const data = await res.json().catch(() => ({}));
+                if (!res.ok) return alert('Error: ' + (data.error || 'Delete error'));
                 selectedSessionIds.delete(sessionId);
                 showLiveSessions();
+                refreshOverviewData(false);
             } catch (e) { alert('Delete error: ' + e.message); }
         };
 
@@ -785,6 +1090,7 @@
                     productSummary: [],
                     customerSummary: []
                 };
+                lastMergeSourceIds = [];
                 renderMergeResults(lastMergeData, s.liveName);
                 document.getElementById('merge-modal').classList.remove('hidden');
             } catch (e) { alert('Error: ' + e.message); }
@@ -793,14 +1099,16 @@
         window.mergeSelectedSessions = async () => {
             if (selectedSessionIds.size === 0) return alert('No session selected');
             try {
+                const sourceIds = Array.from(selectedSessionIds);
                 const res = await fetch('/api/live-sessions/merge-summary', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ sessionIds: Array.from(selectedSessionIds) })
+                    body: JSON.stringify({ sessionIds: sourceIds })
                 });
                 const data = await res.json();
                 if (data.error) return alert('Error: ' + data.error);
                 lastMergeData = data;
+                lastMergeSourceIds = sourceIds;
                 renderMergeResults(data, `Merge ${data.summary.totalSessions} sessions`);
                 document.getElementById('merge-modal').classList.remove('hidden');
             } catch (e) { alert('Error: ' + e.message); }
@@ -811,6 +1119,10 @@
         function renderMergeResults(data) {
             const s = data.summary;
             const container = document.getElementById('merge-results-content');
+            const saveBtn = document.getElementById('btn-save-merged');
+            const saveStatus = document.getElementById('merge-save-status');
+            if (saveBtn) saveBtn.classList.toggle('hidden', lastMergeSourceIds.length === 0 || Boolean(data.savedSessionId));
+            if (saveStatus) saveStatus.textContent = data.savedSessionId ? t('merge.saved') : '';
             let html = `
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
                     <div class="bg-purple-50 p-3 rounded-lg text-center"><p class="text-[10px] text-gray-500 uppercase">Sessions</p><p class="text-xl font-black text-purple-700">${s.totalSessions}</p></div>
@@ -819,12 +1131,14 @@
                     <div class="bg-red-50 p-3 rounded-lg text-center"><p class="text-[10px] text-gray-500 uppercase">Revenue</p><p class="text-xl font-black text-red-600">${formatMoney(s.totalRevenue)}</p></div>
                 </div>`;
 
-            if (data.customerSummary && data.customerSummary.length > 0) {
+            const customerSummary = getMergeCustomerSummary(data);
+            if (customerSummary.length > 0) {
                 html += `<div class="mb-4"><h4 class="text-xs font-bold text-gray-500 uppercase mb-2">By customer</h4>
                     <table class="w-full text-xs border-collapse"><thead><tr class="bg-gray-100">
                     <th class="p-2 text-left border">Customer</th><th class="p-2 text-center border">Orders</th><th class="p-2 text-right border">Total</th></tr></thead><tbody>`;
-                data.customerSummary.forEach(c => {
-                    html += `<tr class="hover:bg-gray-50"><td class="p-2 border">${c.customerName || ''} ${c.customerUsername ? '(@' + c.customerUsername + ')' : ''}</td><td class="p-2 border text-center">${c.orders.length}</td><td class="p-2 border text-right font-bold text-red-500">${formatMoney(c.total)}</td></tr>`;
+                customerSummary.forEach((c, idx) => {
+                    const detailLabel = currentLang === 'en' ? 'Detail' : 'Chi tiết';
+                    html += `<tr class="hover:bg-gray-50"><td class="p-2 border">${escapeHtml(c.customerName || '')} ${c.customerUsername ? '(@' + escapeHtml(c.customerUsername) + ')' : ''}</td><td class="p-2 border text-center">${c.orders.length}</td><td class="p-2 border text-right font-bold text-red-500"><span>${formatMoney(c.total)}</span><button onclick="printMergeCustomerDetails(${idx})" class="ml-2 px-2 py-1 rounded bg-slate-100 text-slate-700 text-[10px] font-bold">${detailLabel}</button></td></tr>`;
                 });
                 html += '</tbody></table></div>';
             }
@@ -832,14 +1146,118 @@
             container.innerHTML = html;
         }
 
-        window.printMergeResults = () => {
+        function getMergeCustomerSummary(data) {
+            if (Array.isArray(data?.customerSummary) && data.customerSummary.length > 0) {
+                return data.customerSummary;
+            }
+            const customerMap = {};
+            (data?.mergedOrders || []).forEach(order => {
+                const key = order.customerUsername || order.customerName || 'unknown';
+                if (!customerMap[key]) {
+                    customerMap[key] = {
+                        customerName: order.customerName || '',
+                        customerUsername: order.customerUsername || '',
+                        orders: [],
+                        total: 0
+                    };
+                }
+                customerMap[key].orders.push(order);
+                customerMap[key].total += Number(order.total || order.price || 0);
+            });
+            return Object.values(customerMap).sort((a, b) => b.total - a.total);
+        }
+
+        window.saveMergedSession = async () => {
+            if (!lastMergeData || lastMergeSourceIds.length === 0) {
+                return alert(currentLang === 'en' ? 'No merged result to save.' : 'Chưa có kết quả gộp để lưu.');
+            }
+            try {
+                const res = await fetch('/api/live-sessions/merged', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ sessionIds: lastMergeSourceIds })
+                });
+                const data = await res.json();
+                if (!res.ok || !data.success) return alert('Error: ' + (data.error || 'Save error'));
+                lastMergeData.savedSessionId = data.session?.id || '';
+                const saveBtn = document.getElementById('btn-save-merged');
+                const saveStatus = document.getElementById('merge-save-status');
+                if (saveBtn) saveBtn.classList.add('hidden');
+                if (saveStatus) saveStatus.textContent = t('merge.saved');
+                refreshOverviewData(false);
+            } catch (e) {
+                alert('Save error: ' + e.message);
+            }
+        };
+
+        window.printMergeSummary = () => {
             if (!lastMergeData) return;
             const d = lastMergeData;
+            const customerSummary = getMergeCustomerSummary(d);
             let html = `<div style="font-family: 'Times New Roman', Times, serif; width: 80mm; margin: 0 auto; color: black;">`;
-            html += `<div style="text-align:center;"><h2 style="margin:0;">MERGED SUMMARY</h2><hr style="border:1px solid black;"></div>`;
+            html += `<div style="text-align:center;"><h2 style="margin:0;">TONG HOP PHIEN GOP</h2><hr style="border:1px solid black;"></div>`;
             html += `<p style="font-size:12px;">Sessions: ${d.summary.totalSessions} | Orders: ${d.summary.totalOrders} | Qty: ${d.summary.totalQuantity}</p>`;
             html += `<p style="font-weight:bold; font-size:16px;">TOTAL: ${formatMoney(d.summary.totalRevenue)}</p>`;
+            customerSummary.forEach(c => {
+                html += `<div style="display:flex; justify-content:space-between; gap:8px; border-top:1px dashed black; padding:4px 0; font-size:12px;">`;
+                html += `<span>${escapeHtml(c.customerName || '')}${c.customerUsername ? ' (@' + escapeHtml(c.customerUsername) + ')' : ''}<br>${c.orders.length} don</span>`;
+                html += `<b>${formatMoney(c.total)}</b>`;
+                html += `</div>`;
+            });
             html += `</div>`;
             document.getElementById('print-section').innerHTML = html;
             window.print();
         };
+
+        window.printMergeDetails = () => {
+            if (!lastMergeData) return;
+            const d = lastMergeData;
+            const customerSummary = getMergeCustomerSummary(d);
+            let html = `<div style="font-family: 'Times New Roman', Times, serif; width: 80mm; margin: 0 auto; color: black;">`;
+            html += `<div style="text-align:center;"><h2 style="margin:0;">CHI TIET PHIEN GOP</h2><hr style="border:1px solid black;"></div>`;
+            html += `<p style="font-size:12px;">Sessions: ${d.summary.totalSessions} | Orders: ${d.summary.totalOrders} | Qty: ${d.summary.totalQuantity}</p>`;
+            customerSummary.forEach(c => {
+                html += `<div style="margin-bottom:10px; border-bottom:1px dashed black; padding-bottom:6px;">`;
+                html += `<div style="font-weight:bold; font-size:15px;">${escapeHtml(c.customerName || '')}${c.customerUsername ? ' (@' + escapeHtml(c.customerUsername) + ')' : ''}</div>`;
+                c.orders.forEach((order, index) => {
+                    html += `<div style="display:flex; justify-content:space-between; gap:8px; font-size:12px; margin-top:3px;">`;
+                    html += `<span>${index + 1}. ${escapeHtml(order.productName || order.text || 'Don hang')} ${order.time ? '(' + escapeHtml(order.time) + ')' : ''}</span>`;
+                    html += `<b>${formatMoney(Number(order.total || order.price || 0))}</b>`;
+                    html += `</div>`;
+                });
+                html += `<div style="text-align:right; font-weight:bold; font-size:13px; margin-top:5px;">Cong: ${formatMoney(c.total)}</div>`;
+                html += `</div>`;
+            });
+            html += `<div style="text-align:center; font-weight:bold; font-size:16px;">TONG CONG: ${formatMoney(d.summary.totalRevenue)}</div>`;
+            html += `</div>`;
+            document.getElementById('print-section').innerHTML = html;
+            window.print();
+        };
+
+        window.printMergeCustomerDetails = (customerIndex) => {
+            if (!lastMergeData) return;
+            const customerSummary = getMergeCustomerSummary(lastMergeData);
+            const customer = customerSummary[customerIndex];
+            if (!customer) return;
+
+            let html = `<div style="font-family: 'Times New Roman', Times, serif; width: 80mm; margin: 0 auto; color: black;">`;
+            html += `<div style="text-align:center;"><h2 style="margin:0;">CHI TIET KHACH</h2><hr style="border:1px solid black;"></div>`;
+            html += `<div style="font-weight:bold; font-size:17px; margin-bottom:4px;">${escapeHtml(customer.customerName || '')}</div>`;
+            if (customer.customerUsername) {
+                html += `<div style="font-size:12px; margin-bottom:8px;">@${escapeHtml(customer.customerUsername)}</div>`;
+            }
+            customer.orders.forEach((order, index) => {
+                html += `<div style="display:flex; justify-content:space-between; gap:8px; border-top:1px dashed black; padding:4px 0; font-size:12px;">`;
+                html += `<span>${index + 1}. ${escapeHtml(order.productName || order.text || 'Don hang')} ${order.time ? '(' + escapeHtml(order.time) + ')' : ''}</span>`;
+                html += `<b>${formatMoney(Number(order.total || order.price || 0))}</b>`;
+                html += `</div>`;
+            });
+            html += `<hr style="border:1px solid black; margin:8px 0;">`;
+            html += `<div style="display:flex; justify-content:space-between; font-weight:bold; font-size:16px;"><span>TONG:</span><span>${formatMoney(customer.total)}</span></div>`;
+            html += `<div style="font-size:12px; margin-top:4px;">Orders: ${customer.orders.length}</div>`;
+            html += `</div>`;
+            document.getElementById('print-section').innerHTML = html;
+            window.print();
+        };
+
+        window.printMergeResults = window.printMergeSummary;

@@ -165,6 +165,8 @@ app.get('/api/live-sessions', requireApiAuth, (req, res) => {
         // Trả về danh sách không kèm orders chi tiết (nhẹ hơn)
         const list = sessions.map(s => ({
             id: s.id,
+            source: s.type === 'merged_session' ? 'merged_session' : 'live_session',
+            type: s.type || 'live_session',
             liveName: s.liveName,
             tiktokUsername: s.tiktokUsername,
             startedAt: s.startedAt,
@@ -172,9 +174,51 @@ app.get('/api/live-sessions', requireApiAuth, (req, res) => {
             createdAt: s.createdAt,
             summary: s.summary
         }));
-        res.json({ sessions: list });
+        const legacyList = readLegacyHistorySessions();
+        const combinedList = [...list, ...legacyList].sort((a, b) => {
+            const left = Date.parse(a.createdAt || a.startedAt || 0) || 0;
+            const right = Date.parse(b.createdAt || b.startedAt || 0) || 0;
+            return right - left;
+        });
+        res.json({ sessions: combinedList });
     } catch (error) {
         console.error('Lỗi lấy danh sách phiên live:', error);
+        res.status(500).json({ error: 'Lỗi server' });
+    }
+});
+
+// POST /api/live-sessions/merged — Lưu kết quả gộp thành 1 phiên mới
+app.post('/api/live-sessions/merged', requireApiAuth, (req, res) => {
+    try {
+        const userId = req.session.user.uid;
+        const { sessionIds } = req.body;
+
+        if (!sessionIds || !Array.isArray(sessionIds) || sessionIds.length === 0) {
+            return res.status(400).json({ error: 'Vui lòng chọn ít nhất 1 phiên' });
+        }
+
+        const result = mergeLiveSessionsWithLegacy(userId, sessionIds);
+        if (!result) {
+            return res.status(404).json({ error: 'Không tìm thấy phiên live nào' });
+        }
+
+        const now = new Date();
+        const liveName = `Phiên gộp ${now.toLocaleDateString('vi-VN')} ${now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`;
+        const newSession = liveSessionStore.createLiveSession(userId, {
+            type: 'merged_session',
+            liveName,
+            tiktokUsername: '',
+            startedAt: now.toISOString(),
+            endedAt: now.toISOString(),
+            sourceSessionIds: sessionIds,
+            orders: result.mergedOrders,
+            summary: result.summary
+        });
+
+        console.log(`>>> Đã lưu phiên gộp "${newSession.liveName}" cho user ${userId} (${newSession.summary.totalOrders} đơn)`);
+        res.json({ success: true, session: newSession });
+    } catch (error) {
+        console.error('Lỗi lưu phiên gộp:', error);
         res.status(500).json({ error: 'Lỗi server' });
     }
 });
@@ -210,6 +254,14 @@ app.post('/api/live-sessions', requireApiAuth, (req, res) => {
 app.get('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
     try {
         const userId = req.session.user.uid;
+        if (String(req.params.sessionId || '').startsWith('legacy:')) {
+            const session = getLegacyHistorySession(req.params.sessionId);
+            if (!session) {
+                return res.status(404).json({ error: 'Không tìm thấy phiên live' });
+            }
+            return res.json({ session });
+        }
+
         const session = liveSessionStore.getLiveSessionById(userId, req.params.sessionId);
         if (!session) {
             return res.status(404).json({ error: 'Không tìm thấy phiên live' });
@@ -225,6 +277,15 @@ app.get('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
 app.delete('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
     try {
         const userId = req.session.user.uid;
+        if (String(req.params.sessionId || '').startsWith('legacy:')) {
+            const deleted = deleteLegacyHistorySession(req.params.sessionId);
+            if (!deleted) {
+                return res.status(404).json({ error: 'Không tìm thấy phiên live' });
+            }
+            console.log(`>>> Đã xóa legacy history ${req.params.sessionId} bởi user ${userId}`);
+            return res.json({ success: true });
+        }
+
         const deleted = liveSessionStore.deleteLiveSession(userId, req.params.sessionId);
         if (!deleted) {
             return res.status(404).json({ error: 'Không tìm thấy phiên live' });
@@ -247,7 +308,7 @@ app.post('/api/live-sessions/merge-summary', requireApiAuth, (req, res) => {
             return res.status(400).json({ error: 'Vui lòng chọn ít nhất 1 phiên' });
         }
 
-        const result = liveSessionStore.mergeLiveSessions(userId, sessionIds);
+        const result = mergeLiveSessionsWithLegacy(userId, sessionIds);
         if (!result) {
             return res.status(404).json({ error: 'Không tìm thấy phiên live nào' });
         }
@@ -256,6 +317,18 @@ app.post('/api/live-sessions/merge-summary', requireApiAuth, (req, res) => {
     } catch (error) {
         console.error('Lỗi gộp phiên live:', error);
         res.status(500).json({ error: 'Lỗi server' });
+    }
+});
+
+// GET /api/overview — Tổng hợp dữ liệu thật cho dashboard tổng quan
+app.get('/api/overview', requireApiAuth, (req, res) => {
+    try {
+        const range = normalizeOverviewRange(req.query.start, req.query.end);
+        const result = buildOverviewDataset(req.session.user, range);
+        res.json(result);
+    } catch (error) {
+        console.error('Lỗi tổng hợp overview:', error);
+        res.status(500).json({ error: 'Lỗi server khi tải tổng quan' });
     }
 });
 
@@ -643,6 +716,164 @@ function readLegacyHistoryRows() {
     return { rows, files: files.length };
 }
 
+function safeLegacyHistoryFileName(fileName) {
+    const name = path.basename(String(fileName || ''));
+    if (!/^\d{4}-\d{2}-\d{2}_[^/\\]+\.json$/i.test(name)) return '';
+    return name;
+}
+
+function legacyHistoryFileToOrders(fileName, data) {
+    const meta = historyMetaFromFile(fileName);
+    const dateKey = meta.date || '';
+    const orders = [];
+
+    Object.values(data || {}).forEach(customer => {
+        const items = Array.isArray(customer?.items) ? customer.items : [];
+        items.forEach(item => {
+            const itemTime = item.time || '';
+            const timestamp = timestampFromParts(dateKey, itemTime);
+            orders.push({
+                id: `legacy_${fileName}_${item.id || `${customer.username || 'unknown'}_${itemTime}`}`,
+                customerName: customer.nickname || '',
+                customerUsername: customer.username || '',
+                profilePictureUrl: customer.profilePictureUrl || '',
+                productName: item.text || '',
+                quantity: 1,
+                price: Number(item.price || 0),
+                total: Number(item.price || 0),
+                note: '',
+                time: itemTime,
+                createdAt: Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : ''
+            });
+        });
+    });
+
+    return orders;
+}
+
+function readLegacyHistorySession(fileName) {
+    const safeFileName = safeLegacyHistoryFileName(fileName);
+    if (!safeFileName) return null;
+
+    const filePath = path.join(HISTORY_DIR, safeFileName);
+    if (!fs.existsSync(filePath)) return null;
+
+    try {
+        const stats = fs.statSync(filePath);
+        const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        const meta = historyMetaFromFile(safeFileName);
+        const orders = legacyHistoryFileToOrders(safeFileName, data);
+        const summary = liveSessionStore.calculateSessionSummary(orders);
+        const sessionDate = meta.date ? timestampFromParts(meta.date, '00:00:00') : stats.mtime.getTime();
+        const createdAt = new Date(sessionDate || stats.mtime.getTime()).toISOString();
+
+        return {
+            id: `legacy:${safeFileName}`,
+            source: 'legacy_history',
+            fileName: safeFileName,
+            liveName: safeFileName.replace(/\.json$/i, ''),
+            tiktokUsername: meta.shop || '',
+            startedAt: createdAt,
+            endedAt: createdAt,
+            createdAt,
+            updatedAt: stats.mtime.toISOString(),
+            orders,
+            summary
+        };
+    } catch (e) {
+        console.error(`Lỗi đọc phiên history ${safeFileName}:`, e.message);
+        return null;
+    }
+}
+
+function readLegacyHistorySessions() {
+    if (!fs.existsSync(HISTORY_DIR)) return [];
+    return fs.readdirSync(HISTORY_DIR)
+        .filter(f => f.endsWith('.json'))
+        .map(readLegacyHistorySession)
+        .filter(Boolean);
+}
+
+function getLegacyHistorySession(sessionId) {
+    const fileName = String(sessionId || '').replace(/^legacy:/, '');
+    return readLegacyHistorySession(fileName);
+}
+
+function deleteLegacyHistorySession(sessionId) {
+    const fileName = String(sessionId || '').replace(/^legacy:/, '');
+    const safeFileName = safeLegacyHistoryFileName(fileName);
+    if (!safeFileName) return false;
+
+    const filePath = path.join(HISTORY_DIR, safeFileName);
+    const resolvedHistoryDir = path.resolve(HISTORY_DIR);
+    const resolvedFilePath = path.resolve(filePath);
+    if (!resolvedFilePath.startsWith(resolvedHistoryDir + path.sep)) return false;
+    if (!fs.existsSync(resolvedFilePath)) return false;
+
+    fs.unlinkSync(resolvedFilePath);
+    return true;
+}
+
+function mergeLiveSessionsWithLegacy(userId, sessionIds) {
+    const selectedIds = Array.isArray(sessionIds) ? sessionIds : [];
+    const userSessions = liveSessionStore.readUserSessions(userId)
+        .filter(s => selectedIds.includes(s.id));
+    const legacySessions = selectedIds
+        .filter(id => String(id).startsWith('legacy:'))
+        .map(getLegacyHistorySession)
+        .filter(Boolean);
+    const selected = [...userSessions, ...legacySessions];
+
+    if (selected.length === 0) return null;
+
+    const mergedOrders = [];
+    const seenOrderIds = new Set();
+    selected.forEach(session => {
+        (session.orders || []).forEach(order => {
+            const key = order.id || `${session.id}_${order.customerUsername}_${order.productName}_${order.total}_${order.time}`;
+            if (seenOrderIds.has(key)) return;
+            seenOrderIds.add(key);
+            mergedOrders.push({ ...order, fromSession: session.liveName });
+        });
+    });
+
+    const summary = liveSessionStore.calculateSessionSummary(mergedOrders);
+    const productSummary = liveSessionStore.calculateProductSummary(mergedOrders);
+    const customerMap = {};
+    mergedOrders.forEach(order => {
+        const key = order.customerUsername || order.customerName || 'unknown';
+        if (!customerMap[key]) {
+            customerMap[key] = {
+                customerName: order.customerName,
+                customerUsername: order.customerUsername,
+                profilePictureUrl: order.profilePictureUrl,
+                orders: [],
+                total: 0
+            };
+        }
+        customerMap[key].orders.push(order);
+        customerMap[key].total += Number(order.total || order.price || 0);
+    });
+
+    return {
+        selectedSessions: selected.map(s => ({
+            id: s.id,
+            liveName: s.liveName,
+            tiktokUsername: s.tiktokUsername,
+            startedAt: s.startedAt,
+            summary: s.summary,
+            source: s.source || 'live_session'
+        })),
+        summary: {
+            totalSessions: selected.length,
+            ...summary
+        },
+        mergedOrders,
+        productSummary,
+        customerSummary: Object.values(customerMap).sort((a, b) => b.total - a.total)
+    };
+}
+
 function buildExportDataset(scope, currentUser) {
     const live = readAllLiveSessionRows();
     const history = readLegacyHistoryRows();
@@ -671,6 +902,257 @@ function buildExportDataset(scope, currentUser) {
             }
         },
         rows
+    };
+}
+
+function pad2(value) {
+    return String(value).padStart(2, '0');
+}
+
+function formatDateKey(date) {
+    return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+}
+
+function parseDateKey(value) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return null;
+    const date = new Date(`${value}T00:00:00`);
+    if (Number.isNaN(date.getTime())) return null;
+    return date;
+}
+
+function normalizeOverviewRange(startQuery, endQuery) {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const defaultStart = new Date(today);
+    defaultStart.setDate(defaultStart.getDate() - 6);
+
+    let start = parseDateKey(startQuery) || defaultStart;
+    let end = parseDateKey(endQuery) || today;
+    start.setHours(0, 0, 0, 0);
+    end.setHours(0, 0, 0, 0);
+
+    if (start > end) {
+        const tmp = start;
+        start = end;
+        end = tmp;
+    }
+
+    const maxDays = 370;
+    const diffDays = Math.floor((end - start) / 86400000);
+    if (diffDays > maxDays) {
+        start = new Date(end);
+        start.setDate(start.getDate() - maxDays);
+    }
+
+    return {
+        start: formatDateKey(start),
+        end: formatDateKey(end),
+        startDate: start,
+        endDate: end
+    };
+}
+
+function historyMetaFromFile(fileName) {
+    const match = String(fileName || '').match(/^(\d{4}-\d{2}-\d{2})_(.+)\.json$/i);
+    if (!match) return { date: '', shop: '' };
+    return {
+        date: match[1],
+        shop: match[2].replace(/\.json$/i, '')
+    };
+}
+
+function timestampFromParts(dateKey, timeText) {
+    const time = /^\d{1,2}:\d{2}(:\d{2})?$/.test(String(timeText || ''))
+        ? String(timeText).length === 5 ? `${timeText}:00` : String(timeText)
+        : '00:00:00';
+    const stamp = Date.parse(`${dateKey}T${time}+07:00`);
+    return Number.isFinite(stamp) ? stamp : Date.parse(`${dateKey}T00:00:00+07:00`);
+}
+
+function dateKeyFromTimestamp(timestamp) {
+    const date = new Date(timestamp);
+    if (Number.isNaN(date.getTime())) return '';
+    return formatDateKey(date);
+}
+
+function currentLiveRows(currentUser) {
+    const todayKey = formatDateKey(new Date());
+    const rows = [];
+    Object.values(confirmedOrders || {}).forEach(customer => {
+        const items = Array.isArray(customer?.items) ? customer.items : [];
+        items.forEach(item => {
+            const timestamp = timestampFromParts(todayKey, item.time);
+            rows.push({
+                source: 'current_live',
+                userId: currentUser.uid,
+                date: todayKey,
+                timestamp,
+                shop: currentBroadcasterId || '',
+                orderId: String(item.id || ''),
+                customer: customer.nickname || customer.username || '',
+                customerUsername: customer.username || '',
+                productName: item.text || '',
+                quantity: 1,
+                value: Number(item.price || 0),
+                status: 'done'
+            });
+        });
+    });
+    return rows;
+}
+
+function liveSessionOverviewRows(currentUser) {
+    return readAllLiveSessionRows().rows
+        .filter(row => row.source === 'live_session' && row.userId === currentUser.uid && Number(row.total || 0) > 0)
+        .map(row => {
+            const rawTimestamp = Date.parse(row.orderCreatedAt || row.sessionCreatedAt || '');
+            const date = Number.isFinite(rawTimestamp)
+                ? dateKeyFromTimestamp(rawTimestamp)
+                : formatDateKey(new Date());
+            return {
+                source: 'live_session',
+                userId: row.userId,
+                date,
+                timestamp: Number.isFinite(rawTimestamp) ? rawTimestamp : timestampFromParts(date, row.itemTime),
+                shop: row.tiktokUsername || '',
+                orderId: String(row.orderId || ''),
+                customer: row.customerName || row.customerUsername || '',
+                customerUsername: row.customerUsername || '',
+                productName: row.productName || '',
+                quantity: Number(row.quantity || 1),
+                value: Number(row.total || row.price || 0),
+                status: 'done'
+            };
+        });
+}
+
+function legacyHistoryOverviewRows() {
+    return readLegacyHistoryRows().rows
+        .filter(row => Number(row.total || 0) > 0)
+        .map(row => {
+            const meta = historyMetaFromFile(row.historyFile);
+            const date = row.historyDate || meta.date || '';
+            return {
+                source: 'legacy_history',
+                userId: '',
+                date,
+                timestamp: timestampFromParts(date, row.itemTime),
+                shop: meta.shop || row.tiktokUsername || '',
+                orderId: String(row.orderId || ''),
+                customer: row.customerName || row.customerUsername || '',
+                customerUsername: row.customerUsername || '',
+                productName: row.productName || '',
+                quantity: Number(row.quantity || 1),
+                value: Number(row.total || row.price || 0),
+                status: 'done'
+            };
+        });
+}
+
+function dedupeOverviewRows(rows) {
+    const sourcePriority = { current_live: 0, live_session: 1, legacy_history: 2 };
+    const seen = new Set();
+    return rows
+        .slice()
+        .sort((a, b) => (sourcePriority[a.source] ?? 9) - (sourcePriority[b.source] ?? 9))
+        .filter(row => {
+            const normalizedOrderId = String(row.orderId || '').replace(/^order_/, '');
+            const key = normalizedOrderId
+                ? `${row.date}|${row.shop}|${row.customerUsername}|${normalizedOrderId}`
+                : `${row.date}|${row.shop}|${row.customerUsername}|${row.productName}|${row.value}|${row.timestamp}`;
+            if (seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+}
+
+function dateRangeContains(range, dateKey) {
+    return dateKey >= range.start && dateKey <= range.end;
+}
+
+function buildDailyOverview(rows, range) {
+    const dailyMap = {};
+    const cursor = new Date(range.startDate);
+    while (cursor <= range.endDate) {
+        const key = formatDateKey(cursor);
+        dailyMap[key] = { date: key, orders: 0, revenue: 0 };
+        cursor.setDate(cursor.getDate() + 1);
+    }
+    rows.forEach(row => {
+        if (!dailyMap[row.date]) return;
+        dailyMap[row.date].orders += 1;
+        dailyMap[row.date].revenue += Number(row.value || 0);
+    });
+    return Object.values(dailyMap);
+}
+
+function buildOverviewDataset(currentUser, range) {
+    const allRows = dedupeOverviewRows([
+        ...currentLiveRows(currentUser),
+        ...liveSessionOverviewRows(currentUser),
+        ...legacyHistoryOverviewRows()
+    ]);
+    const rows = allRows.filter(row => row.date && dateRangeContains(range, row.date));
+    const todayKey = formatDateKey(new Date());
+    const comments = dateRangeContains(range, todayKey) && currentBroadcasterId
+        ? (chatBufferByBroadcaster.get(currentBroadcasterId) || []).length
+        : 0;
+    const currentLiveOrderCount = rows.filter(row => row.source === 'current_live').length;
+    const totalOrders = rows.length;
+    const totalRevenue = rows.reduce((sum, row) => sum + Number(row.value || 0), 0);
+    const closeRate = comments > 0 ? Math.min(99.9, (currentLiveOrderCount / comments) * 100) : 0;
+
+    const topCustomerMap = {};
+    rows.forEach(row => {
+        const customerKey = row.customerUsername || row.customer || 'unknown';
+        if (!topCustomerMap[customerKey]) {
+            topCustomerMap[customerKey] = {
+                customer: row.customer || row.customerUsername || 'Không rõ',
+                customerUsername: row.customerUsername || '',
+                revenue: 0,
+                orders: 0
+            };
+        }
+        topCustomerMap[customerKey].orders += 1;
+        topCustomerMap[customerKey].revenue += Number(row.value || 0);
+    });
+
+    return {
+        summary: {
+            orders: totalOrders,
+            revenue: totalRevenue,
+            comments,
+            activeLive: currentBroadcasterId ? 1 : 0,
+            closeRate
+        },
+        daily: buildDailyOverview(rows, range),
+        topShops: Object.values(topCustomerMap)
+            .sort((a, b) => b.revenue - a.revenue)
+            .slice(0, 5),
+        latestOrders: rows
+            .slice()
+            .sort((a, b) => b.timestamp - a.timestamp)
+            .slice(0, 8)
+            .map(row => ({
+                id: row.orderId,
+                customer: row.customer,
+                shop: row.shop || 'unknown',
+                value: row.value,
+                status: row.status,
+                date: row.date,
+                time: new Date(row.timestamp).toLocaleTimeString('vi-VN', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    timeZone: 'Asia/Ho_Chi_Minh'
+                })
+            })),
+        meta: {
+            start: range.start,
+            end: range.end,
+            sources: ['current_live', 'live_session', 'legacy_history'],
+            rows: rows.length
+        }
     };
 }
 
@@ -845,7 +1327,7 @@ io.on('connection', (socket) => {
                 confirmedOrders[username].total = confirmedOrders[username].total - item.price + newPrice;
                 item.price = newPrice;
                 saveSessionData();
-                io.emit('all-confirmed-orders', confirmedOrders[username]);
+                io.emit('all-confirmed-orders', confirmedOrders);
             }
         }
     });
@@ -885,7 +1367,7 @@ io.on('connection', (socket) => {
     });
 });
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running at http://0.0.0.0:${PORT}`);
 });

@@ -21,9 +21,15 @@
         "text": "7",
         "price": 7000,
         "time": "14:27:01"
+      },
+      {
+        "id": 1779609799889.1514,
+        "text": "10",
+        "price": 10000,
+        "time": "15:03:19"
       }
     ],
-    "total": 27001
+    "total": 37001
   },
   "phoxiquach": {
     "username": "phoxiquach",
@@ -73,9 +79,15 @@
         "text": "@45",
         "price": 45000,
         "time": "13:30:19"
+      },
+      {
+        "id": 1779608110768.4292,
+        "text": "20",
+        "price": 20000,
+        "time": "14:35:10"
       }
     ],
-    "total": 45000
+    "total": 65000
   },
   "dautayyy001": {
     "username": "dautayyy001",
@@ -123,9 +135,33 @@
         "text": "20",
         "price": 20000,
         "time": "14:23:11"
+      },
+      {
+        "id": 1779608988345.5417,
+        "text": "30",
+        "price": 30000,
+        "time": "14:49:48"
+      },
+      {
+        "id": 1779609617407.6138,
+        "text": "5",
+        "price": 5000,
+        "time": "15:00:17"
+      },
+      {
+        "id": 1779609844765.5317,
+        "text": "25",
+        "price": 25000,
+        "time": "15:04:04"
+      },
+      {
+        "id": 1779611942148.8555,
+        "text": "20",
+        "price": 20000,
+        "time": "15:39:02"
       }
     ],
-    "total": 140000
+    "total": 220000
   },
   "maiminhnguyet2111": {
     "username": "maiminhnguyet2111",
@@ -199,9 +235,45 @@
         "text": "25",
         "price": 25000,
         "time": "14:20:33"
+      },
+      {
+        "id": 1779608164677.7952,
+        "text": "@25",
+        "price": 25000,
+        "time": "14:36:04"
+      },
+      {
+        "id": 1779608306373.7063,
+        "text": "20",
+        "price": 20000,
+        "time": "14:38:26"
+      },
+      {
+        "id": 1779609566014.5833,
+        "text": "l5",
+        "price": 5000,
+        "time": "14:59:26"
+      },
+      {
+        "id": 1779610360657.713,
+        "text": "5",
+        "price": 5000,
+        "time": "15:12:40"
+      },
+      {
+        "id": 1779610875932.4856,
+        "text": "20",
+        "price": 20000,
+        "time": "15:21:15"
+      },
+      {
+        "id": 1779611551760.4417,
+        "text": "15",
+        "price": 15000,
+        "time": "15:32:31"
       }
     ],
-    "total": 85000
+    "total": 175000
   },
   "na506596": {
     "username": "na506596",
@@ -213,9 +285,15 @@
         "text": "15",
         "price": 15000,
         "time": "14:01:18"
+      },
+      {
+        "id": 1779611508037.8127,
+        "text": "35",
+        "price": 35000,
+        "time": "15:31:48"
       }
     ],
-    "total": 15000
+    "total": 50000
   },
   "haanhthu1503": {
     "username": "haanhthu1503",
@@ -227,9 +305,15 @@
         "text": "20",
         "price": 20000,
         "time": "14:02:02"
+      },
+      {
+        "id": 1779614369536.9675,
+        "text": "20",
+        "price": 20000,
+        "time": "16:19:29"
       }
     ],
-    "total": 20000
+    "total": 40000
   },
   "ttkh0511": {
     "username": "ttkh0511",
@@ -279,9 +363,15 @@
         "text": "30",
         "price": 30000,
         "time": "14:31:40"
+      },
+      {
+        "id": 1779612278937.9978,
+        "text": "30",
+        "price": 30000,
+        "time": "15:44:38"
       }
     ],
-    "total": 110000
+    "total": 140000
   },
   "barbiedoll1404": {
     "username": "barbiedoll1404",
@@ -307,9 +397,39 @@
         "text": "20",
         "price": 20000,
         "time": "14:12:01"
+      },
+      {
+        "id": 1779608480638.4045,
+        "text": "15",
+        "price": 15000,
+        "time": "14:41:20"
+      },
+      {
+        "id": 1779613456654.2944,
+        "text": "25",
+        "price": 25000,
+        "time": "16:04:16"
+      },
+      {
+        "id": 1779614450001.631,
+        "text": "20",
+        "price": 20000,
+        "time": "16:20:50"
+      },
+      {
+        "id": 1779614472018.0962,
+        "text": "25",
+        "price": 25000,
+        "time": "16:21:12"
+      },
+      {
+        "id": 1779614746452.4392,
+        "text": "30",
+        "price": 30000,
+        "time": "16:25:46"
       }
     ],
-    "total": 20000
+    "total": 135000
   },
   "kieutien1007": {
     "username": "kieutien1007",
@@ -321,9 +441,15 @@
         "text": "19",
         "price": 19000,
         "time": "14:13:08"
+      },
+      {
+        "id": 1779608962269.9595,
+        "text": "10",
+        "price": 10000,
+        "time": "14:49:22"
       }
     ],
-    "total": 19000
+    "total": 29000
   },
   "minhanhh.cute11": {
     "username": "minhanhh.cute11",
@@ -335,9 +461,33 @@
         "text": "10",
         "price": 10000,
         "time": "14:22:08"
+      },
+      {
+        "id": 1779614043695.637,
+        "text": "15 xanh la",
+        "price": 15000,
+        "time": "16:14:03"
+      },
+      {
+        "id": 1779614067652.372,
+        "text": "15",
+        "price": 15000,
+        "time": "16:14:27"
+      },
+      {
+        "id": 1779615016269.6382,
+        "text": "15",
+        "price": 15000,
+        "time": "16:30:16"
+      },
+      {
+        "id": 1779615122166.85,
+        "text": "Htn trắng để t 10 di",
+        "price": 10000,
+        "time": "16:32:02"
       }
     ],
-    "total": 10000
+    "total": 65000
   },
   "minhchew": {
     "username": "minhchew",
@@ -349,8 +499,492 @@
         "text": "10",
         "price": 10000,
         "time": "14:29:38"
+      },
+      {
+        "id": 1779608834850.744,
+        "text": "20",
+        "price": 20000,
+        "time": "14:47:14"
+      },
+      {
+        "id": 1779609078311.5986,
+        "text": "30",
+        "price": 30000,
+        "time": "14:51:18"
+      },
+      {
+        "id": 1779610083865.0034,
+        "text": "20",
+        "price": 20000,
+        "time": "15:08:03"
       }
     ],
-    "total": 10000
+    "total": 80000
+  },
+  "phuongtuyen1307": {
+    "username": "phuongtuyen1307",
+    "nickname": "T👩‍⚕️",
+    "profilePictureUrl": "https://p16-common-sign.tiktokcdn.com/tos-alisg-avt-0068/dbac7316d1df0a47552ab8008ace48d2~tplv-tiktok-shrink:72:72.webp?dr=14561&refresh_token=f277e125&x-expires=1779778800&x-signature=tQ8kZGMpZYSdKs5HNr6E65cjwno%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=fdd36af4&idc=my2",
+    "items": [
+      {
+        "id": 1779608189735.462,
+        "text": "10",
+        "price": 10000,
+        "time": "14:36:29"
+      },
+      {
+        "id": 1779608190653.0913,
+        "text": "30",
+        "price": 30000,
+        "time": "14:36:30"
+      },
+      {
+        "id": 1779611749857.292,
+        "text": "L19",
+        "price": 19000,
+        "time": "15:35:49"
+      },
+      {
+        "id": 1779612057179.236,
+        "text": "10",
+        "price": 10000,
+        "time": "15:40:57"
+      },
+      {
+        "id": 1779613554088.73,
+        "text": "20",
+        "price": 20000,
+        "time": "16:05:54"
+      },
+      {
+        "id": 1779613774882.2998,
+        "text": "35",
+        "price": 35000,
+        "time": "16:09:34"
+      },
+      {
+        "id": 1779614000798.2373,
+        "text": "15",
+        "price": 15000,
+        "time": "16:13:20"
+      },
+      {
+        "id": 1779614001746.771,
+        "text": "15 xanh",
+        "price": 15000,
+        "time": "16:13:21"
+      },
+      {
+        "id": 1779614288840.113,
+        "text": "20",
+        "price": 20000,
+        "time": "16:18:08"
+      }
+    ],
+    "total": 174000
+  },
+  "chautai": {
+    "username": "chautai",
+    "nickname": "Châu Lee",
+    "profilePictureUrl": "https://p16-common-sign.tiktokcdn.com/tos-alisg-avt-0068/7325847405910310913~tplv-tiktok-shrink:72:72.webp?dr=14561&refresh_token=925f74ee&x-expires=1779778800&x-signature=MBz2abqbXwUKb%2FcWYfhZqotHsqU%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=fdd36af4&idc=my2",
+    "items": [
+      {
+        "id": 1779608403963.2866,
+        "text": "30",
+        "price": 30000,
+        "time": "14:40:03"
+      },
+      {
+        "id": 1779609396257.8315,
+        "text": "15",
+        "price": 15000,
+        "time": "14:56:36"
+      },
+      {
+        "id": 1779610589219.5557,
+        "text": "20",
+        "price": 20000,
+        "time": "15:16:29"
+      },
+      {
+        "id": 1779611460632.071,
+        "text": "15",
+        "price": 15000,
+        "time": "15:31:00"
+      }
+    ],
+    "total": 80000
+  },
+  "l.hng28609": {
+    "username": "l.hng28609",
+    "nickname": "Hạnh Lê",
+    "profilePictureUrl": "https://p16-common-sign.tiktokcdn.com/tos-alisg-avt-0068/48f75f26e45cb1bffdb80f17c735ce1c~tplv-tiktok-shrink:72:72.webp?dr=14561&refresh_token=5c39de5f&x-expires=1779778800&x-signature=9PbH82YX3wEuDBxYtfoG6%2Bd3%2FYw%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=fdd36af4&idc=my",
+    "items": [
+      {
+        "id": 1779608549802.5789,
+        "text": "9",
+        "price": 9000,
+        "time": "14:42:29"
+      },
+      {
+        "id": 1779608887408.0825,
+        "text": "35",
+        "price": 35000,
+        "time": "14:48:07"
+      },
+      {
+        "id": 1779609188864.7117,
+        "text": "20",
+        "price": 20000,
+        "time": "14:53:08"
+      },
+      {
+        "id": 1779609460424.1863,
+        "text": "30",
+        "price": 30000,
+        "time": "14:57:40"
+      },
+      {
+        "id": 1779609669322.5723,
+        "text": "25",
+        "price": 25000,
+        "time": "15:01:09"
+      },
+      {
+        "id": 1779609709292.7727,
+        "text": "20",
+        "price": 20000,
+        "time": "15:01:49"
+      },
+      {
+        "id": 1779610711108.1965,
+        "text": "30",
+        "price": 30000,
+        "time": "15:18:31"
+      },
+      {
+        "id": 1779611308464.201,
+        "text": "20",
+        "price": 20000,
+        "time": "15:28:28"
+      },
+      {
+        "id": 1779611649214.9856,
+        "text": "40",
+        "price": 40000,
+        "time": "15:34:09"
+      },
+      {
+        "id": 1779612256132.4812,
+        "text": "20",
+        "price": 20000,
+        "time": "15:44:16"
+      },
+      {
+        "id": 1779612722930.5042,
+        "text": "40",
+        "price": 40000,
+        "time": "15:52:02"
+      },
+      {
+        "id": 1779612827478.8584,
+        "text": "20",
+        "price": 20000,
+        "time": "15:53:47"
+      },
+      {
+        "id": 1779613267220.441,
+        "text": "20",
+        "price": 20000,
+        "time": "16:01:07"
+      }
+    ],
+    "total": 329000
+  },
+  "iamthuytramm": {
+    "username": "iamthuytramm",
+    "nickname": "iamthuytramm",
+    "profilePictureUrl": "https://p19-common-sign.tiktokcdn.com/tos-alisg-avt-0068/8e2c2ca0f91e5175342201dfb903a6e4~tplv-tiktok-shrink:72:72.webp?dr=14561&refresh_token=cdae6fbc&x-expires=1779778800&x-signature=NjEyrin49ItXWk4VrbPywYlXMCU%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=fdd36af4&idc=my2",
+    "items": [
+      {
+        "id": 1779609425068.322,
+        "text": "15",
+        "price": 15000,
+        "time": "14:57:05"
+      },
+      {
+        "id": 1779611882822.7087,
+        "text": "10",
+        "price": 10000,
+        "time": "15:38:02"
+      },
+      {
+        "id": 1779614410019.2124,
+        "text": "5",
+        "price": 5000,
+        "time": "16:20:10"
+      }
+    ],
+    "total": 30000
+  },
+  "chichi1999chi": {
+    "username": "chichi1999chi",
+    "nickname": "Chíp🌺",
+    "profilePictureUrl": "https://p16-common-sign.tiktokcdn.com/tos-alisg-avt-0068/cdd872ab3a8520cb4023baa75b41dc63~tplv-tiktok-shrink:72:72.webp?dr=14561&refresh_token=2568e0ee&x-expires=1779782400&x-signature=RYksYqDsNuwQQ6b5ETZqrmA0GNQ%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=fdd36af4&idc=my3",
+    "items": [
+      {
+        "id": 1779610264570.0972,
+        "text": "35",
+        "price": 35000,
+        "time": "15:11:04"
+      },
+      {
+        "id": 1779610510262.8867,
+        "text": "40",
+        "price": 40000,
+        "time": "15:15:10"
+      },
+      {
+        "id": 1779610535770.6763,
+        "text": "30",
+        "price": 30000,
+        "time": "15:15:35"
+      },
+      {
+        "id": 1779610904714.2256,
+        "text": "35",
+        "price": 35000,
+        "time": "15:21:44"
+      },
+      {
+        "id": 1779611148076.4683,
+        "text": "15",
+        "price": 15000,
+        "time": "15:25:48"
+      },
+      {
+        "id": 1779611288789.3403,
+        "text": "20",
+        "price": 20000,
+        "time": "15:28:08"
+      },
+      {
+        "id": 1779611586064.286,
+        "text": "15",
+        "price": 15000,
+        "time": "15:33:06"
+      },
+      {
+        "id": 1779612515734.469,
+        "text": "39",
+        "price": 39000,
+        "time": "15:48:35"
+      },
+      {
+        "id": 1779613227517.9033,
+        "text": "10",
+        "price": 10000,
+        "time": "16:00:27"
+      },
+      {
+        "id": 1779613701882.9404,
+        "text": "20",
+        "price": 20000,
+        "time": "16:08:21"
+      },
+      {
+        "id": 1779613882971.0679,
+        "text": "35",
+        "price": 35000,
+        "time": "16:11:22"
+      }
+    ],
+    "total": 294000
+  },
+  "qq84227": {
+    "username": "qq84227",
+    "nickname": "Quyên",
+    "profilePictureUrl": "https://p16-common-sign.tiktokcdn.com/tos-alisg-avt-0068/a72ee2a33cec40a8fc81d5cfa818a9bc~tplv-tiktok-shrink:72:72.webp?dr=14561&refresh_token=c81f0e8a&x-expires=1779782400&x-signature=xoUQwXndUEAuCLgf0CMYHQPlphc%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=fdd36af4&idc=my3",
+    "items": [
+      {
+        "id": 1779610522301.3293,
+        "text": "30",
+        "price": 30000,
+        "time": "15:15:22"
+      },
+      {
+        "id": 1779610821458.8574,
+        "text": "19",
+        "price": 19000,
+        "time": "15:20:21"
+      }
+    ],
+    "total": 49000
+  },
+  "baoni21.11": {
+    "username": "baoni21.11",
+    "nickname": "baoni21.11",
+    "profilePictureUrl": "https://p16-common-sign.tiktokcdn.com/tos-alisg-avt-0068/8c504c77a1c0c5f0f8de60c77d238a66~tplv-tiktok-shrink:72:72.webp?dr=14561&refresh_token=8b4040ac&x-expires=1779782400&x-signature=XGAEQJnGosspc60pTbghJXxWlQs%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=fdd36af4&idc=my3",
+    "items": [
+      {
+        "id": 1779610981267.7034,
+        "text": "20",
+        "price": 20000,
+        "time": "15:23:01"
+      }
+    ],
+    "total": 20000
+  },
+  "thuy_s2_": {
+    "username": "thuy_s2_",
+    "nickname": "Thúy Tây’ss",
+    "profilePictureUrl": "https://p16-common-sign.tiktokcdn.com/tos-maliva-avt-0068/68c23c959b91867874ef6eef33284948~tplv-tiktok-shrink:72:72.webp?dr=14561&refresh_token=ccd4d7c2&x-expires=1779782400&x-signature=B8GLHvvTdNjIvOlwMvaz%2Bs6cT68%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=fdd36af4&idc=my",
+    "items": [
+      {
+        "id": 1779611306413.4082,
+        "text": "Đen15",
+        "price": 15000,
+        "time": "15:28:26"
+      },
+      {
+        "id": 1779611825165.6692,
+        "text": "L20",
+        "price": 20000,
+        "time": "15:37:05"
+      },
+      {
+        "id": 1779613708906.0183,
+        "text": "20",
+        "price": 20000,
+        "time": "16:08:28"
+      },
+      {
+        "id": 1779614175295.1155,
+        "text": "30",
+        "price": 30000,
+        "time": "16:16:15"
+      }
+    ],
+    "total": 85000
+  },
+  "iloveenglish.24_11": {
+    "username": "iloveenglish.24_11",
+    "nickname": "Wendy",
+    "profilePictureUrl": "https://p16-common-sign.tiktokcdn.com/tos-alisg-avt-0068/dd07c50089e066e9cbeabedaedd098f4~tplv-tiktok-shrink:72:72.webp?dr=14561&refresh_token=c316ba4d&x-expires=1779782400&x-signature=KZ1btN31%2B9TpezRQk58V5t4Fa%2BI%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=fdd36af4&idc=my2",
+    "items": [
+      {
+        "id": 1779612439482.3528,
+        "text": "50",
+        "price": 50000,
+        "time": "15:47:19"
+      },
+      {
+        "id": 1779612478431.1194,
+        "text": "20",
+        "price": 20000,
+        "time": "15:47:58"
+      },
+      {
+        "id": 1779612674289.2358,
+        "text": "40",
+        "price": 40000,
+        "time": "15:51:14"
+      },
+      {
+        "id": 1779613085672.9353,
+        "text": "20",
+        "price": 20000,
+        "time": "15:58:05"
+      },
+      {
+        "id": 1779613153646.2756,
+        "text": "30",
+        "price": 30000,
+        "time": "15:59:13"
+      },
+      {
+        "id": 1779613170260.4736,
+        "text": "10",
+        "price": 10000,
+        "time": "15:59:30"
+      },
+      {
+        "id": 1779613307538.3962,
+        "text": "25",
+        "price": 25000,
+        "time": "16:01:47"
+      },
+      {
+        "id": 1779614472746.186,
+        "text": "20",
+        "price": 20000,
+        "time": "16:21:12"
+      },
+      {
+        "id": 1779614608216.3823,
+        "text": "35",
+        "price": 35000,
+        "time": "16:23:28"
+      },
+      {
+        "id": 1779614938962.2036,
+        "text": "25",
+        "price": 25000,
+        "time": "16:28:58"
+      }
+    ],
+    "total": 275000
+  },
+  "titi.hcm2": {
+    "username": "titi.hcm2",
+    "nickname": "BB-shop",
+    "profilePictureUrl": "https://p16-common-sign.tiktokcdn.com/tos-alisg-avt-0068/f51bce6e2f034dbd9788287b0fb325d0~tplv-tiktok-shrink:72:72.webp?dr=14561&refresh_token=2d4f1662&x-expires=1779782400&x-signature=tLcXbnwdm%2F2EsJ2jk%2BZ%2FUVvvBzY%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=fdd36af4&idc=my2",
+    "items": [
+      {
+        "id": 1779612882260.1343,
+        "text": "20",
+        "price": 20000,
+        "time": "15:54:42"
+      }
+    ],
+    "total": 20000
+  },
+  "123emdayzoi": {
+    "username": "123emdayzoi",
+    "nickname": "Tiết kiệm ko nổi",
+    "profilePictureUrl": "https://p16-common-sign.tiktokcdn.com/tos-alisg-avt-0068/0ee02cb4385bfbbcc4e57e557ed1bed8~tplv-tiktok-shrink:72:72.webp?dr=14561&refresh_token=f1cabb63&x-expires=1779782400&x-signature=6LTko%2Fa4CuLpJA2ucHBxZbV1glw%3D&t=4d5b0474&ps=13740610&shp=a5d48078&shcp=fdd36af4&idc=my",
+    "items": [
+      {
+        "id": 1779612969732.855,
+        "text": "19",
+        "price": 19000,
+        "time": "15:56:09"
+      },
+      {
+        "id": 1779612973587.7488,
+        "text": "20",
+        "price": 20000,
+        "time": "15:56:13"
+      },
+      {
+        "id": 1779613397052.5195,
+        "text": "20",
+        "price": 20000,
+        "time": "16:03:17"
+      },
+      {
+        "id": 1779613651897.4795,
+        "text": "45",
+        "price": 45000,
+        "time": "16:07:31"
+      },
+      {
+        "id": 1779614655831.0945,
+        "text": "35",
+        "price": 35000,
+        "time": "16:24:15"
+      }
+    ],
+    "total": 139000
   }
 }

@@ -149,12 +149,16 @@ function createLiveSession(userId, data) {
         orders = [];
     }
 
-    const summary = calculateSessionSummary(orders);
+    const calculatedSummary = calculateSessionSummary(orders);
+    const summary = data.summary && typeof data.summary === 'object'
+        ? { ...calculatedSummary, ...data.summary }
+        : calculatedSummary;
     const now = new Date().toISOString();
 
     const newSession = {
         id: generateSessionId(),
         userId,
+        type: data.type || 'live_session',
         liveName: data.liveName || `Phiên live ${new Date().toLocaleDateString('vi-VN')}`,
         tiktokUsername: data.tiktokUsername || '',
         startedAt: data.startedAt || now,
@@ -163,6 +167,10 @@ function createLiveSession(userId, data) {
         orders,
         summary
     };
+
+    if (Array.isArray(data.sourceSessionIds)) {
+        newSession.sourceSessionIds = data.sourceSessionIds;
+    }
 
     sessions.unshift(newSession); // Mới nhất lên đầu
     writeUserSessions(userId, sessions);
