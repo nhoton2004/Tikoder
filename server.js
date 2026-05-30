@@ -12,6 +12,7 @@ const session = require('express-session');
 const liveSessionStore = require('./utils/liveSessionStore');
 const customerStore = require('./utils/customerStore');
 const orderExcelExporter = require('./utils/orderExcelExporter');
+const { cleanDisplayText, normalizeDisplayName, normalizeDisplayText } = require('./utils/displayName');
 const adminRoutes = require('./routes/admin');
 
 // DEV ONLY: Bật để bỏ qua đăng nhập Firebase trong môi trường local/dev.
@@ -128,7 +129,17 @@ app.get('/api/me', (req, res) => {
 });
 
 app.post('/logout', (req, res) => {
+    const userId = req.session?.user?.uid;
     req.session.destroy(() => {
+        if (userId) {
+            const userRoom = getUserRoom(userId);
+            emitToUser(userId, 'all-confirmed-orders', {});
+            emitToUser(userId, 'status', { connected: false, broadcasterId: '', error: '' });
+            io.in(userRoom).fetchSockets().then(sockets => {
+                sockets.forEach(sock => sock.disconnect(true));
+            }).catch(() => {});
+            resetLiveRuntime(userId);
+        }
         res.json({ success: true });
     });
 });
@@ -159,10 +170,17 @@ const requireApiAuth = (req, res, next) => {
     next();
 };
 
+function isAdminOrSuperAdmin(user) {
+    const role = String(user?.role || '').toLowerCase();
+    return role === 'admin' || role === 'super_admin';
+}
+
 // GET /api/live-sessions — Lấy danh sách phiên live của user
 app.get('/api/live-sessions', requireApiAuth, (req, res) => {
     try {
-        const userId = req.session.user.uid;
+        const user = req.session.user;
+        const userId = user.uid;
+        const includeSharedLegacy = isAdminOrSuperAdmin(user);
         const sessions = liveSessionStore.readUserSessions(userId);
         // Trả về danh sách không kèm orders chi tiết (nhẹ hơn)
         const list = sessions.map(s => ({
@@ -176,7 +194,7 @@ app.get('/api/live-sessions', requireApiAuth, (req, res) => {
             createdAt: s.createdAt,
             summary: s.summary
         }));
-        const legacyList = readLegacyHistorySessions();
+        const legacyList = readLegacyHistorySessions(userId, { includeSharedLegacy });
         const combinedList = [...list, ...legacyList].sort((a, b) => {
             const left = Date.parse(a.createdAt || a.startedAt || 0) || 0;
             const right = Date.parse(b.createdAt || b.startedAt || 0) || 0;
@@ -192,14 +210,16 @@ app.get('/api/live-sessions', requireApiAuth, (req, res) => {
 // POST /api/live-sessions/merged — Lưu kết quả gộp thành 1 phiên mới
 app.post('/api/live-sessions/merged', requireApiAuth, (req, res) => {
     try {
-        const userId = req.session.user.uid;
+        const user = req.session.user;
+        const userId = user.uid;
+        const includeSharedLegacy = isAdminOrSuperAdmin(user);
         const { sessionIds } = req.body;
 
         if (!sessionIds || !Array.isArray(sessionIds) || sessionIds.length === 0) {
             return res.status(400).json({ error: 'Vui lòng chọn ít nhất 1 phiên' });
         }
 
-        const result = mergeLiveSessionsWithLegacy(userId, sessionIds);
+        const result = mergeLiveSessionsWithLegacy(userId, sessionIds, { includeSharedLegacy });
         if (!result) {
             return res.status(404).json({ error: 'Không tìm thấy phiên live nào' });
         }
@@ -255,9 +275,11 @@ app.post('/api/live-sessions', requireApiAuth, (req, res) => {
 // GET /api/live-sessions/:sessionId — Lấy chi tiết 1 phiên
 app.get('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
     try {
-        const userId = req.session.user.uid;
+        const user = req.session.user;
+        const userId = user.uid;
+        const includeSharedLegacy = isAdminOrSuperAdmin(user);
         if (String(req.params.sessionId || '').startsWith('legacy:')) {
-            const session = getLegacyHistorySession(req.params.sessionId);
+                const session = getLegacyHistorySession(userId, req.params.sessionId, { includeSharedLegacy });
             if (!session) {
                 return res.status(404).json({ error: 'Không tìm thấy phiên live' });
             }
@@ -278,9 +300,11 @@ app.get('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
 // DELETE /api/live-sessions/:sessionId — Xóa phiên live
 app.delete('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
     try {
-        const userId = req.session.user.uid;
+        const user = req.session.user;
+        const userId = user.uid;
+        const includeSharedLegacy = isAdminOrSuperAdmin(user);
         if (String(req.params.sessionId || '').startsWith('legacy:')) {
-            const deleted = deleteLegacyHistorySession(req.params.sessionId);
+            const deleted = deleteLegacyHistorySession(userId, req.params.sessionId, { includeSharedLegacy });
             if (!deleted) {
                 return res.status(404).json({ error: 'Không tìm thấy phiên live' });
             }
@@ -303,14 +327,16 @@ app.delete('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
 // POST /api/live-sessions/merge-summary — Gộp nhiều phiên
 app.post('/api/live-sessions/merge-summary', requireApiAuth, (req, res) => {
     try {
-        const userId = req.session.user.uid;
+        const user = req.session.user;
+        const userId = user.uid;
+        const includeSharedLegacy = isAdminOrSuperAdmin(user);
         const { sessionIds } = req.body;
 
         if (!sessionIds || !Array.isArray(sessionIds) || sessionIds.length === 0) {
             return res.status(400).json({ error: 'Vui lòng chọn ít nhất 1 phiên' });
         }
 
-        const result = mergeLiveSessionsWithLegacy(userId, sessionIds);
+        const result = mergeLiveSessionsWithLegacy(userId, sessionIds, { includeSharedLegacy });
         if (!result) {
             return res.status(404).json({ error: 'Không tìm thấy phiên live nào' });
         }
@@ -353,21 +379,23 @@ app.post('/api/customers/import-from-history', requireApiAuth, (req, res) => {
         const userId = req.session.user.uid;
         const existingCustomers = customerStore.readUserCustomers(userId);
         const existingTikToks = new Set(existingCustomers.map(c => customerStore.normalizeTikTokUsername(c.tiktokUsername)).filter(Boolean));
-        const existingNames = new Set(existingCustomers.map(c => String(c.displayName || '').trim().toLowerCase()).filter(Boolean));
+        const existingNames = new Set(existingCustomers.map(c => normalizeOrderCustomerName(c.displayName, c.tiktokUsername).toLowerCase()).filter(Boolean));
         const sessions = liveSessionStore.readUserSessions(userId);
         const candidates = new Map();
 
         sessions.forEach(session => {
             (session.orders || []).forEach(order => {
                 const tiktokUsername = customerStore.normalizeTikTokUsername(order.customerUsername || order.tiktokUsername || '');
-                const displayName = String(order.customerName || order.nickname || '').trim();
-                if (!tiktokUsername && !displayName) return;
+                const rawDisplayName = cleanDisplayText(order.customerName || order.nickname || '');
+                if (!tiktokUsername && !rawDisplayName) return;
+                const displayName = rawDisplayName || tiktokUsername;
+                const displayKey = normalizeOrderCustomerName(rawDisplayName, tiktokUsername);
 
-                const key = tiktokUsername || displayName.toLowerCase();
+                const key = tiktokUsername || displayKey.toLowerCase();
                 if (!candidates.has(key)) {
                     candidates.set(key, {
                         tiktokUsername,
-                        displayName: displayName || tiktokUsername,
+                        displayName,
                         sourceSessions: new Set()
                     });
                 }
@@ -378,7 +406,7 @@ app.post('/api/customers/import-from-history', requireApiAuth, (req, res) => {
         const imported = [];
         const skipped = [];
         candidates.forEach(candidate => {
-            const nameKey = String(candidate.displayName || '').trim().toLowerCase();
+            const nameKey = normalizeOrderCustomerName(candidate.displayName, candidate.tiktokUsername).toLowerCase();
             const exists = candidate.tiktokUsername
                 ? existingTikToks.has(candidate.tiktokUsername)
                 : existingNames.has(nameKey);
@@ -594,7 +622,7 @@ app.get('/admin', (req, res) => {
     if (!user) return res.redirect('/login');
     if (user.role !== 'admin' && user.role !== 'super_admin') {
         return res.status(403).send(`
-            <html><body style="font-family:sans-serif;display:flex;align-items:center;justify-content:center;height:100vh;background:#f3f4f6;">
+            <html><body style="font-family:Inter, 'Segoe UI', Roboto, Arial, 'Helvetica Neue', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji';display:flex;align-items:center;justify-content:center;height:100vh;background:#f3f4f6;">
             <div style="text-align:center;"><h1 style="color:#ef4444;">⛔ Không có quyền truy cập</h1>
             <p>Tài khoản của bạn không có quyền vào trang Admin.</p>
             <a href="/" style="color:#3b82f6;">← Quay về trang chính</a></div></body></html>`);
@@ -618,19 +646,83 @@ io.use((socket, next) => {
     }
 });
 
-const HISTORY_DIR = path.join(__dirname, 'history');
+const HISTORY_ROOT_DIR = path.join(__dirname, 'history');
 const CONFIG_FILE = path.join(__dirname, 'config.json');
 const LIVE_SESSIONS_DIR = path.join(__dirname, 'data', 'live-sessions');
 
-let tiktokConnection = null;
-let confirmedOrders = {}; 
 let printerInterface = 'tcp://192.168.1.9'; 
 let tiktokSignApiKey = '';
-let currentBroadcasterId = null;
 let printer = null;
-const processedMsgIds = new Set(); // Bộ lọc tin nhắn trùng lặp
-const chatBufferByBroadcaster = new Map(); // { broadcasterId -> [chatItem...] }
+const liveRuntimeByUser = new Map(); // { userId -> runtime state }
 const CHAT_BUFFER_LIMIT = 300;
+
+function safeStorageId(value) {
+    return String(value || '').replace(/[^a-zA-Z0-9_.-]/g, '_');
+}
+
+function getUserRoom(userId) {
+    return `user:${userId}`;
+}
+
+function emitToUser(userId, eventName, payload) {
+    io.to(getUserRoom(userId)).emit(eventName, payload);
+}
+
+function getUserHistoryDir(userId) {
+    const dirPath = path.join(HISTORY_ROOT_DIR, safeStorageId(userId));
+    if (!fs.existsSync(dirPath)) {
+        fs.mkdirSync(dirPath, { recursive: true });
+    }
+    return dirPath;
+}
+
+function getSessionFileName(userId, broadcasterId) {
+    const date = new Date().toISOString().split('T')[0];
+    const safeBroadcasterId = customerStore.normalizeTikTokUsername(broadcasterId) || 'unknown';
+    return path.join(getUserHistoryDir(userId), `${date}_${safeBroadcasterId}.json`);
+}
+
+function createEmptyLiveRuntime(userId) {
+    return {
+        userId,
+        tiktokConnection: null,
+        confirmedOrders: {},
+        currentBroadcasterId: '',
+        processedMsgIds: new Set(),
+        chatBufferByBroadcaster: new Map(),
+        sockets: new Set()
+    };
+}
+
+function getLiveRuntime(userId) {
+    if (!liveRuntimeByUser.has(userId)) {
+        liveRuntimeByUser.set(userId, createEmptyLiveRuntime(userId));
+    }
+    return liveRuntimeByUser.get(userId);
+}
+
+function resetLiveRuntime(userId) {
+    const runtime = liveRuntimeByUser.get(userId);
+    if (!runtime) return;
+    if (runtime.tiktokConnection) {
+        try { runtime.tiktokConnection.disconnect(); } catch (e) {}
+    }
+    runtime.tiktokConnection = null;
+    runtime.confirmedOrders = {};
+    runtime.currentBroadcasterId = '';
+    runtime.processedMsgIds.clear();
+    runtime.chatBufferByBroadcaster.clear();
+    runtime.sockets.clear();
+    liveRuntimeByUser.delete(userId);
+}
+
+function saveSessionDataForUser(userId) {
+    const runtime = getLiveRuntime(userId);
+    if (!runtime.currentBroadcasterId) return;
+    const fileName = getSessionFileName(userId, runtime.currentBroadcasterId);
+    runtime.confirmedOrders = sanitizeConfirmedOrders(runtime.confirmedOrders);
+    fs.writeFileSync(fileName, JSON.stringify(runtime.confirmedOrders, null, 2));
+}
 
 if (fs.existsSync(CONFIG_FILE)) {
     try {
@@ -647,6 +739,37 @@ function saveConfig() {
     fs.writeFileSync(CONFIG_FILE, JSON.stringify({ printerInterface, tiktokSignApiKey }, null, 2));
 }
 
+function displayFallbackFromUsername(username) {
+    const normalized = customerStore.normalizeTikTokUsername(username);
+    return normalized ? `@${normalized}` : undefined;
+}
+
+function normalizeOrderCustomerName(name, username) {
+    return normalizeDisplayName(name, displayFallbackFromUsername(username));
+}
+
+function sanitizeConfirmedOrders(orders) {
+    return Object.values(orders || {}).reduce((result, customer) => {
+        const username = customerStore.normalizeTikTokUsername(customer.username || customer.tiktokUsername || '');
+        if (!username) return result;
+        const nickname = cleanDisplayText(customer.nickname || customer.displayName || '') || displayFallbackFromUsername(username) || username;
+        result[username] = {
+            ...customer,
+            username,
+            nickname,
+            profilePictureUrl: normalizeDisplayText(customer.profilePictureUrl || ''),
+            items: Array.isArray(customer.items)
+                ? customer.items.map(item => ({
+                    ...item,
+                    text: normalizeDisplayText(item.text || item.productName || '')
+                }))
+                : [],
+            total: Number(customer.total || 0)
+        };
+        return result;
+    }, {});
+}
+
 function initPrinter(newInterface) {
     printerInterface = newInterface;
     printer = new ThermalPrinter({
@@ -659,17 +782,6 @@ function initPrinter(newInterface) {
     saveConfig();
 }
 initPrinter(printerInterface);
-
-function getSessionFileName(broadcasterId) {
-    const date = new Date().toISOString().split('T')[0];
-    return path.join(HISTORY_DIR, `${date}_${broadcasterId}.json`);
-}
-
-function saveSessionData() {
-    if (!currentBroadcasterId) return;
-    const fileName = getSessionFileName(currentBroadcasterId);
-    fs.writeFileSync(fileName, JSON.stringify(confirmedOrders, null, 2));
-}
 
 function removeVietnameseTones(str) {
     if (!str) return '';
@@ -684,10 +796,11 @@ function removeVietnameseTones(str) {
     return str;
 }
 
-async function printBill(item, order) {
+async function printBill(item, order, userId) {
     if (!printer) return;
     try {
-        console.log(`>>> Đang đẩy lệnh in: ${order.nickname} - ${item.text}`);
+        const displayName = normalizeOrderCustomerName(order.nickname, order.username);
+        console.log(`>>> Đang đẩy lệnh in: ${displayName} - ${item.text}`);
         
         printer.clear();
         printer.alignCenter();
@@ -696,7 +809,7 @@ async function printBill(item, order) {
         printer.setTextDoubleHeight();
         printer.setTextDoubleWidth();
         printer.bold(true);
-        printer.println(removeVietnameseTones(`${order.nickname} - ${order.username}`));
+        printer.println(removeVietnameseTones(`${displayName} - ${order.username}`));
         
         // TIME (BÌNH THƯỜNG)
         printer.setTextNormal();
@@ -734,14 +847,17 @@ async function printBill(item, order) {
         console.log(">>> Đã nhả bill thành công!");
     } catch (error) {
         console.error("LỖI IN ẤN:", error);
-        io.emit('printer-error', "Máy in phản hồi chậm hoặc rớt mạng. Hãy kiểm tra Wi-Fi máy in!");
+        if (userId) {
+            emitToUser(userId, 'printer-error', "Máy in phản hồi chậm hoặc rớt mạng. Hãy kiểm tra Wi-Fi máy in!");
+        }
     }
 }
 
-async function printDetailedBill(order) {
+async function printDetailedBill(order, userId) {
     if (!printer) return;
     try {
-        console.log(`>>> Đang in bill chi tiết cho khách: ${order.nickname}`);
+        const displayName = normalizeOrderCustomerName(order.nickname, order.username);
+        console.log(`>>> Đang in bill chi tiết cho khách: ${displayName}`);
         
         printer.clear();
         printer.alignCenter();
@@ -753,7 +869,7 @@ async function printDetailedBill(order) {
         printer.alignLeft();
         printer.setTextDoubleHeight();
         printer.bold(true);
-        printer.println(`${order.nickname}`);
+        printer.println(`${displayName}`);
         
         printer.setTextNormal();
         printer.bold(false);
@@ -792,7 +908,9 @@ async function printDetailedBill(order) {
         console.log(">>> Đã nhả bill chi tiết thành công!");
     } catch (error) {
         console.error("LỖI IN CHI TIẾT:", error);
-        io.emit('printer-error', "Lỗi in bill chi tiết!");
+        if (userId) {
+            emitToUser(userId, 'printer-error', "Lỗi in bill chi tiết!");
+        }
     }
 }
 
@@ -863,9 +981,9 @@ function readAllLiveSessionRows() {
                         sessionCreatedAt: session.createdAt || '',
                         tiktokUsername: session.tiktokUsername || '',
                         orderId: order.id || '',
-                        customerName: order.customerName || '',
-                        customerUsername: order.customerUsername || '',
-                        productName: order.productName || order.text || '',
+                        customerName: normalizeOrderCustomerName(order.customerName || order.nickname || '', order.customerUsername || order.tiktokUsername || ''),
+                        customerUsername: customerStore.normalizeTikTokUsername(order.customerUsername || order.tiktokUsername || ''),
+                        productName: normalizeDisplayText(order.productName || order.text || ''),
                         quantity: Number(order.quantity || 1),
                         price: Number(order.price || 0),
                         total: Number(order.total || order.price || 0),
@@ -882,13 +1000,14 @@ function readAllLiveSessionRows() {
     return { rows, files: files.length };
 }
 
-function readLegacyHistoryRows() {
-    if (!fs.existsSync(HISTORY_DIR)) return { rows: [], files: 0 };
-    const files = fs.readdirSync(HISTORY_DIR).filter(f => f.endsWith('.json'));
+function readLegacyHistoryRows(userId, options = {}) {
+    const includeSharedLegacy = Boolean(options.includeSharedLegacy);
+    const historyDir = getUserHistoryDir(userId);
+    const files = fs.existsSync(historyDir) ? fs.readdirSync(historyDir).filter(f => f.endsWith('.json')) : [];
     const rows = [];
 
     files.forEach(fileName => {
-        const fullPath = path.join(HISTORY_DIR, fileName);
+        const fullPath = path.join(historyDir, fileName);
         try {
             const parsed = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
             const users = Object.values(parsed || {});
@@ -898,7 +1017,7 @@ function readLegacyHistoryRows() {
                 items.forEach(item => {
                     rows.push({
                         source: 'legacy_history',
-                        userId: '',
+                        userId,
                         historyFile: fileName,
                         historyDate: fileName.split('_')[0] || '',
                         sessionId: '',
@@ -906,9 +1025,9 @@ function readLegacyHistoryRows() {
                         sessionCreatedAt: '',
                         tiktokUsername: '',
                         orderId: item.id || '',
-                        customerName: customer.nickname || '',
-                        customerUsername: customer.username || '',
-                        productName: item.text || '',
+                        customerName: normalizeOrderCustomerName(customer.nickname || customer.displayName || '', customer.username || customer.tiktokUsername || ''),
+                        customerUsername: customerStore.normalizeTikTokUsername(customer.username || customer.tiktokUsername || ''),
+                        productName: normalizeDisplayText(item.text || ''),
                         quantity: 1,
                         price: Number(item.price || 0),
                         total: Number(item.price || 0),
@@ -922,7 +1041,125 @@ function readLegacyHistoryRows() {
         }
     });
 
+    if (!includeSharedLegacy) {
+        return { rows, files: files.length };
+    }
+
+    const shared = readSharedLegacyHistoryRows();
+    return {
+        rows: [...rows, ...shared.rows],
+        files: files.length + shared.files
+    };
+}
+
+function readSharedLegacyHistoryRows() {
+    if (!fs.existsSync(HISTORY_ROOT_DIR)) return { rows: [], files: 0 };
+    const files = fs.readdirSync(HISTORY_ROOT_DIR)
+        .filter(fileName => fileName.endsWith('.json'))
+        .filter(fileName => safeLegacyHistoryFileName(fileName));
+    const rows = [];
+
+    files.forEach(fileName => {
+        const fullPath = path.join(HISTORY_ROOT_DIR, fileName);
+        try {
+            const parsed = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
+            const users = Object.values(parsed || {});
+            users.forEach(customer => {
+                const items = Array.isArray(customer?.items) ? customer.items : [];
+                if (items.length === 0) return;
+                items.forEach(item => {
+                    rows.push({
+                        source: 'legacy_history',
+                        userId: 'shared-admin-legacy',
+                        historyFile: fileName,
+                        historyDate: fileName.split('_')[0] || '',
+                        sessionId: '',
+                        sessionName: fileName.replace('.json', ''),
+                        sessionCreatedAt: '',
+                        tiktokUsername: '',
+                        orderId: item.id || '',
+                        customerName: normalizeOrderCustomerName(customer.nickname || customer.displayName || '', customer.username || customer.tiktokUsername || ''),
+                        customerUsername: customerStore.normalizeTikTokUsername(customer.username || customer.tiktokUsername || ''),
+                        productName: normalizeDisplayText(item.text || ''),
+                        quantity: 1,
+                        price: Number(item.price || 0),
+                        total: Number(item.price || 0),
+                        itemTime: item.time || '',
+                        orderCreatedAt: ''
+                    });
+                });
+            });
+        } catch (error) {
+            console.error(`Lỗi đọc shared legacy history ${fileName}:`, error.message);
+        }
+    });
+
     return { rows, files: files.length };
+}
+
+function parseLegacySessionRef(sessionId) {
+    const raw = String(sessionId || '');
+    const sharedMatch = raw.match(/^legacy:shared:(.+)$/);
+    if (sharedMatch) return { scope: 'shared', fileName: sharedMatch[1] };
+    const userMatch = raw.match(/^legacy:user:(.+)$/);
+    if (userMatch) return { scope: 'user', fileName: userMatch[1] };
+    const classicMatch = raw.match(/^legacy:(.+)$/);
+    if (classicMatch) return { scope: 'user', fileName: classicMatch[1] };
+    return { scope: 'user', fileName: raw };
+}
+
+function buildLegacySessionId(scope, fileName) {
+    return scope === 'shared' ? `legacy:shared:${fileName}` : `legacy:user:${fileName}`;
+}
+
+function readAllUserHistoryRows() {
+    if (!fs.existsSync(HISTORY_ROOT_DIR)) return { rows: [], files: 0 };
+    const entries = fs.readdirSync(HISTORY_ROOT_DIR, { withFileTypes: true });
+    const userDirs = entries.filter(entry => entry.isDirectory()).map(entry => entry.name);
+
+    const rows = [];
+    let files = 0;
+    userDirs.forEach(userDirName => {
+        const dirPath = path.join(HISTORY_ROOT_DIR, userDirName);
+        const userFiles = fs.readdirSync(dirPath).filter(fileName => fileName.endsWith('.json'));
+        files += userFiles.length;
+        userFiles.forEach(fileName => {
+            const fullPath = path.join(dirPath, fileName);
+            try {
+                const parsed = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
+                const customers = Object.values(parsed || {});
+                customers.forEach(customer => {
+                    const items = Array.isArray(customer?.items) ? customer.items : [];
+                    items.forEach(item => {
+                        rows.push({
+                            source: 'legacy_history',
+                            userId: userDirName,
+                            historyFile: fileName,
+                            historyDate: fileName.split('_')[0] || '',
+                            sessionId: '',
+                            sessionName: fileName.replace('.json', ''),
+                            sessionCreatedAt: '',
+                            tiktokUsername: '',
+                            orderId: item.id || '',
+                            customerName: normalizeOrderCustomerName(customer.nickname || customer.displayName || '', customer.username || customer.tiktokUsername || ''),
+                            customerUsername: customerStore.normalizeTikTokUsername(customer.username || customer.tiktokUsername || ''),
+                            productName: normalizeDisplayText(item.text || ''),
+                            quantity: 1,
+                            price: Number(item.price || 0),
+                            total: Number(item.price || 0),
+                            itemTime: item.time || '',
+                            orderCreatedAt: ''
+                        });
+                    });
+                });
+            } catch (error) {
+                console.error(`Lỗi đọc file history ${fileName} của user ${userDirName}:`, error.message);
+            }
+        });
+    });
+
+    const shared = readSharedLegacyHistoryRows();
+    return { rows: [...rows, ...shared.rows], files: files + shared.files };
 }
 
 function safeLegacyHistoryFileName(fileName) {
@@ -943,10 +1180,10 @@ function legacyHistoryFileToOrders(fileName, data) {
             const timestamp = timestampFromParts(dateKey, itemTime);
             orders.push({
                 id: `legacy_${fileName}_${item.id || `${customer.username || 'unknown'}_${itemTime}`}`,
-                customerName: customer.nickname || '',
-                customerUsername: customer.username || '',
+                customerName: normalizeOrderCustomerName(customer.nickname || customer.displayName || '', customer.username || customer.tiktokUsername || ''),
+                customerUsername: customerStore.normalizeTikTokUsername(customer.username || customer.tiktokUsername || ''),
                 profilePictureUrl: customer.profilePictureUrl || '',
-                productName: item.text || '',
+                productName: normalizeDisplayText(item.text || ''),
                 quantity: 1,
                 price: Number(item.price || 0),
                 total: Number(item.price || 0),
@@ -960,11 +1197,14 @@ function legacyHistoryFileToOrders(fileName, data) {
     return orders;
 }
 
-function readLegacyHistorySession(fileName) {
+function readLegacyHistorySession(userId, fileName, options = {}) {
+    const scope = options.scope === 'shared' ? 'shared' : 'user';
     const safeFileName = safeLegacyHistoryFileName(fileName);
     if (!safeFileName) return null;
 
-    const filePath = path.join(HISTORY_DIR, safeFileName);
+    const filePath = scope === 'shared'
+        ? path.join(HISTORY_ROOT_DIR, safeFileName)
+        : path.join(getUserHistoryDir(userId), safeFileName);
     if (!fs.existsSync(filePath)) return null;
 
     try {
@@ -977,9 +1217,10 @@ function readLegacyHistorySession(fileName) {
         const createdAt = new Date(sessionDate || stats.mtime.getTime()).toISOString();
 
         return {
-            id: `legacy:${safeFileName}`,
+            id: buildLegacySessionId(scope, safeFileName),
             source: 'legacy_history',
-            fileName: safeFileName,
+            userId: scope === 'shared' ? 'shared-admin-legacy' : userId,
+            fileName: scope === 'shared' ? `shared:${safeFileName}` : safeFileName,
             liveName: safeFileName.replace(/\.json$/i, ''),
             tiktokUsername: meta.shop || '',
             startedAt: createdAt,
@@ -995,26 +1236,44 @@ function readLegacyHistorySession(fileName) {
     }
 }
 
-function readLegacyHistorySessions() {
-    if (!fs.existsSync(HISTORY_DIR)) return [];
-    return fs.readdirSync(HISTORY_DIR)
+function readLegacyHistorySessions(userId, options = {}) {
+    const includeSharedLegacy = Boolean(options.includeSharedLegacy);
+    const historyDir = getUserHistoryDir(userId);
+    const userSessions = fs.existsSync(historyDir)
+        ? fs.readdirSync(historyDir)
         .filter(f => f.endsWith('.json'))
-        .map(readLegacyHistorySession)
-        .filter(Boolean);
+        .map(fileName => readLegacyHistorySession(userId, fileName, { scope: 'user' }))
+        .filter(Boolean)
+        : [];
+
+    if (!includeSharedLegacy) return userSessions;
+
+    const sharedSessions = fs.existsSync(HISTORY_ROOT_DIR)
+        ? fs.readdirSync(HISTORY_ROOT_DIR)
+            .filter(fileName => fileName.endsWith('.json'))
+            .map(fileName => readLegacyHistorySession(userId, fileName, { scope: 'shared' }))
+            .filter(Boolean)
+        : [];
+    return [...userSessions, ...sharedSessions];
 }
 
-function getLegacyHistorySession(sessionId) {
-    const fileName = String(sessionId || '').replace(/^legacy:/, '');
-    return readLegacyHistorySession(fileName);
+function getLegacyHistorySession(userId, sessionId, options = {}) {
+    const includeSharedLegacy = Boolean(options.includeSharedLegacy);
+    const ref = parseLegacySessionRef(sessionId);
+    if (ref.scope === 'shared' && !includeSharedLegacy) return null;
+    return readLegacyHistorySession(userId, ref.fileName, { scope: ref.scope });
 }
 
-function deleteLegacyHistorySession(sessionId) {
-    const fileName = String(sessionId || '').replace(/^legacy:/, '');
-    const safeFileName = safeLegacyHistoryFileName(fileName);
+function deleteLegacyHistorySession(userId, sessionId, options = {}) {
+    const includeSharedLegacy = Boolean(options.includeSharedLegacy);
+    const ref = parseLegacySessionRef(sessionId);
+    if (ref.scope === 'shared' && !includeSharedLegacy) return false;
+    const safeFileName = safeLegacyHistoryFileName(ref.fileName);
     if (!safeFileName) return false;
 
-    const filePath = path.join(HISTORY_DIR, safeFileName);
-    const resolvedHistoryDir = path.resolve(HISTORY_DIR);
+    const historyDir = ref.scope === 'shared' ? HISTORY_ROOT_DIR : getUserHistoryDir(userId);
+    const filePath = path.join(historyDir, safeFileName);
+    const resolvedHistoryDir = path.resolve(historyDir);
     const resolvedFilePath = path.resolve(filePath);
     if (!resolvedFilePath.startsWith(resolvedHistoryDir + path.sep)) return false;
     if (!fs.existsSync(resolvedFilePath)) return false;
@@ -1023,13 +1282,14 @@ function deleteLegacyHistorySession(sessionId) {
     return true;
 }
 
-function mergeLiveSessionsWithLegacy(userId, sessionIds) {
+function mergeLiveSessionsWithLegacy(userId, sessionIds, options = {}) {
+    const includeSharedLegacy = Boolean(options.includeSharedLegacy);
     const selectedIds = Array.isArray(sessionIds) ? sessionIds : [];
     const userSessions = liveSessionStore.readUserSessions(userId)
         .filter(s => selectedIds.includes(s.id));
     const legacySessions = selectedIds
         .filter(id => String(id).startsWith('legacy:'))
-        .map(getLegacyHistorySession)
+        .map(id => getLegacyHistorySession(userId, id, { includeSharedLegacy }))
         .filter(Boolean);
     const selected = [...userSessions, ...legacySessions];
 
@@ -1050,11 +1310,13 @@ function mergeLiveSessionsWithLegacy(userId, sessionIds) {
     const productSummary = liveSessionStore.calculateProductSummary(mergedOrders);
     const customerMap = {};
     mergedOrders.forEach(order => {
-        const key = order.customerUsername || order.customerName || 'unknown';
+        const customerUsername = customerStore.normalizeTikTokUsername(order.customerUsername || order.tiktokUsername || '');
+        const customerName = normalizeOrderCustomerName(order.customerName || order.nickname || '', customerUsername);
+        const key = customerUsername || customerName || 'unknown';
         if (!customerMap[key]) {
             customerMap[key] = {
-                customerName: order.customerName,
-                customerUsername: order.customerUsername,
+                customerName,
+                customerUsername,
                 profilePictureUrl: order.profilePictureUrl,
                 orders: [],
                 total: 0
@@ -1084,13 +1346,16 @@ function mergeLiveSessionsWithLegacy(userId, sessionIds) {
 }
 
 function buildExportDataset(scope, currentUser) {
+    const includeSharedLegacy = isAdminOrSuperAdmin(currentUser);
     const live = readAllLiveSessionRows();
-    const history = readLegacyHistoryRows();
+    const history = scope === 'all'
+        ? readAllUserHistoryRows()
+        : readLegacyHistoryRows(currentUser.uid, { includeSharedLegacy });
     const allRows = [...live.rows, ...history.rows];
 
     const rows = scope === 'all'
         ? allRows
-        : allRows.filter(r => r.userId === currentUser.uid || r.source === 'legacy_history');
+        : allRows.filter(r => r.userId === currentUser.uid);
 
     const totalRevenue = rows.reduce((sum, r) => sum + Number(r.total || 0), 0);
     const uniqueUsers = new Set(rows.map(r => r.userId).filter(Boolean)).size;
@@ -1185,9 +1450,10 @@ function dateKeyFromTimestamp(timestamp) {
 }
 
 function currentLiveRows(currentUser) {
+    const runtime = getLiveRuntime(currentUser.uid);
     const todayKey = formatDateKey(new Date());
     const rows = [];
-    Object.values(confirmedOrders || {}).forEach(customer => {
+    Object.values(runtime.confirmedOrders || {}).forEach(customer => {
         const items = Array.isArray(customer?.items) ? customer.items : [];
         items.forEach(item => {
             const timestamp = timestampFromParts(todayKey, item.time);
@@ -1196,11 +1462,11 @@ function currentLiveRows(currentUser) {
                 userId: currentUser.uid,
                 date: todayKey,
                 timestamp,
-                shop: currentBroadcasterId || '',
+                shop: runtime.currentBroadcasterId || '',
                 orderId: String(item.id || ''),
-                customer: customer.nickname || customer.username || '',
-                customerUsername: customer.username || '',
-                productName: item.text || '',
+                customer: normalizeOrderCustomerName(customer.nickname || customer.displayName || '', customer.username || ''),
+                customerUsername: customerStore.normalizeTikTokUsername(customer.username || ''),
+                productName: normalizeDisplayText(item.text || ''),
                 quantity: 1,
                 value: Number(item.price || 0),
                 status: 'done'
@@ -1225,9 +1491,9 @@ function liveSessionOverviewRows(currentUser) {
                 timestamp: Number.isFinite(rawTimestamp) ? rawTimestamp : timestampFromParts(date, row.itemTime),
                 shop: row.tiktokUsername || '',
                 orderId: String(row.orderId || ''),
-                customer: row.customerName || row.customerUsername || '',
-                customerUsername: row.customerUsername || '',
-                productName: row.productName || '',
+                customer: normalizeOrderCustomerName(row.customerName || '', row.customerUsername || ''),
+                customerUsername: customerStore.normalizeTikTokUsername(row.customerUsername || ''),
+                productName: normalizeDisplayText(row.productName || ''),
                 quantity: Number(row.quantity || 1),
                 value: Number(row.total || row.price || 0),
                 status: 'done'
@@ -1235,22 +1501,22 @@ function liveSessionOverviewRows(currentUser) {
         });
 }
 
-function legacyHistoryOverviewRows() {
-    return readLegacyHistoryRows().rows
+function legacyHistoryOverviewRows(userId, options = {}) {
+    return readLegacyHistoryRows(userId, options).rows
         .filter(row => Number(row.total || 0) > 0)
         .map(row => {
             const meta = historyMetaFromFile(row.historyFile);
             const date = row.historyDate || meta.date || '';
             return {
                 source: 'legacy_history',
-                userId: '',
+                userId,
                 date,
                 timestamp: timestampFromParts(date, row.itemTime),
                 shop: meta.shop || row.tiktokUsername || '',
                 orderId: String(row.orderId || ''),
-                customer: row.customerName || row.customerUsername || '',
-                customerUsername: row.customerUsername || '',
-                productName: row.productName || '',
+                customer: normalizeOrderCustomerName(row.customerName || '', row.customerUsername || ''),
+                customerUsername: customerStore.normalizeTikTokUsername(row.customerUsername || ''),
+                productName: normalizeDisplayText(row.productName || ''),
                 quantity: Number(row.quantity || 1),
                 value: Number(row.total || row.price || 0),
                 status: 'done'
@@ -1296,15 +1562,17 @@ function buildDailyOverview(rows, range) {
 }
 
 function buildOverviewDataset(currentUser, range) {
+    const includeSharedLegacy = isAdminOrSuperAdmin(currentUser);
+    const runtime = getLiveRuntime(currentUser.uid);
     const allRows = dedupeOverviewRows([
         ...currentLiveRows(currentUser),
         ...liveSessionOverviewRows(currentUser),
-        ...legacyHistoryOverviewRows()
+        ...legacyHistoryOverviewRows(currentUser.uid, { includeSharedLegacy })
     ]);
     const rows = allRows.filter(row => row.date && dateRangeContains(range, row.date));
     const todayKey = formatDateKey(new Date());
-    const comments = dateRangeContains(range, todayKey) && currentBroadcasterId
-        ? (chatBufferByBroadcaster.get(currentBroadcasterId) || []).length
+    const comments = dateRangeContains(range, todayKey) && runtime.currentBroadcasterId
+        ? (runtime.chatBufferByBroadcaster.get(runtime.currentBroadcasterId) || []).length
         : 0;
     const currentLiveOrderCount = rows.filter(row => row.source === 'current_live').length;
     const totalOrders = rows.length;
@@ -1331,7 +1599,7 @@ function buildOverviewDataset(currentUser, range) {
             orders: totalOrders,
             revenue: totalRevenue,
             comments,
-            activeLive: currentBroadcasterId ? 1 : 0,
+            activeLive: runtime.currentBroadcasterId ? 1 : 0,
             closeRate
         },
         daily: buildDailyOverview(rows, range),
@@ -1419,7 +1687,28 @@ function toExcelXml(rows) {
 }
 
 io.on('connection', (socket) => {
+    const sessionUser = socket.request.session?.user;
+    const userId = sessionUser?.uid;
+    const includeSharedLegacy = isAdminOrSuperAdmin(sessionUser);
+    if (!userId) {
+        socket.disconnect(true);
+        return;
+    }
+
+    const userRoom = getUserRoom(userId);
+    const runtime = getLiveRuntime(userId);
+    runtime.sockets.add(socket.id);
+    socket.join(userRoom);
+
     socket.emit('system-config', { printerInterface, tiktokSignApiKey });
+
+    socket.on('disconnect', () => {
+        runtime.sockets.delete(socket.id);
+        if (runtime.sockets.size === 0 && runtime.tiktokConnection) {
+            try { runtime.tiktokConnection.disconnect(); } catch (e) {}
+            runtime.tiktokConnection = null;
+        }
+    });
 
     socket.on('update-settings', (data) => {
         if (data.printerInterface !== undefined) {
@@ -1434,32 +1723,45 @@ io.on('connection', (socket) => {
     });
 
     socket.on('get-chat-buffer', ({ broadcasterId } = {}) => {
-        const id = (broadcasterId || '').trim();
+        const id = customerStore.normalizeTikTokUsername(broadcasterId);
         if (!id) return socket.emit('chat-buffer', { broadcasterId: '', comments: [] });
-        const comments = chatBufferByBroadcaster.get(id) || [];
+        const comments = runtime.chatBufferByBroadcaster.get(id) || [];
         socket.emit('chat-buffer', { broadcasterId: id, comments });
     });
 
     socket.on('start-live', (uniqueId) => {
-        if (tiktokConnection) {
-            try { tiktokConnection.disconnect(); } catch(e) {}
+        const broadcasterId = customerStore.normalizeTikTokUsername(uniqueId);
+        if (!broadcasterId) {
+            return socket.emit('status', { connected: false, error: 'TikTok ID không hợp lệ', broadcasterId: '' });
         }
-        currentBroadcasterId = uniqueId;
-        const fileName = getSessionFileName(uniqueId);
+
+        if (runtime.tiktokConnection) {
+            try { runtime.tiktokConnection.disconnect(); } catch (e) {}
+            runtime.tiktokConnection = null;
+        }
+
+        runtime.currentBroadcasterId = broadcasterId;
+        runtime.processedMsgIds.clear();
+
+        const fileName = getSessionFileName(userId, broadcasterId);
         if (fs.existsSync(fileName)) {
-            confirmedOrders = JSON.parse(fs.readFileSync(fileName));
+            runtime.confirmedOrders = sanitizeConfirmedOrders(JSON.parse(fs.readFileSync(fileName)));
         } else {
-            confirmedOrders = {};
+            runtime.confirmedOrders = {};
         }
-        socket.emit('all-confirmed-orders', confirmedOrders);
-        
-        tiktokConnection = new WebcastPushConnection(uniqueId);
-        tiktokConnection.connect().then(state => {
-            socket.emit('status', { connected: true, roomId: state.roomId, broadcasterId: uniqueId });
+        emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
+
+        const userConnection = new WebcastPushConnection(broadcasterId);
+        runtime.tiktokConnection = userConnection;
+
+        userConnection.connect().then(state => {
+            if (runtime.tiktokConnection !== userConnection) return;
+            emitToUser(userId, 'status', { connected: true, roomId: state.roomId, broadcasterId });
         }).catch(err => {
-            console.error('TikTok Connection Error:', err);
+            if (runtime.tiktokConnection !== userConnection) return;
+            console.error(`TikTok Connection Error [${userId}]:`, err);
             let errorMessage = "Lỗi không xác định";
-            
+
             if (err && (err.name === 'SignatureRateLimitError' || (err.message && err.message.includes('rate_limit')))) {
                 errorMessage = "Đại ca ơi, TikTok nó chặn rồi (Rate Limit)! Đợi xíu tầm 1-2 phút rồi thử lại nhé. Hoặc Đại ca nạp API Key của EulerStream vào phần cài đặt cho nó mượt!";
             } else if (err && err.message && err.message.includes('Unexpected server response: 200')) {
@@ -1467,112 +1769,148 @@ io.on('connection', (socket) => {
             } else {
                 errorMessage = (err && err.message) ? err.message : (err ? err.toString() : "Lỗi kết nối TikTok");
             }
-            
-            socket.emit('status', { connected: false, error: errorMessage, broadcasterId: uniqueId });
-        });
-        tiktokConnection.on('chat', (data) => {
-            // Lọc tin nhắn trùng lặp
-            if (processedMsgIds.has(data.msgId)) return;
-            processedMsgIds.add(data.msgId);
-            setTimeout(() => processedMsgIds.delete(data.msgId), 120000); // Lưu 2 phút cho chắc
 
+            emitToUser(userId, 'status', { connected: false, error: errorMessage, broadcasterId });
+        });
+
+        userConnection.on('chat', (data) => {
+            if (runtime.tiktokConnection !== userConnection) return;
+            if (runtime.processedMsgIds.has(data.msgId)) return;
+            runtime.processedMsgIds.add(data.msgId);
+            setTimeout(() => runtime.processedMsgIds.delete(data.msgId), 120000);
+
+            const commenterUsername = customerStore.normalizeTikTokUsername(data.uniqueId || data.username || '');
+            const nickname = cleanDisplayText(data.nickname || data.displayName || '');
+            const commentText = normalizeDisplayText(data.comment || '');
             const chatPayload = {
                 ...data,
-                broadcasterId: uniqueId,
+                broadcasterId,
+                uniqueId: commenterUsername || normalizeDisplayText(data.uniqueId || data.username || ''),
+                username: commenterUsername || normalizeDisplayText(data.username || data.uniqueId || ''),
+                nickname,
+                comment: commentText,
                 msgId: data.msgId || `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                suggestedPrice: parsePrice(data.comment),
+                suggestedPrice: parsePrice(commentText),
                 timestamp: Date.now()
             };
 
-            const currentBuffer = chatBufferByBroadcaster.get(uniqueId) || [];
+            const currentBuffer = runtime.chatBufferByBroadcaster.get(broadcasterId) || [];
             currentBuffer.push(chatPayload);
             if (currentBuffer.length > CHAT_BUFFER_LIMIT) {
                 currentBuffer.splice(0, currentBuffer.length - CHAT_BUFFER_LIMIT);
             }
-            chatBufferByBroadcaster.set(uniqueId, currentBuffer);
+            runtime.chatBufferByBroadcaster.set(broadcasterId, currentBuffer);
 
-            io.emit('raw-chat', chatPayload);
+            emitToUser(userId, 'raw-chat', chatPayload);
         });
     });
 
     socket.on('confirm-item', (data) => {
-        const { uniqueId, nickname, profilePictureUrl, comment, price } = data;
-        if (!confirmedOrders[uniqueId]) {
-            confirmedOrders[uniqueId] = { username: uniqueId, nickname, profilePictureUrl, items: [], total: 0 };
+        const username = customerStore.normalizeTikTokUsername(data.uniqueId || data.username || '');
+        if (!username) return;
+        const nickname = cleanDisplayText(data.nickname || data.displayName || '') || displayFallbackFromUsername(username) || username;
+        const profilePictureUrl = normalizeDisplayText(data.profilePictureUrl || '');
+        const comment = normalizeDisplayText(data.comment || '');
+        const price = Number(data.price || 0);
+        if (!runtime.confirmedOrders[username]) {
+            runtime.confirmedOrders[username] = { username, nickname, profilePictureUrl, items: [], total: 0 };
         }
         const newItem = { id: Date.now() + Math.random(), text: comment, price, time: new Date().toLocaleTimeString('vi-VN') };
-        confirmedOrders[uniqueId].items.push(newItem);
-        confirmedOrders[uniqueId].total += price;
-        saveSessionData();
-        io.emit('order-confirmed', confirmedOrders[uniqueId]);
-        printBill(newItem, confirmedOrders[uniqueId]);
+        runtime.confirmedOrders[username].items.push(newItem);
+        runtime.confirmedOrders[username].total += price;
+        saveSessionDataForUser(userId);
+        emitToUser(userId, 'order-confirmed', runtime.confirmedOrders[username]);
+        printBill(newItem, runtime.confirmedOrders[username], userId);
     });
 
     socket.on('delete-customer', (username) => {
-        if (confirmedOrders[username]) {
-            delete confirmedOrders[username];
-            saveSessionData();
-            io.emit('all-confirmed-orders', confirmedOrders);
+        const normalizedUsername = customerStore.normalizeTikTokUsername(username);
+        if (runtime.confirmedOrders[normalizedUsername]) {
+            delete runtime.confirmedOrders[normalizedUsername];
+            saveSessionDataForUser(userId);
+            emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
         }
     });
 
     socket.on('delete-item', ({ username, itemId }) => {
-        if (confirmedOrders[username]) {
-            const index = confirmedOrders[username].items.findIndex(i => i.id === itemId);
+        const normalizedUsername = customerStore.normalizeTikTokUsername(username);
+        if (runtime.confirmedOrders[normalizedUsername]) {
+            const index = runtime.confirmedOrders[normalizedUsername].items.findIndex(i => i.id === itemId);
             if (index > -1) {
-                confirmedOrders[username].total -= confirmedOrders[username].items[index].price;
-                confirmedOrders[username].items.splice(index, 1);
-                if (confirmedOrders[username].items.length === 0) delete confirmedOrders[username];
-                saveSessionData();
-                io.emit('all-confirmed-orders', confirmedOrders);
+                runtime.confirmedOrders[normalizedUsername].total -= runtime.confirmedOrders[normalizedUsername].items[index].price;
+                runtime.confirmedOrders[normalizedUsername].items.splice(index, 1);
+                if (runtime.confirmedOrders[normalizedUsername].items.length === 0) delete runtime.confirmedOrders[normalizedUsername];
+                saveSessionDataForUser(userId);
+                emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
             }
         }
     });
 
     socket.on('edit-item-price', ({ username, itemId, newPrice }) => {
-        if (confirmedOrders[username]) {
-            const item = confirmedOrders[username].items.find(i => i.id === itemId);
+        const normalizedUsername = customerStore.normalizeTikTokUsername(username);
+        if (runtime.confirmedOrders[normalizedUsername]) {
+            const item = runtime.confirmedOrders[normalizedUsername].items.find(i => i.id === itemId);
             if (item) {
-                confirmedOrders[username].total = confirmedOrders[username].total - item.price + newPrice;
+                runtime.confirmedOrders[normalizedUsername].total = runtime.confirmedOrders[normalizedUsername].total - item.price + newPrice;
                 item.price = newPrice;
-                saveSessionData();
-                io.emit('all-confirmed-orders', confirmedOrders);
+                saveSessionDataForUser(userId);
+                emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
             }
         }
     });
 
-    // --- CHỨC NĂNG IN LẠI ---
     socket.on('reprint-item', ({ username, itemId }) => {
-        if (confirmedOrders[username]) {
-            const item = confirmedOrders[username].items.find(i => i.id === itemId);
-            if (item) printBill(item, confirmedOrders[username]);
+        const normalizedUsername = customerStore.normalizeTikTokUsername(username);
+        if (runtime.confirmedOrders[normalizedUsername]) {
+            const item = runtime.confirmedOrders[normalizedUsername].items.find(i => i.id === itemId);
+            if (item) printBill(item, runtime.confirmedOrders[normalizedUsername], userId);
         }
     });
 
     socket.on('reprint-total', (username) => {
-        if (confirmedOrders[username]) {
-            printDetailedBill(confirmedOrders[username]);
+        const normalizedUsername = customerStore.normalizeTikTokUsername(username);
+        if (runtime.confirmedOrders[normalizedUsername]) {
+            printDetailedBill(runtime.confirmedOrders[normalizedUsername], userId);
         }
     });
 
     socket.on('get-history-list', () => {
-        if (!fs.existsSync(HISTORY_DIR)) return socket.emit('history-list', []);
-        const files = fs.readdirSync(HISTORY_DIR).filter(f => f.endsWith('.json'));
-        const historyList = files.map(f => {
-            const stats = fs.statSync(path.join(HISTORY_DIR, f));
+        const historyDir = getUserHistoryDir(userId);
+        const userFiles = fs.existsSync(historyDir) ? fs.readdirSync(historyDir).filter(f => f.endsWith('.json')) : [];
+        const sharedFiles = includeSharedLegacy && fs.existsSync(HISTORY_ROOT_DIR)
+            ? fs.readdirSync(HISTORY_ROOT_DIR).filter(f => f.endsWith('.json')).filter(f => safeLegacyHistoryFileName(f))
+            : [];
+
+        const historyList = userFiles.map(f => {
+            const stats = fs.statSync(path.join(historyDir, f));
             return { fileName: f, mtime: stats.mtime };
-        }).sort((a, b) => b.mtime - a.mtime);
+        });
+
+        sharedFiles.forEach(f => {
+            const stats = fs.statSync(path.join(HISTORY_ROOT_DIR, f));
+            historyList.push({ fileName: `shared:${f}`, mtime: stats.mtime });
+        });
+
+        historyList.sort((a, b) => b.mtime - a.mtime);
         socket.emit('history-list', historyList);
     });
 
     socket.on('load-history-file', (fileName) => {
-        const filePath = path.join(HISTORY_DIR, fileName);
-        if (fs.existsSync(filePath)) {
-            confirmedOrders = JSON.parse(fs.readFileSync(filePath));
-            const match = fileName.match(/^\d{4}-\d{2}-\d{2}_(.+)\.json$/);
-            if (match) currentBroadcasterId = match[1];
-            socket.emit('history-data', { fileName, data: confirmedOrders });
+        const rawFileName = String(fileName || '');
+        const isSharedFile = rawFileName.startsWith('shared:');
+        if (isSharedFile && !includeSharedLegacy) return;
+        const targetName = isSharedFile ? rawFileName.replace(/^shared:/, '') : rawFileName;
+        const safeFileName = safeLegacyHistoryFileName(targetName);
+        if (!safeFileName) return;
+        const historyDir = isSharedFile ? HISTORY_ROOT_DIR : getUserHistoryDir(userId);
+        const filePath = path.join(historyDir, safeFileName);
+        if (!fs.existsSync(filePath)) return;
+        runtime.confirmedOrders = sanitizeConfirmedOrders(JSON.parse(fs.readFileSync(filePath)));
+        const match = safeFileName.match(/^\d{4}-\d{2}-\d{2}_(.+)\.json$/);
+        if (match) {
+            runtime.currentBroadcasterId = customerStore.normalizeTikTokUsername(match[1]);
         }
+        socket.emit('history-data', { fileName: isSharedFile ? `shared:${safeFileName}` : safeFileName, data: runtime.confirmedOrders });
     });
 });
 

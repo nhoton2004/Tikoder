@@ -5,6 +5,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { cleanDisplayText, normalizeDisplayName, normalizeDisplayText } = require('./displayName');
 
 const DATA_DIR = path.join(__dirname, '..', 'data', 'live-sessions');
 
@@ -105,13 +106,15 @@ function flattenConfirmedOrders(confirmedOrders) {
     const flat = [];
     Object.values(confirmedOrders).forEach(customer => {
         if (customer.items && Array.isArray(customer.items)) {
+            const username = normalizeDisplayText(customer.username || '');
+            const customerName = cleanDisplayText(customer.nickname || customer.displayName || '') || username;
             customer.items.forEach(item => {
                 flat.push({
                     id: `order_${item.id || Date.now() + Math.random()}`,
-                    customerName: customer.nickname || '',
-                    customerUsername: customer.username || '',
+                    customerName,
+                    customerUsername: username,
                     profilePictureUrl: customer.profilePictureUrl || '',
-                    productName: item.text || '',
+                    productName: normalizeDisplayText(item.text || ''),
                     quantity: 1,
                     price: item.price || 0,
                     total: item.price || 0,
@@ -143,7 +146,10 @@ function createLiveSession(userId, data) {
         // Đảm bảo mỗi order có id
         orders = orders.map(o => ({
             ...o,
-            id: o.id || `order_${Date.now() + Math.random()}`
+            id: o.id || `order_${Date.now() + Math.random()}`,
+            customerUsername: normalizeDisplayText(o.customerUsername || o.tiktokUsername || ''),
+            customerName: cleanDisplayText(o.customerName || o.nickname || '') || normalizeDisplayText(o.customerUsername || o.tiktokUsername || ''),
+            productName: normalizeDisplayText(o.productName || o.text || '')
         }));
     } else {
         orders = [];
@@ -225,11 +231,13 @@ function mergeLiveSessions(userId, sessionIds) {
     // Nhóm theo khách hàng
     const customerMap = {};
     mergedOrders.forEach(o => {
-        const key = o.customerUsername || o.customerName || 'unknown';
+        const customerUsername = normalizeDisplayText(o.customerUsername || '');
+        const customerName = normalizeDisplayName(o.customerName || '', customerUsername ? `@${customerUsername}` : undefined);
+        const key = customerUsername || customerName || 'unknown';
         if (!customerMap[key]) {
             customerMap[key] = {
-                customerName: o.customerName,
-                customerUsername: o.customerUsername,
+                customerName,
+                customerUsername,
                 profilePictureUrl: o.profilePictureUrl,
                 orders: [],
                 total: 0

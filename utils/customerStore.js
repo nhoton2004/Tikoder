@@ -5,6 +5,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const { cleanDisplayText, normalizeDisplayText, normalizeTextForDisplay } = require('./displayName');
 
 const DATA_DIR = path.join(__dirname, '..', 'data', 'customers');
 
@@ -37,7 +38,7 @@ function safeUserId(userId) {
 }
 
 function normalizeTikTokUsername(username) {
-    return String(username || '').trim().replace(/^@+/, '').toLowerCase();
+    return normalizeDisplayText(username).replace(/^@+/, '').replace(/\s+/g, '').toLowerCase();
 }
 
 function getUserCustomerFile(userId) {
@@ -51,11 +52,22 @@ function readUserCustomers(userId) {
     try {
         const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
         const customers = Array.isArray(data?.customers) ? data.customers : [];
-        return customers.filter(customer => customer.userId === userId);
+        return customers
+            .filter(customer => customer.userId === userId)
+            .map(sanitizeCustomerForDisplay);
     } catch (error) {
         console.error(`Lỗi đọc file customers của user ${userId}:`, error.message);
         return [];
     }
+}
+
+function sanitizeCustomerForDisplay(customer = {}) {
+    const tiktokUsername = normalizeTikTokUsername(customer.tiktokUsername);
+    return {
+        ...customer,
+        tiktokUsername,
+        displayName: cleanDisplayText(customer.displayName)
+    };
 }
 
 function writeUserCustomers(userId, customers) {
@@ -67,12 +79,12 @@ function writeUserCustomers(userId, customers) {
 }
 
 function listCustomers(userId, query = '') {
-    const q = String(query || '').trim().toLowerCase();
+    const q = normalizeTextForDisplay(query).toLowerCase();
     const customers = readUserCustomers(userId);
     if (!q) return customers;
     return customers.filter(customer => {
         return [
-            customer.displayName,
+            normalizeTextForDisplay(customer.displayName),
             customer.tiktokUsername,
             customer.phone
         ].some(value => String(value || '').toLowerCase().includes(q));
@@ -92,7 +104,13 @@ function findCustomerByTikTok(userId, tiktokUsername) {
 function pickCustomerFields(data) {
     return CUSTOMER_FIELDS.reduce((result, field) => {
         if (Object.prototype.hasOwnProperty.call(data || {}, field)) {
-            result[field] = data[field];
+            if (field === 'displayName') {
+                result[field] = cleanDisplayText(data[field]);
+            } else if (field === 'tiktokUsername') {
+                result[field] = normalizeTikTokUsername(data[field]);
+            } else {
+                result[field] = typeof data[field] === 'string' ? normalizeDisplayText(data[field]) : data[field];
+            }
         }
         return result;
     }, {});
@@ -125,6 +143,7 @@ function createCustomer(userId, data = {}) {
     };
 
     customer.tiktokUsername = normalizeTikTokUsername(customer.tiktokUsername);
+    customer.displayName = cleanDisplayText(customer.displayName);
     customers.unshift(customer);
     writeUserCustomers(userId, customers);
     return customer;
@@ -144,6 +163,7 @@ function updateCustomer(userId, customerId, patch = {}) {
         updatedAt: new Date().toISOString()
     };
     next.tiktokUsername = normalizeTikTokUsername(next.tiktokUsername);
+    next.displayName = cleanDisplayText(next.displayName);
     customers[index] = next;
     writeUserCustomers(userId, customers);
     return next;

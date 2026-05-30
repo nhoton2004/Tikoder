@@ -2,6 +2,7 @@ const fs = require('fs');
 const path = require('path');
 const ExcelJS = require('exceljs');
 const customerStore = require('./customerStore');
+const { normalizeDisplayName, normalizeDisplayText } = require('./displayName');
 
 const TEMPLATE_DIR = path.join(__dirname, '..', 'templates');
 const TEMPLATE_FILE = path.join(TEMPLATE_DIR, 'collect_fee_partial_delivery_mass_order_creation_template_vn.xlsx');
@@ -38,13 +39,15 @@ function normalizeOrders(input) {
     const orders = [];
     Object.values(input).forEach(customer => {
         const items = Array.isArray(customer?.items) ? customer.items : [];
+        const customerUsername = customerStore.normalizeTikTokUsername(customer.username || customer.tiktokUsername || '');
+        const customerName = normalizeDisplayName(customer.nickname || customer.displayName || '', customerUsername ? `@${customerUsername}` : undefined);
         items.forEach(item => {
             orders.push({
                 id: item.id || '',
-                customerName: customer.nickname || customer.displayName || '',
-                customerUsername: customer.username || customer.tiktokUsername || '',
+                customerName,
+                customerUsername,
                 profilePictureUrl: customer.profilePictureUrl || '',
-                productName: item.productName || item.text || '',
+                productName: normalizeDisplayText(item.productName || item.text || ''),
                 quantity: toNumber(item.quantity, 1) || 1,
                 price: toNumber(item.price, 0),
                 total: toNumber(item.total || item.price, 0),
@@ -60,7 +63,7 @@ function groupOrdersByCustomer(orders) {
     const groups = new Map();
     normalizeOrders(orders).forEach(order => {
         const customerUsername = customerStore.normalizeTikTokUsername(order.customerUsername || order.tiktokUsername || '');
-        const customerName = String(order.customerName || order.nickname || '').trim();
+        const customerName = normalizeDisplayName(order.customerName || order.nickname || '', customerUsername ? `@${customerUsername}` : undefined);
         const key = customerUsername || customerName.toLowerCase() || `unknown_${groups.size + 1}`;
         if (!groups.has(key)) {
             groups.set(key, {
@@ -78,7 +81,7 @@ function groupOrdersByCustomer(orders) {
             ...order,
             customerUsername,
             customerName,
-            productName: order.productName || order.text || 'Đơn hàng',
+            productName: normalizeDisplayText(order.productName || order.text || 'Đơn hàng') || 'Đơn hàng',
             quantity,
             price,
             total
@@ -180,7 +183,7 @@ async function exportDeliveryExcel({ userId, orders, now = new Date() }) {
         const savedCustomer = group.customerUsername
             ? customerStore.findCustomerByTikTok(userId, group.customerUsername)
             : null;
-        const fallbackName = group.customerName || group.customerUsername || 'Khách TikTok';
+        const fallbackName = normalizeDisplayName(group.customerName, group.customerUsername ? `@${group.customerUsername}` : undefined);
         const customer = {
             displayName: fallbackName,
             phone: '',
@@ -197,7 +200,7 @@ async function exportDeliveryExcel({ userId, orders, now = new Date() }) {
         const missingFields = getMissingFields(customer);
         if (missingFields.length > 0) {
             missingCustomers.push({
-                customerName: group.customerName || customer.displayName || '',
+                customerName: normalizeDisplayName(group.customerName || customer.displayName || '', group.customerUsername ? `@${group.customerUsername}` : undefined),
                 customerUsername: group.customerUsername || '',
                 customerId: savedCustomer?.id || '',
                 missingFields
@@ -210,7 +213,7 @@ async function exportDeliveryExcel({ userId, orders, now = new Date() }) {
         setOrderRow(row, {
             // Giữ 1 khách hàng trên 1 dòng và chỉ điền phần thông tin vận chuyển.
             orderCode,
-            receiverName: customer.displayName || fallbackName,
+            receiverName: normalizeDisplayName(customer.displayName, fallbackName),
             phone: customer.phone || '',
             province: customer.province || '',
             district: customer.district || '',

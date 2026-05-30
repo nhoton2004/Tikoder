@@ -6,6 +6,7 @@ const express = require('express');
 const router = express.Router();
 const admin = require('firebase-admin');
 const liveSessionStore = require('../utils/liveSessionStore');
+const { normalizeDisplayName } = require('../utils/displayName');
 
 // --- Helpers ---
 const ROLE_HIERARCHY = { 'super_admin': 4, 'admin': 3, 'staff': 2, 'user': 1 };
@@ -66,7 +67,7 @@ router.get('/users', requireAdmin, async (req, res) => {
                 users.push({
                     uid: u.uid,
                     email: u.email || '',
-                    displayName: u.displayName || '',
+                    displayName: normalizeDisplayName(u.displayName || '', u.email?.split('@')[0] || ''),
                     photoURL: u.photoURL || '',
                     disabled: u.disabled,
                     emailVerified: u.emailVerified,
@@ -103,10 +104,11 @@ router.post('/users', requireAdmin, async (req, res) => {
             return res.status(403).json({ error: 'Chỉ Super Admin mới được tạo tài khoản Admin' });
         }
 
+        const safeDisplayName = normalizeDisplayName(displayName || '', email.split('@')[0] || '');
         const newUser = await admin.auth().createUser({
             email,
             password,
-            displayName: displayName || '',
+            displayName: safeDisplayName,
             emailVerified: false
         });
 
@@ -146,7 +148,7 @@ router.patch('/users/:uid', requireAdmin, async (req, res) => {
         const updateData = {};
         if (email) updateData.email = email;
         if (password) updateData.password = password;
-        if (displayName !== undefined) updateData.displayName = displayName;
+        if (displayName !== undefined) updateData.displayName = normalizeDisplayName(displayName, email || uid);
         if (disabled !== undefined) updateData.disabled = disabled;
 
         if (Object.keys(updateData).length > 0) {

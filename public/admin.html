@@ -7,7 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        body { font-family: 'Inter', sans-serif; }
+        body { font-family: Inter, "Segoe UI", Roboto, Arial, "Helvetica Neue", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"; }
         .role-super_admin { background: #fef3c7; color: #92400e; }
         .role-admin { background: #dbeafe; color: #1e40af; }
         .role-staff { background: #d1fae5; color: #065f46; }
@@ -167,11 +167,24 @@
 
         function fmtDate(d) { return d ? new Date(d).toLocaleDateString('vi-VN') : '-'; }
         function fmtMoney(n) { return new Intl.NumberFormat('vi-VN').format(n); }
+        function escapeHtml(value) {
+            return String(value ?? '')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;')
+                .replace(/"/g, '&quot;')
+                .replace(/'/g, '&#039;');
+        }
+        function escapeJsString(value) {
+            return String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '');
+        }
 
         function renderUsers(users) {
             document.getElementById('loading-msg').style.display = 'none';
             const tbody = document.getElementById('users-tbody');
             tbody.innerHTML = users.map(u => {
+                const displayName = u.displayName || u.email?.split('@')[0] || '-';
+                const email = u.email || '';
                 const provider = u.providerData?.[0]?.providerId === 'google.com' ? '🟢 Google' : '📧 Email';
                 const status = u.disabled
                     ? '<span class="bg-red-100 text-red-600 px-2 py-0.5 rounded-full text-[10px] font-bold">Khóa</span>'
@@ -180,8 +193,8 @@
                 return `<tr class="border-t hover:bg-gray-50 transition ${u.disabled ? 'opacity-60' : ''}">
                     <td class="p-3">
                         <div class="flex items-center gap-2">
-                            <img src="${u.photoURL || 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 40 40%22><rect fill=%22%23ddd%22 width=%2240%22 height=%2240%22/><text x=%2250%%22 y=%2255%%22 text-anchor=%22middle%22 font-size=%2218%22 fill=%22%23999%22>?</text></svg>'}" class="w-8 h-8 rounded-full border">
-                            <div><p class="font-bold text-xs truncate max-w-[160px]">${u.displayName || u.email?.split('@')[0] || '-'}</p><p class="text-[10px] text-gray-400">${u.email}</p></div>
+                            <img src="${escapeHtml(u.photoURL || 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 40 40%22><rect fill=%22%23ddd%22 width=%2240%22 height=%2240%22/><text x=%2250%%22 y=%2255%%22 text-anchor=%22middle%22 font-size=%2218%22 fill=%22%23999%22>?</text></svg>')}" class="w-8 h-8 rounded-full border">
+                            <div><p class="font-bold text-xs truncate max-w-[160px]">${escapeHtml(displayName)}</p><p class="text-[10px] text-gray-400">${escapeHtml(email)}</p></div>
                         </div>
                     </td>
                     <td class="p-3"><span class="role-${u.role} px-2 py-0.5 rounded-full text-[10px] font-bold">${u.role}</span></td>
@@ -191,10 +204,10 @@
                     <td class="p-3 text-[10px] text-gray-400 hidden lg:table-cell">${fmtDate(u.lastSignInTime)}</td>
                     <td class="p-3 text-center">
                         <div class="flex justify-center gap-1 flex-wrap">
-                            <button onclick="editUser('${u.uid}')" class="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded hover:bg-blue-100" title="Sửa">✏️</button>
-                            <button onclick="toggleDisable('${u.uid}', ${u.disabled})" class="text-[10px] ${u.disabled ? 'bg-green-50 text-green-600' : 'bg-yellow-50 text-yellow-600'} px-2 py-1 rounded hover:opacity-80" title="${u.disabled ? 'Mở khóa' : 'Khóa'}">${u.disabled ? '🔓' : '🔒'}</button>
-                            <button onclick="viewSessions('${u.uid}', '${(u.displayName || u.email).replace(/'/g, "\\'")}')" class="text-[10px] bg-purple-50 text-purple-600 px-2 py-1 rounded hover:bg-purple-100" title="Phiên live">📋</button>
-                            ${!isSelf ? `<button onclick="deleteUser('${u.uid}', '${u.email}')" class="text-[10px] bg-red-50 text-red-600 px-2 py-1 rounded hover:bg-red-100" title="Xóa">🗑️</button>` : ''}
+                            <button onclick="editUser('${escapeJsString(u.uid)}')" class="text-[10px] bg-blue-50 text-blue-600 px-2 py-1 rounded hover:bg-blue-100" title="Sửa">✏️</button>
+                            <button onclick="toggleDisable('${escapeJsString(u.uid)}', ${u.disabled})" class="text-[10px] ${u.disabled ? 'bg-green-50 text-green-600' : 'bg-yellow-50 text-yellow-600'} px-2 py-1 rounded hover:opacity-80" title="${u.disabled ? 'Mở khóa' : 'Khóa'}">${u.disabled ? '🔓' : '🔒'}</button>
+                            <button onclick="viewSessions('${escapeJsString(u.uid)}', '${escapeJsString(displayName || email)}')" class="text-[10px] bg-purple-50 text-purple-600 px-2 py-1 rounded hover:bg-purple-100" title="Phiên live">📋</button>
+                            ${!isSelf ? `<button onclick="deleteUser('${escapeJsString(u.uid)}', '${escapeJsString(email)}')" class="text-[10px] bg-red-50 text-red-600 px-2 py-1 rounded hover:bg-red-100" title="Xóa">🗑️</button>` : ''}
                         </div>
                     </td>
                 </tr>`;

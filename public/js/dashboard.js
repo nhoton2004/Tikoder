@@ -29,6 +29,13 @@
         const customerSearchInput = document.getElementById('customer-search');
         const customerForm = document.getElementById('customer-form');
         const customersTableBody = document.getElementById('customers-table-body');
+        const appShell = document.querySelector('.app-shell');
+        const sidebar = document.getElementById('app-sidebar');
+        const sidebarToggle = document.getElementById('sidebar-toggle');
+        const sidebarMobileToggle = document.getElementById('sidebar-mobile-toggle');
+        const sidebarBackdrop = document.getElementById('sidebar-backdrop');
+        const themeButtons = document.querySelectorAll('[data-theme-option]');
+        const themeStatusLabel = document.getElementById('theme-status-label');
 
         let ordersData = {};
         let customersData = [];
@@ -39,6 +46,7 @@
         let overviewRefreshTimer = null;
         let customerSearchTimer = null;
         let activeBroadcasterId = '';
+        let currentUserUid = '';
         let guideCollapsed = false;
         const seenChatMsgIds = new Set();
         let mobilePopoverEl = null;
@@ -83,8 +91,14 @@
                 'settings.apiKey': 'TikTok Sign API Key',
                 'settings.apiKeyDesc': 'Khóa bảo mật để đồng bộ với hệ thống TikTok.',
                 'settings.save': 'Lưu thay đổi',
+                'settings.appearanceTitle': 'Giao diện',
+                'settings.appearanceDesc': 'Chọn chế độ sáng hoặc tối cho toàn bộ ứng dụng.',
+                'settings.lightMode': 'Chế độ sáng',
+                'settings.darkMode': 'Chế độ tối',
                 'settings.quickTools': 'Tiện ích hệ thống',
                 'settings.logout': 'Đăng xuất',
+                'sidebar.collapse': 'Thu gọn',
+                'sidebar.expand': 'Mở rộng',
                 'backup.title': 'Quản lý dữ liệu',
                 'backup.desc': 'Sao lưu và xuất dữ liệu hệ thống.',
                 'backup.mine': 'Dữ liệu tài khoản hiện tại',
@@ -162,8 +176,14 @@
                 'settings.apiKey': 'TikTok Sign API Key',
                 'settings.apiKeyDesc': 'Security key used to sync with TikTok services.',
                 'settings.save': 'Save changes',
+                'settings.appearanceTitle': 'Appearance',
+                'settings.appearanceDesc': 'Choose light or dark mode for the whole app.',
+                'settings.lightMode': 'Light mode',
+                'settings.darkMode': 'Dark mode',
                 'settings.quickTools': 'System tools',
                 'settings.logout': 'Logout',
+                'sidebar.collapse': 'Collapse',
+                'sidebar.expand': 'Expand',
                 'backup.title': 'Data management',
                 'backup.desc': 'Back up and export system data.',
                 'backup.mine': 'Current account data',
@@ -219,10 +239,94 @@
             });
             document.getElementById('btn-lang-vi').classList.toggle('active', lang === 'vi');
             document.getElementById('btn-lang-en').classList.toggle('active', lang === 'en');
+            syncSidebarLabels();
+            syncThemeControls();
         }
         window.setLang = setLang;
+
+        function isMobileLayout() {
+            return window.matchMedia && window.matchMedia('(max-width: 980px)').matches;
+        }
+
+        function syncSidebarLabels() {
+            menuItems.forEach(btn => {
+                const label = btn.querySelector('.menu-label')?.textContent?.trim();
+                if (label) btn.dataset.tooltip = label;
+            });
+        }
+
+        function applySidebarState(collapsed) {
+            const isCollapsed = Boolean(collapsed);
+            if (appShell) appShell.dataset.sidebarCollapsed = isCollapsed ? 'true' : 'false';
+            document.body.dataset.sidebarCollapsed = isCollapsed ? 'true' : 'false';
+            if (sidebarToggle) {
+                sidebarToggle.setAttribute('aria-label', isCollapsed ? t('sidebar.expand') : t('sidebar.collapse'));
+                sidebarToggle.title = isCollapsed ? t('sidebar.expand') : t('sidebar.collapse');
+                const label = sidebarToggle.querySelector('.sidebar-toggle-label');
+                const icon = sidebarToggle.querySelector('.sidebar-toggle-icon');
+                if (label) label.textContent = isCollapsed ? t('sidebar.expand') : t('sidebar.collapse');
+                if (icon) icon.textContent = isCollapsed ? '›' : '‹';
+            }
+        }
+
+        function setSidebarCollapsed(collapsed) {
+            localStorage.setItem('sidebarCollapsed', collapsed ? 'true' : 'false');
+            applySidebarState(collapsed);
+        }
+
+        function setSidebarDrawerOpen(open) {
+            document.body.classList.toggle('sidebar-drawer-open', Boolean(open));
+            if (sidebarBackdrop) sidebarBackdrop.hidden = !open;
+            if (sidebarMobileToggle) sidebarMobileToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
+        }
+
+        function initSidebar() {
+            syncSidebarLabels();
+            applySidebarState(localStorage.getItem('sidebarCollapsed') === 'true');
+            sidebarToggle?.addEventListener('click', () => {
+                if (isMobileLayout()) {
+                    setSidebarDrawerOpen(false);
+                    return;
+                }
+                setSidebarCollapsed(localStorage.getItem('sidebarCollapsed') !== 'true');
+            });
+            sidebarMobileToggle?.addEventListener('click', () => setSidebarDrawerOpen(!document.body.classList.contains('sidebar-drawer-open')));
+            sidebarBackdrop?.addEventListener('click', () => setSidebarDrawerOpen(false));
+            window.addEventListener('resize', () => {
+                if (!isMobileLayout()) setSidebarDrawerOpen(false);
+            });
+        }
+
+        function applyTheme(theme) {
+            const nextTheme = theme === 'dark' ? 'dark' : 'light';
+            document.documentElement.setAttribute('data-theme', nextTheme);
+            localStorage.setItem('theme', nextTheme);
+            syncThemeControls();
+        }
+
+        function syncThemeControls() {
+            const theme = document.documentElement.getAttribute('data-theme') === 'dark' ? 'dark' : 'light';
+            themeButtons.forEach(btn => {
+                btn.classList.toggle('active', btn.dataset.themeOption === theme);
+            });
+            if (themeStatusLabel) {
+                themeStatusLabel.textContent = theme === 'dark' ? t('settings.darkMode') : t('settings.lightMode');
+            }
+        }
+
+        function initTheme() {
+            applyTheme(localStorage.getItem('theme') || document.documentElement.getAttribute('data-theme') || 'light');
+            themeButtons.forEach(btn => btn.addEventListener('click', () => applyTheme(btn.dataset.themeOption)));
+        }
+
+        initSidebar();
+        initTheme();
+
         menuItems.forEach(btn => {
-            btn.addEventListener('click', () => switchView(btn.dataset.view));
+            btn.addEventListener('click', () => {
+                switchView(btn.dataset.view);
+                if (isMobileLayout()) setSidebarDrawerOpen(false);
+            });
         });
         mobileNavItems.forEach(btn => {
             btn.addEventListener('click', () => {
@@ -270,7 +374,8 @@
         }
 
         function buildConfirmedAmountTooltip(userId) {
-            const total = Number(ordersData?.[userId]?.total || 0);
+            const normalizedUserId = normalizeTikTokUsername(userId);
+            const total = Number(ordersData?.[normalizedUserId]?.total || 0);
             if (currentLang === 'en') {
                 return total > 0 ? `Confirmed amount: ${formatMoney(total)}` : 'Confirmed amount: 0';
             }
@@ -463,20 +568,25 @@
                 if (cards) cards.innerHTML = `<p class="py-4 text-center text-gray-400 text-sm">${currentLang === 'en' ? 'No orders yet' : 'Chưa có đơn hàng'}</p>`;
                 return;
             }
-            tbody.innerHTML = latest.map(r => `
+            tbody.innerHTML = latest.map(r => {
+                const customerName = buildCustomerLabel(r.customer || '', r.customerUsername || '');
+                return `
                 <tr class="border-b">
                     <td class="py-2">#${String(r.id || '').slice(-10) || '—'}</td>
-                    <td class="py-2">${r.customer || '—'}</td>
+                    <td class="py-2 customer-display-name" title="${escapeHtml(customerName)}">${escapeHtml(customerName || '—')}</td>
                     <td class="py-2">${[r.date, r.time].filter(Boolean).join(' ') || '—'}</td>
                     <td class="py-2">${formatMoney(Number(r.value || 0))}</td>
                     <td class="py-2"><span class="px-2 py-1 rounded text-[10px] font-bold ${r.status === 'done' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}">${r.status === 'done' ? (currentLang === 'en' ? 'Done' : 'Đã chốt') : (currentLang === 'en' ? 'Pending' : 'Chờ chốt')}</span></td>
                 </tr>
-            `).join('');
+            `;
+            }).join('');
             if (cards) {
-                cards.innerHTML = latest.map(r => `
+                cards.innerHTML = latest.map(r => {
+                    const customerName = buildCustomerLabel(r.customer || '', r.customerUsername || '');
+                    return `
                     <div class="overview-order-card">
                         <div class="min-w-0">
-                            <p class="font-bold text-sm truncate">${r.customer || '—'}</p>
+                            <p class="font-bold text-sm truncate customer-display-name" title="${escapeHtml(customerName)}">${escapeHtml(customerName || '—')}</p>
                             <p class="text-[10px] text-gray-400 truncate">#${String(r.id || '').slice(-10) || '—'} • ${[r.date, r.time].filter(Boolean).join(' ') || '—'}</p>
                         </div>
                         <div class="text-right">
@@ -484,7 +594,8 @@
                             <span class="inline-block mt-1 px-2 py-1 rounded text-[10px] font-bold ${r.status === 'done' ? 'bg-emerald-100 text-emerald-700' : 'bg-amber-100 text-amber-700'}">${r.status === 'done' ? (currentLang === 'en' ? 'Done' : 'Đã chốt') : (currentLang === 'en' ? 'Pending' : 'Chờ chốt')}</span>
                         </div>
                     </div>
-                `).join('');
+                `;
+                }).join('');
             }
         }
 
@@ -511,8 +622,8 @@
                     <div class="flex items-center gap-3">
                         <span class="w-7 h-7 rounded-full ${rankClass} font-bold flex items-center justify-center">${idx + 1}</span>
                         <span class="w-36 min-w-0">
-                            <span class="block truncate font-bold">${s.customer || s.customerUsername || '—'}</span>
-                            ${s.customerUsername ? `<span class="block truncate text-[10px] text-gray-400">@${s.customerUsername}</span>` : ''}
+                            <span class="block truncate font-bold customer-display-name" title="${escapeHtml(getDisplayName(s.customer || '', s.customerUsername || ''))}">${escapeHtml(getDisplayName(s.customer || '', s.customerUsername || ''))}</span>
+                            ${formatTikTokUsername(s.customerUsername) ? `<span class="block truncate text-[10px] text-gray-400">${escapeHtml(formatTikTokUsername(s.customerUsername))}</span>` : ''}
                         </span>
                         <div class="h-2 bg-gray-100 rounded-full flex-1">
                             <div class="h-2 bg-red-500 rounded-full" style="width:${width}%"></div>
@@ -595,7 +706,7 @@
             historyListContent.innerHTML = list.map(f => `
                 <div class="flex justify-between items-center p-3 border rounded-lg hover:bg-blue-50 transition cursor-pointer" onclick="loadHistory('${f.fileName}')">
                     <div>
-                        <p class="font-bold text-gray-800 text-sm">${f.fileName.replace('.json', '')}</p>
+                        <p class="font-bold text-gray-800 text-sm">${f.fileName.replace(/^shared:/, '[Shared] ').replace('.json', '')}</p>
                         <p class="text-[10px] text-gray-400">${new Date(f.mtime).toLocaleString()}</p>
                     </div>
                     <button class="text-blue-600 font-bold text-xs uppercase">Open</button>
@@ -618,9 +729,9 @@
         };
 
         socket.on('history-data', (res) => {
-            ordersData = res.data;
+            ordersData = normalizeOrdersMap(res.data);
             ordersContainer.innerHTML = '';
-            Object.values(res.data).forEach(order => renderOrderCard(order));
+            Object.values(ordersData).forEach(order => renderOrderCard(order));
             statusMsg.innerText = (currentLang === 'en' ? 'History: ' : 'Lịch sử: ') + res.fileName;
             calculateKpis();
             refreshCommentUserTooltips();
@@ -638,12 +749,31 @@
         socket.on('printer-error', (msg) => { alert(msg); });
 
         socket.on('all-confirmed-orders', (allOrders) => {
-            ordersData = allOrders;
+            ordersData = normalizeOrdersMap(allOrders);
             ordersContainer.innerHTML = '';
-            Object.values(allOrders).forEach(order => renderOrderCard(order));
+            Object.values(ordersData).forEach(order => renderOrderCard(order));
             calculateKpis();
             refreshCommentUserTooltips();
         });
+
+        function normalizeOrdersMap(orderMap) {
+            return Object.values(orderMap || {}).reduce((result, order) => {
+                const username = normalizeTikTokUsername(order.username || order.customerUsername || '');
+                if (!username) return result;
+                result[username] = {
+                    ...order,
+                    username,
+                    nickname: cleanDisplayText(order.nickname || order.displayName || ''),
+                    items: Array.isArray(order.items)
+                        ? order.items.map(item => ({
+                            ...item,
+                            text: normalizeDisplayText(item.text || item.productName || '')
+                        }))
+                        : []
+                };
+                return result;
+            }, {});
+        }
 
         function resetChatFeed() {
             chatFeed.innerHTML = '';
@@ -669,23 +799,55 @@
                 : new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             const row = document.createElement('div');
             row.className = 'chat-row border border-gray-100 rounded-xl p-3 flex gap-3 items-start';
-            const priceTag = data.suggestedPrice > 0 ? `<span class="text-xs font-bold text-red-500 bg-red-50 px-2 py-1 rounded">${formatMoney(data.suggestedPrice)}</span>` : '';
-            const commenterId = data.uniqueId || data.username || '';
+            const commenterId = normalizeTikTokUsername(data.uniqueId || data.username || '');
+            const rawNickname = cleanDisplayText(data.nickname || data.displayName || '');
+            const nickname = getDisplayName(rawNickname, commenterId);
+            const comment = normalizeDisplayText(data.comment || '');
+            const profilePictureUrl = normalizeDisplayText(data.profilePictureUrl || '');
             const tooltip = buildConfirmedAmountTooltip(commenterId);
-            row.innerHTML = `
-                <img src="${data.profilePictureUrl}" class="w-10 h-10 rounded-full border cursor-help" data-comment-userid="${commenterId}" title="${tooltip}">
-                <div class="flex-1 min-w-0">
-                    <div class="flex justify-between items-center">
-                        <p class="font-bold text-gray-800 truncate text-sm cursor-help" data-comment-userid="${commenterId}" title="${tooltip}">${data.nickname}</p>
-                        <span class="text-[10px] text-gray-400 font-mono">${now}</span>
-                    </div>
-                    <p class="text-gray-700 my-1 text-sm">${data.comment}</p>
-                    <div class="flex items-center gap-2 mt-2">
-                        ${priceTag}
-                        <button onclick="manualConfirm('${data.uniqueId}', '${data.nickname}', '${data.profilePictureUrl}', '${data.comment.replace(/'/g, "\\'")}', ${data.suggestedPrice})" class="bg-red-500 text-white text-[10px] font-black px-3 py-1 rounded uppercase">${currentLang === 'en' ? 'CONFIRM' : 'CHỐT'}</button>
-                    </div>
-                </div>
-            `;
+
+            const avatar = document.createElement('img');
+            avatar.src = profilePictureUrl;
+            avatar.className = 'w-10 h-10 rounded-full border cursor-help';
+            avatar.dataset.commentUserid = commenterId;
+            avatar.title = tooltip;
+            row.appendChild(avatar);
+
+            const body = document.createElement('div');
+            body.className = 'flex-1 min-w-0';
+            const header = document.createElement('div');
+            header.className = 'flex justify-between items-center gap-2';
+            const nameEl = document.createElement('p');
+            nameEl.className = 'font-bold text-gray-800 truncate text-sm cursor-help customer-display-name';
+            nameEl.dataset.commentUserid = commenterId;
+            nameEl.title = tooltip;
+            nameEl.textContent = nickname;
+            const timeEl = document.createElement('span');
+            timeEl.className = 'text-[10px] text-gray-400 font-mono whitespace-nowrap';
+            timeEl.textContent = now;
+            header.append(nameEl, timeEl);
+
+            const commentEl = document.createElement('p');
+            commentEl.className = 'text-gray-700 my-1 text-sm';
+            commentEl.textContent = comment;
+
+            const actions = document.createElement('div');
+            actions.className = 'flex items-center gap-2 mt-2';
+            if (data.suggestedPrice > 0) {
+                const priceTag = document.createElement('span');
+                priceTag.className = 'text-xs font-bold text-red-500 bg-red-50 px-2 py-1 rounded';
+                priceTag.textContent = formatMoney(data.suggestedPrice);
+                actions.appendChild(priceTag);
+            }
+            const confirmBtn = document.createElement('button');
+            confirmBtn.type = 'button';
+            confirmBtn.className = 'bg-red-500 text-white text-[10px] font-black px-3 py-1 rounded uppercase';
+            confirmBtn.textContent = currentLang === 'en' ? 'CONFIRM' : 'CHỐT';
+            confirmBtn.addEventListener('click', () => manualConfirm(commenterId, rawNickname, profilePictureUrl, comment, data.suggestedPrice));
+            actions.appendChild(confirmBtn);
+
+            body.append(header, commentEl, actions);
+            row.appendChild(body);
             chatFeed.appendChild(row);
             chatFeed.scrollTop = chatFeed.scrollHeight;
             if (chatFeed.children.length > 300) chatFeed.removeChild(chatFeed.firstChild);
@@ -709,7 +871,10 @@
             if (data.connected) setGuideCollapsed(true);
             if (data.connected && data.broadcasterId) {
                 activeBroadcasterId = data.broadcasterId;
-                localStorage.setItem('lastBroadcasterId', data.broadcasterId);
+                const scopedLastBroadcasterKey = getScopedStorageKey('lastBroadcasterId');
+                if (scopedLastBroadcasterKey) {
+                    localStorage.setItem(scopedLastBroadcasterKey, data.broadcasterId);
+                }
                 socket.emit('get-chat-buffer', { broadcasterId: data.broadcasterId });
             }
             scheduleOverviewRefresh();
@@ -732,12 +897,27 @@
         window.manualConfirm = (uniqueId, nickname, profilePictureUrl, comment, suggestedPrice) => {
             const inputText = currentLang === 'en' ? 'Enter price (e.g. 50000):' : 'Nhập giá (vd: 50000):';
             let price = suggestedPrice || parseFloat(prompt(inputText, '')) || 0;
-            if (price > 0) socket.emit('confirm-item', { uniqueId, nickname, profilePictureUrl, comment, price });
+            if (price > 0) {
+                const username = normalizeTikTokUsername(uniqueId);
+                socket.emit('confirm-item', {
+                    uniqueId: username,
+                    nickname: cleanDisplayText(nickname),
+                    profilePictureUrl: normalizeDisplayText(profilePictureUrl),
+                    comment: normalizeDisplayText(comment),
+                    price
+                });
+            }
         };
 
         socket.on('order-confirmed', (userOrder) => {
-            ordersData[userOrder.username] = userOrder;
-            renderOrderCard(userOrder);
+            const username = normalizeTikTokUsername(userOrder.username || userOrder.customerUsername || '');
+            const normalizedOrder = {
+                ...userOrder,
+                username,
+                nickname: cleanDisplayText(userOrder.nickname || userOrder.displayName || '')
+            };
+            ordersData[username || userOrder.username] = normalizedOrder;
+            renderOrderCard(normalizedOrder);
             calculateKpis();
             refreshCommentUserTooltips();
         });
@@ -759,17 +939,93 @@
             return String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '');
         }
 
+        const DISPLAY_NAME_FALLBACK = 'Khách TikTok';
+        const CONTROL_CHAR_RE = /[\u0000-\u001F\u007F-\u009F]/g;
+        const INVISIBLE_FORMAT_RE = /[\u200B\u200C\u200E\u200F\u202A-\u202E\u2060\u2066-\u2069\uFEFF]/g;
+
+        function cleanDisplayText(value) {
+            return String(value ?? '')
+                .normalize('NFC')
+                .replace(CONTROL_CHAR_RE, ' ')
+                .replace(INVISIBLE_FORMAT_RE, '')
+                .replace(/\s+/g, ' ')
+                .trim();
+        }
+
+        function normalizeTextForDisplay(value) {
+            return cleanDisplayText(value).normalize('NFKC').normalize('NFC');
+        }
+
+        function hasReplacementChar(value) {
+            return String(value ?? '').includes('\uFFFD');
+        }
+
+        function normalizeDisplayName(name, fallback = DISPLAY_NAME_FALLBACK) {
+            const displayName = normalizeTextForDisplay(name);
+            if (displayName && !hasReplacementChar(displayName)) return displayName;
+
+            const displayFallback = normalizeTextForDisplay(fallback);
+            if (displayFallback && !hasReplacementChar(displayFallback)) return displayFallback;
+
+            return DISPLAY_NAME_FALLBACK;
+        }
+
+        function normalizeDisplayText(value) {
+            return cleanDisplayText(value).replace(/\uFFFD/g, '');
+        }
+
+        function normalizeTikTokUsername(username) {
+            return normalizeDisplayText(username).replace(/^@+/, '').replace(/\s+/g, '').toLowerCase();
+        }
+
+        function formatTikTokUsername(username) {
+            const normalized = normalizeTikTokUsername(username);
+            return normalized ? `@${normalized}` : '';
+        }
+
+        function getDisplayName(name, username) {
+            return normalizeDisplayName(name, formatTikTokUsername(username) || DISPLAY_NAME_FALLBACK);
+        }
+
+        function buildCustomerLabel(name, username) {
+            const displayName = getDisplayName(name, username);
+            const handle = formatTikTokUsername(username);
+            return handle && displayName !== handle ? `${displayName} (${handle})` : displayName;
+        }
+
+        function setText(el, value) {
+            if (el) el.textContent = normalizeDisplayText(value);
+        }
+
+        function getScopedStorageKey(baseKey) {
+            return currentUserUid ? `${baseKey}_${currentUserUid}` : '';
+        }
+
+        function clearRealtimeUi() {
+            ordersData = {};
+            customersData = [];
+            kpiComments = 0;
+            seenChatMsgIds.clear();
+            activeBroadcasterId = '';
+            if (ordersContainer) ordersContainer.textContent = '';
+            if (liveOrdersCompact) liveOrdersCompact.textContent = '';
+            if (chatFeed) chatFeed.textContent = '';
+            if (customersTableBody) customersTableBody.textContent = '';
+            calculateKpis();
+            refreshCommentUserTooltips();
+        }
+
         function getCustomerFormData() {
             return {
-                tiktokUsername: document.getElementById('customer-tiktok').value.trim().replace(/^@+/, ''),
-                displayName: document.getElementById('customer-display-name').value.trim(),
-                phone: document.getElementById('customer-phone').value.trim(),
-                province: document.getElementById('customer-province').value.trim(),
-                district: document.getElementById('customer-district').value.trim(),
-                ward: document.getElementById('customer-ward').value.trim(),
-                addressDetail: document.getElementById('customer-address-detail').value.trim(),
-                addressNote: document.getElementById('customer-address-note').value.trim(),
-                customerCode: document.getElementById('customer-code').value.trim()
+                tiktokUsername: normalizeTikTokUsername(document.getElementById('customer-tiktok').value),
+                displayName: cleanDisplayText(document.getElementById('customer-display-name').value),
+                phone: normalizeDisplayText(document.getElementById('customer-phone').value),
+                province: normalizeDisplayText(document.getElementById('customer-province').value),
+                district: normalizeDisplayText(document.getElementById('customer-district').value),
+                ward: normalizeDisplayText(document.getElementById('customer-ward').value),
+                addressDetail: normalizeDisplayText(document.getElementById('customer-address-detail').value),
+                addressNote: normalizeDisplayText(document.getElementById('customer-address-note').value),
+                customerCode: normalizeDisplayText(document.getElementById('customer-code').value)
             };
         }
 
@@ -805,26 +1061,71 @@
 
         function renderCustomersTable() {
             if (!customersTableBody) return;
+            customersTableBody.textContent = '';
             if (!customersData.length) {
                 customersTableBody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-gray-400">Chưa có khách hàng</td></tr>`;
                 return;
             }
 
-            customersTableBody.innerHTML = customersData.map(customer => {
+            customersData.forEach(customer => {
                 const address = [customer.addressDetail, customer.ward, customer.district, customer.province].filter(Boolean).join(', ');
-                return `
-                    <tr class="border-b hover:bg-gray-50">
-                        <td class="p-3 font-bold">${customer.tiktokUsername ? '@' + escapeHtml(customer.tiktokUsername) : '—'}</td>
-                        <td class="p-3">${escapeHtml(customer.displayName || '')}</td>
-                        <td class="p-3">${escapeHtml(customer.phone || '') || '<span class="text-amber-600">Thiếu SĐT</span>'}</td>
-                        <td class="p-3 max-w-[320px] truncate" title="${escapeHtml(address)}">${escapeHtml(address) || '<span class="text-amber-600">Thiếu địa chỉ</span>'}</td>
-                        <td class="p-3 text-right whitespace-nowrap">
-                            <button type="button" onclick="editCustomer('${escapeJsString(customer.id)}')" class="px-2 py-1 bg-blue-50 text-blue-600 rounded text-xs font-bold">Sửa</button>
-                            <button type="button" onclick="removeCustomer('${escapeJsString(customer.id)}')" class="px-2 py-1 bg-red-50 text-red-600 rounded text-xs font-bold">Xóa</button>
-                        </td>
-                    </tr>
-                `;
-            }).join('');
+                const username = normalizeTikTokUsername(customer.tiktokUsername || '');
+                const handle = formatTikTokUsername(username);
+                const displayName = getDisplayName(customer.displayName || '', username);
+
+                const row = document.createElement('tr');
+                row.className = 'border-b hover:bg-gray-50';
+
+                const usernameCell = document.createElement('td');
+                usernameCell.className = 'p-3 font-bold customer-table-username';
+                usernameCell.title = handle;
+                usernameCell.textContent = handle || '—';
+
+                const nameCell = document.createElement('td');
+                nameCell.className = 'p-3 customer-table-name customer-display-name';
+                nameCell.title = displayName;
+                nameCell.textContent = displayName;
+
+                const phoneCell = document.createElement('td');
+                phoneCell.className = 'p-3 customer-table-phone';
+                if (normalizeDisplayText(customer.phone || '')) {
+                    phoneCell.textContent = normalizeDisplayText(customer.phone);
+                } else {
+                    const missing = document.createElement('span');
+                    missing.className = 'customer-missing text-amber-600';
+                    missing.textContent = 'Thiếu SĐT';
+                    phoneCell.appendChild(missing);
+                }
+
+                const addressCell = document.createElement('td');
+                addressCell.className = 'p-3 customer-table-address';
+                addressCell.title = normalizeDisplayText(address);
+                if (normalizeDisplayText(address)) {
+                    addressCell.textContent = normalizeDisplayText(address);
+                } else {
+                    const missing = document.createElement('span');
+                    missing.className = 'customer-missing text-amber-600';
+                    missing.textContent = 'Thiếu địa chỉ';
+                    addressCell.appendChild(missing);
+                }
+
+                const actionsCell = document.createElement('td');
+                actionsCell.className = 'p-3 text-right customer-table-actions';
+                const editBtn = document.createElement('button');
+                editBtn.type = 'button';
+                editBtn.className = 'customer-action-btn bg-blue-50 text-blue-600';
+                editBtn.textContent = 'Sửa';
+                editBtn.addEventListener('click', () => editCustomer(customer.id));
+                const removeBtn = document.createElement('button');
+                removeBtn.type = 'button';
+                removeBtn.className = 'customer-action-btn bg-red-50 text-red-600';
+                removeBtn.textContent = 'Xóa';
+                removeBtn.addEventListener('click', () => removeCustomer(customer.id));
+                actionsCell.append(editBtn, removeBtn);
+
+                row.append(usernameCell, nameCell, phoneCell, addressCell, actionsCell);
+                customersTableBody.appendChild(row);
+            });
         }
 
         async function saveCustomerForm(event) {
@@ -910,14 +1211,17 @@
 
             liveOrdersCompact.innerHTML = orders.map(order => {
                 const items = Array.isArray(order.items) ? order.items : [];
+                const username = normalizeTikTokUsername(order.username || order.customerUsername || '');
+                const handle = formatTikTokUsername(username);
+                const displayName = getDisplayName(order.nickname || order.displayName || '', username);
                 const itemsHtml = items.map(item => `
                     <div class="live-order-item">
-                        <span class="truncate text-gray-700">${item.text || ''}</span>
+                        <span class="truncate text-gray-700">${escapeHtml(normalizeDisplayText(item.text || item.productName || ''))}</span>
                         <span class="font-black text-red-600 whitespace-nowrap">${formatMoney(Number(item.price || 0))}</span>
                         <div class="flex items-center gap-1">
-                            <button onclick="reprintItem('${order.username}', ${item.id})" class="live-order-action text-slate-700 bg-slate-100" title="In lại">IN</button>
-                            <button onclick="editItem('${order.username}', ${item.id}, ${item.price})" class="live-order-action text-slate-700 bg-slate-100" title="Sửa giá">SUA</button>
-                            <button onclick="deleteItem('${order.username}', ${item.id})" class="live-order-action text-red-600 bg-red-50" title="Xóa">XOA</button>
+                            <button onclick="reprintItem('${escapeJsString(username)}', ${Number(item.id) || 0})" class="live-order-action text-slate-700 bg-slate-100" title="In lại">IN</button>
+                            <button onclick="editItem('${escapeJsString(username)}', ${Number(item.id) || 0}, ${Number(item.price) || 0})" class="live-order-action text-slate-700 bg-slate-100" title="Sửa giá">SUA</button>
+                            <button onclick="deleteItem('${escapeJsString(username)}', ${Number(item.id) || 0})" class="live-order-action text-red-600 bg-red-50" title="Xóa">XOA</button>
                         </div>
                     </div>
                 `).join('');
@@ -926,12 +1230,12 @@
                     <div class="live-order-card">
                         <div class="flex items-center justify-between gap-2">
                             <div class="min-w-0">
-                                <p class="font-bold text-sm truncate">${order.nickname || order.username}</p>
-                                <p class="text-[10px] text-gray-400 truncate">@${order.username}</p>
+                                <p class="font-bold text-sm truncate customer-display-name" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</p>
+                                <p class="text-[10px] text-gray-400 truncate" title="${escapeHtml(handle)}">${escapeHtml(handle)}</p>
                             </div>
                             <div class="flex items-center gap-1">
-                                <button onclick="reprintTotal('${order.username}')" class="text-[10px] bg-white border border-gray-200 px-2 py-1 rounded font-bold">${currentLang === 'en' ? 'Print' : 'In'}</button>
-                                <button onclick="deleteCustomer('${order.username}')" class="text-[10px] bg-red-50 text-red-600 px-2 py-1 rounded font-bold">${currentLang === 'en' ? 'Delete' : 'Xóa'}</button>
+                                <button onclick="reprintTotal('${escapeJsString(username)}')" class="text-[10px] bg-white border border-gray-200 px-2 py-1 rounded font-bold">${currentLang === 'en' ? 'Print' : 'In'}</button>
+                                <button onclick="deleteCustomer('${escapeJsString(username)}')" class="text-[10px] bg-red-50 text-red-600 px-2 py-1 rounded font-bold">${currentLang === 'en' ? 'Delete' : 'Xóa'}</button>
                             </div>
                         </div>
                         <div class="mt-2 space-y-1">${itemsHtml}</div>
@@ -945,22 +1249,25 @@
         }
 
         function renderOrderCard(order) {
-            let card = document.getElementById(`card-${order.username}`);
+            const username = normalizeTikTokUsername(order.username || order.customerUsername || '');
+            const handle = formatTikTokUsername(username);
+            const displayName = getDisplayName(order.nickname || order.displayName || '', username);
+            let card = document.getElementById(`card-${username}`);
             if (!card) {
                 card = document.createElement('div');
-                card.id = `card-${order.username}`;
+                card.id = `card-${username}`;
                 card.className = 'bg-white rounded-xl shadow border border-gray-200 flex flex-col overflow-hidden';
                 ordersContainer.prepend(card);
             }
             const itemsHtml = order.items.map(i => `
                 <div class="group flex justify-between items-center text-[10px] py-2 border-b border-gray-50 hover:bg-gray-50 px-2 transition">
-                    <span class="text-gray-600 truncate mr-2 flex-1">${i.text}</span>
+                    <span class="text-gray-600 truncate mr-2 flex-1">${escapeHtml(normalizeDisplayText(i.text || i.productName || ''))}</span>
                     <div class="flex items-center gap-3 ml-2">
                         <span class="font-bold text-red-500 whitespace-nowrap">${formatMoney(i.price)}</span>
                         <div class="flex gap-2 border-l pl-2 border-gray-200">
-                            <button onclick="reprintItem('${order.username}', ${i.id})" class="order-action-btn text-slate-700 bg-slate-100 rounded" title="In lại">IN</button>
-                            <button onclick="editItem('${order.username}', ${i.id}, ${i.price})" class="order-action-btn text-slate-700 bg-slate-100 rounded" title="Sửa giá">SUA</button>
-                            <button onclick="deleteItem('${order.username}', ${i.id})" class="order-action-btn text-red-600 bg-red-50 rounded" title="Xóa">XOA</button>
+                            <button onclick="reprintItem('${escapeJsString(username)}', ${Number(i.id) || 0})" class="order-action-btn text-slate-700 bg-slate-100 rounded" title="In lại">IN</button>
+                            <button onclick="editItem('${escapeJsString(username)}', ${Number(i.id) || 0}, ${Number(i.price) || 0})" class="order-action-btn text-slate-700 bg-slate-100 rounded" title="Sửa giá">SUA</button>
+                            <button onclick="deleteItem('${escapeJsString(username)}', ${Number(i.id) || 0})" class="order-action-btn text-red-600 bg-red-50 rounded" title="Xóa">XOA</button>
                         </div>
                     </div>
                 </div>
@@ -968,41 +1275,42 @@
 
             card.innerHTML = `
                 <div class="p-3 bg-gray-50 flex items-center justify-between border-b">
-                    <div class="flex items-center gap-2">
-                        <img src="${order.profilePictureUrl}" class="w-8 h-8 rounded-full border">
-                        <div class="overflow-hidden">
-                            <h3 class="font-bold text-xs truncate">${order.nickname}</h3>
-                            <p class="text-[9px] text-gray-400">@${order.username}</p>
+                    <div class="flex items-center gap-2 min-w-0">
+                        <img src="${escapeHtml(normalizeDisplayText(order.profilePictureUrl || ''))}" class="w-8 h-8 rounded-full border">
+                        <div class="overflow-hidden min-w-0">
+                            <h3 class="font-bold text-xs truncate customer-display-name" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</h3>
+                            <p class="text-[9px] text-gray-400 truncate" title="${escapeHtml(handle)}">${escapeHtml(handle)}</p>
                         </div>
                     </div>
-                    <button onclick="deleteCustomer('${order.username}')" class="text-gray-400 hover:text-red-500 text-sm">✕</button>
+                    <button onclick="deleteCustomer('${escapeJsString(username)}')" class="text-gray-400 hover:text-red-500 text-sm">✕</button>
                 </div>
                 <div class="flex-1 max-h-48 overflow-y-auto">${itemsHtml}</div>
                 <div class="p-3 bg-red-50 flex justify-between items-center border-t">
                     <div class="flex items-center gap-2">
                         <span class="text-[10px] font-bold text-gray-700 uppercase">TOTAL</span>
-                        <button onclick="reprintTotal('${order.username}')" class="text-[9px] bg-white border border-gray-300 px-1 py-0.5 rounded">${currentLang === 'en' ? 'Reprint total' : 'In lại tổng'}</button>
+                        <button onclick="reprintTotal('${escapeJsString(username)}')" class="text-[9px] bg-white border border-gray-300 px-1 py-0.5 rounded">${currentLang === 'en' ? 'Reprint total' : 'In lại tổng'}</button>
                     </div>
                     <span class="text-sm font-black text-red-600">${formatMoney(order.total)}</span>
                 </div>
             `;
         }
 
-        window.reprintItem = (username, itemId) => socket.emit('reprint-item', { username, itemId });
-        window.reprintTotal = (username) => socket.emit('reprint-total', username);
+        window.reprintItem = (username, itemId) => socket.emit('reprint-item', { username: normalizeTikTokUsername(username), itemId });
+        window.reprintTotal = (username) => socket.emit('reprint-total', normalizeTikTokUsername(username));
         window.deleteCustomer = (username) => {
-            const msg = currentLang === 'en' ? `Delete all orders for @${username}?` : `Xóa toàn bộ đơn của khách @${username}?`;
-            if (confirm(msg)) socket.emit('delete-customer', username);
+            const handle = formatTikTokUsername(username);
+            const msg = currentLang === 'en' ? `Delete all orders for ${handle}?` : `Xóa toàn bộ đơn của khách ${handle}?`;
+            if (confirm(msg)) socket.emit('delete-customer', normalizeTikTokUsername(username));
         };
         window.deleteItem = (username, itemId) => {
             const msg = currentLang === 'en' ? 'Delete this item?' : 'Xóa món hàng này?';
-            if (confirm(msg)) socket.emit('delete-item', { username, itemId });
+            if (confirm(msg)) socket.emit('delete-item', { username: normalizeTikTokUsername(username), itemId });
         };
         window.editItem = (username, itemId, oldPrice) => {
             const promptText = currentLang === 'en' ? 'Enter new price:' : 'Nhập giá mới:';
             const newPrice = parseFloat(prompt(promptText, oldPrice));
             if (!isNaN(newPrice) && newPrice !== oldPrice) {
-                socket.emit('edit-item-price', { username, itemId, newPrice });
+                socket.emit('edit-item-price', { username: normalizeTikTokUsername(username), itemId, newPrice });
             }
         };
 
@@ -1012,11 +1320,13 @@
             let totalOverall = 0;
             Object.values(ordersData).forEach(o => {
                 totalOverall += o.total;
+                const username = normalizeTikTokUsername(o.username || o.customerUsername || '');
+                const customerLabel = buildCustomerLabel(o.nickname || o.displayName || '', username);
                 html += `<div style="margin-bottom: 10px; border-bottom: 1px dashed black; padding-bottom: 5px;">`;
-                html += `<div style="font-weight: bold; font-size: 16px;">${o.nickname} (@${o.username})</div>`;
+                html += `<div style="font-weight: bold; font-size: 16px;">${escapeHtml(customerLabel)}</div>`;
                 o.items.forEach(i => {
                     html += `<div style="display: flex; justify-content: space-between; font-size: 13px; margin-top: 2px;">`;
-                    html += `<span style="flex: 1;">- ${i.text} <small>(${i.time})</small></span>`;
+                    html += `<span style="flex: 1;">- ${escapeHtml(normalizeDisplayText(i.text || i.productName || ''))} <small>(${escapeHtml(normalizeDisplayText(i.time || ''))})</small></span>`;
                     html += `<span style="font-weight: bold;">${formatMoney(i.price)}</span>`;
                     html += `</div>`;
                 });
@@ -1033,6 +1343,11 @@
         window.logout = async () => {
             const msg = currentLang === 'en' ? 'Do you want to logout?' : 'Đại ca muốn đăng xuất hả?';
             if (confirm(msg)) {
+                const scopedLastBroadcasterKey = getScopedStorageKey('lastBroadcasterId');
+                if (scopedLastBroadcasterKey) {
+                    localStorage.removeItem(scopedLastBroadcasterKey);
+                }
+                clearRealtimeUi();
                 await fetch('/logout', { method: 'POST' });
                 window.location.href = '/login';
             }
@@ -1044,16 +1359,11 @@
             setupMobileCommentPopover();
             setGuideCollapsed(false);
             setOverviewRange('7');
-            const lastBroadcasterId = (localStorage.getItem('lastBroadcasterId') || '').trim();
-            if (lastBroadcasterId) {
-                tiktokIdInput.value = lastBroadcasterId;
-                activeBroadcasterId = lastBroadcasterId;
-                socket.emit('start-live', lastBroadcasterId);
-            }
             try {
                 const res = await fetch('/api/me');
                 const data = await res.json();
                 if (data.loggedIn && data.user) {
+                    currentUserUid = normalizeDisplayText(data.user.uid || '');
                     const bar = document.getElementById('user-bar');
                     const avatar = document.getElementById('user-avatar');
                     const nameEl = document.getElementById('user-name');
@@ -1077,9 +1387,23 @@
                     if (data.devSkipAuth) {
                         document.getElementById('dev-mode-badge').classList.remove('hidden');
                     }
+
+                    const scopedLastBroadcasterKey = getScopedStorageKey('lastBroadcasterId');
+                    const lastBroadcasterId = scopedLastBroadcasterKey
+                        ? (localStorage.getItem(scopedLastBroadcasterKey) || '').trim()
+                        : '';
+                    if (lastBroadcasterId) {
+                        tiktokIdInput.value = lastBroadcasterId;
+                        activeBroadcasterId = lastBroadcasterId;
+                        socket.emit('start-live', lastBroadcasterId);
+                    }
+                } else {
+                    clearRealtimeUi();
+                    window.location.href = '/login';
                 }
             } catch (e) {
                 console.warn('Could not load user info:', e);
+                clearRealtimeUi();
             }
             calculateKpis();
         })();
@@ -1291,7 +1615,8 @@
                     <th class="p-2 text-left border">Customer</th><th class="p-2 text-center border">Orders</th><th class="p-2 text-right border">Total</th></tr></thead><tbody>`;
                 customerSummary.forEach((c, idx) => {
                     const detailLabel = currentLang === 'en' ? 'Detail' : 'Chi tiết';
-                    html += `<tr class="hover:bg-gray-50"><td class="p-2 border">${escapeHtml(c.customerName || '')} ${c.customerUsername ? '(@' + escapeHtml(c.customerUsername) + ')' : ''}</td><td class="p-2 border text-center">${c.orders.length}</td><td class="p-2 border text-right font-bold text-red-500"><span>${formatMoney(c.total)}</span><button onclick="printMergeCustomerDetails(${idx})" class="ml-2 px-2 py-1 rounded bg-slate-100 text-slate-700 text-[10px] font-bold">${detailLabel}</button></td></tr>`;
+                    const customerLabel = buildCustomerLabel(c.customerName || '', c.customerUsername || '');
+                    html += `<tr class="hover:bg-gray-50"><td class="p-2 border customer-display-name" title="${escapeHtml(customerLabel)}">${escapeHtml(customerLabel)}</td><td class="p-2 border text-center">${c.orders.length}</td><td class="p-2 border text-right font-bold text-red-500"><span>${formatMoney(c.total)}</span><button onclick="printMergeCustomerDetails(${idx})" class="ml-2 px-2 py-1 rounded bg-slate-100 text-slate-700 text-[10px] font-bold">${detailLabel}</button></td></tr>`;
                 });
                 html += '</tbody></table></div>';
             }
@@ -1308,8 +1633,8 @@
                 const key = order.customerUsername || order.customerName || 'unknown';
                 if (!customerMap[key]) {
                     customerMap[key] = {
-                        customerName: order.customerName || '',
-                        customerUsername: order.customerUsername || '',
+                        customerName: getDisplayName(order.customerName || order.nickname || '', order.customerUsername || order.tiktokUsername || ''),
+                        customerUsername: normalizeTikTokUsername(order.customerUsername || order.tiktokUsername || ''),
                         orders: [],
                         total: 0
                     };
@@ -1434,7 +1759,7 @@
                 <p class="text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-xl p-3">File đã được xuất, nhưng các khách dưới đây thiếu thông tin bắt buộc. Hãy bổ sung trong tab Khách hàng trước lần xuất tiếp theo.</p>
                 ${missingCustomers.map(customer => `
                     <div class="border rounded-xl p-3">
-                        <p class="font-bold text-sm">${escapeHtml(customer.customerName || 'Khách TikTok')} ${customer.customerUsername ? '(@' + escapeHtml(customer.customerUsername) + ')' : ''}</p>
+                        <p class="font-bold text-sm customer-display-name" title="${escapeHtml(buildCustomerLabel(customer.customerName || '', customer.customerUsername || ''))}">${escapeHtml(buildCustomerLabel(customer.customerName || '', customer.customerUsername || ''))}</p>
                         <p class="text-xs text-gray-500 mt-1">Thiếu: ${(customer.missingFields || []).map(field => labels[field] || field).join(', ')}</p>
                     </div>
                 `).join('')}
@@ -1456,7 +1781,7 @@
             html += `<p style="font-weight:bold; font-size:16px;">TOTAL: ${formatMoney(d.summary.totalRevenue)}</p>`;
             customerSummary.forEach(c => {
                 html += `<div style="display:flex; justify-content:space-between; gap:8px; border-top:1px dashed black; padding:4px 0; font-size:12px;">`;
-                html += `<span>${escapeHtml(c.customerName || '')}${c.customerUsername ? ' (@' + escapeHtml(c.customerUsername) + ')' : ''}<br>${c.orders.length} don</span>`;
+                html += `<span>${escapeHtml(buildCustomerLabel(c.customerName || '', c.customerUsername || ''))}<br>${c.orders.length} don</span>`;
                 html += `<b>${formatMoney(c.total)}</b>`;
                 html += `</div>`;
             });
@@ -1474,7 +1799,7 @@
             html += `<p style="font-size:12px;">Sessions: ${d.summary.totalSessions} | Orders: ${d.summary.totalOrders} | Qty: ${d.summary.totalQuantity}</p>`;
             customerSummary.forEach(c => {
                 html += `<div style="margin-bottom:10px; border-bottom:1px dashed black; padding-bottom:6px;">`;
-                html += `<div style="font-weight:bold; font-size:15px;">${escapeHtml(c.customerName || '')}${c.customerUsername ? ' (@' + escapeHtml(c.customerUsername) + ')' : ''}</div>`;
+                html += `<div style="font-weight:bold; font-size:15px;">${escapeHtml(buildCustomerLabel(c.customerName || '', c.customerUsername || ''))}</div>`;
                 c.orders.forEach((order, index) => {
                     html += `<div style="display:flex; justify-content:space-between; gap:8px; font-size:12px; margin-top:3px;">`;
                     html += `<span>${index + 1}. ${escapeHtml(order.productName || order.text || 'Don hang')} ${order.time ? '(' + escapeHtml(order.time) + ')' : ''}</span>`;
@@ -1498,9 +1823,9 @@
 
             let html = `<div style="font-family: 'Times New Roman', Times, serif; width: 80mm; margin: 0 auto; color: black;">`;
             html += `<div style="text-align:center;"><h2 style="margin:0;">CHI TIET KHACH</h2><hr style="border:1px solid black;"></div>`;
-            html += `<div style="font-weight:bold; font-size:17px; margin-bottom:4px;">${escapeHtml(customer.customerName || '')}</div>`;
+            html += `<div style="font-weight:bold; font-size:17px; margin-bottom:4px;">${escapeHtml(getDisplayName(customer.customerName || '', customer.customerUsername || ''))}</div>`;
             if (customer.customerUsername) {
-                html += `<div style="font-size:12px; margin-bottom:8px;">@${escapeHtml(customer.customerUsername)}</div>`;
+                html += `<div style="font-size:12px; margin-bottom:8px;">${escapeHtml(formatTikTokUsername(customer.customerUsername))}</div>`;
             }
             customer.orders.forEach((order, index) => {
                 html += `<div style="display:flex; justify-content:space-between; gap:8px; border-top:1px dashed black; padding:4px 0; font-size:12px;">`;
