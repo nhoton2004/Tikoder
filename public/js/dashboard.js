@@ -19,6 +19,7 @@
         const sectionCustomers = document.getElementById('section-customers');
         const rightCol = document.getElementById('right-col');
         const guidePanel = document.getElementById('guide-panel');
+        const dashboardSections = Array.from(document.querySelectorAll('.dashboard-section'));
         const menuItems = document.querySelectorAll('.menu-item[data-view]');
         const mobileNavItems = document.querySelectorAll('.mobile-nav-item');
         const liveOrdersCompact = document.getElementById('live-orders-compact');
@@ -522,6 +523,23 @@
             }).join('');
         }
 
+        function setSectionVisibility(sectionEl, visible) {
+            if (!sectionEl) return;
+            const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            if (visible) {
+                sectionEl.hidden = false;
+                sectionEl.classList.remove('tab-enter');
+                if (!prefersReducedMotion) {
+                    // Retrigger animation each time a section becomes visible.
+                    void sectionEl.offsetWidth;
+                    sectionEl.classList.add('tab-enter');
+                }
+                return;
+            }
+            sectionEl.classList.remove('tab-enter');
+            sectionEl.hidden = true;
+        }
+
         function switchView(view) {
             document.body.dataset.view = view;
             menuItems.forEach(btn => {
@@ -530,75 +548,19 @@
             mobileNavItems.forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.view === view);
             });
-
-            if (view === 'overview') {
-                sectionOverview.classList.remove('hidden');
-                sectionCustomers.classList.add('hidden');
-                sectionConnect.classList.add('hidden');
-                sectionKpi.classList.add('hidden');
-                sectionComments.classList.add('hidden');
-                sectionOrders.classList.add('hidden');
-                sectionLiveOrders.classList.add('hidden');
-                rightCol.classList.add('hidden');
-                settingsPanel.classList.add('hidden');
-                guidePanel.classList.add('hidden');
-                return;
-            }
-
-            if (view === 'live') {
-                sectionOverview.classList.add('hidden');
-                sectionCustomers.classList.add('hidden');
-                sectionConnect.classList.remove('hidden');
-                sectionKpi.classList.remove('hidden');
-                sectionComments.classList.remove('hidden');
-                sectionOrders.classList.add('hidden');
-                sectionLiveOrders.classList.remove('hidden');
-                rightCol.classList.remove('hidden');
-                settingsPanel.classList.add('hidden');
-                guidePanel.classList.remove('hidden');
-                return;
-            }
-
-            if (view === 'orders') {
-                sectionOverview.classList.add('hidden');
-                sectionCustomers.classList.add('hidden');
-                sectionConnect.classList.add('hidden');
-                sectionKpi.classList.add('hidden');
-                sectionComments.classList.add('hidden');
-                sectionOrders.classList.remove('hidden');
-                sectionLiveOrders.classList.add('hidden');
-                rightCol.classList.add('hidden');
-                settingsPanel.classList.add('hidden');
-                guidePanel.classList.add('hidden');
-                return;
-            }
+            const sectionMap = {
+                overview: [sectionOverview],
+                live: [sectionConnect, sectionKpi, sectionComments, sectionLiveOrders, guidePanel],
+                orders: [sectionOrders],
+                customers: [sectionCustomers],
+                settings: [settingsPanel]
+            };
+            const activeSections = sectionMap[view] || sectionMap.overview;
+            dashboardSections.forEach(sectionEl => setSectionVisibility(sectionEl, activeSections.includes(sectionEl)));
+            setSectionVisibility(rightCol, view === 'live' || view === 'settings');
 
             if (view === 'customers') {
-                sectionOverview.classList.add('hidden');
-                sectionCustomers.classList.remove('hidden');
-                sectionConnect.classList.add('hidden');
-                sectionKpi.classList.add('hidden');
-                sectionComments.classList.add('hidden');
-                sectionOrders.classList.add('hidden');
-                sectionLiveOrders.classList.add('hidden');
-                rightCol.classList.add('hidden');
-                settingsPanel.classList.add('hidden');
-                guidePanel.classList.add('hidden');
                 loadCustomers();
-                return;
-            }
-
-            if (view === 'settings') {
-                sectionOverview.classList.add('hidden');
-                sectionCustomers.classList.add('hidden');
-                sectionConnect.classList.add('hidden');
-                sectionKpi.classList.add('hidden');
-                sectionComments.classList.add('hidden');
-                sectionOrders.classList.add('hidden');
-                sectionLiveOrders.classList.add('hidden');
-                rightCol.classList.remove('hidden');
-                settingsPanel.classList.remove('hidden');
-                guidePanel.classList.add('hidden');
             }
         }
         window.switchView = switchView;

@@ -8,18 +8,6 @@ const TEMPLATE_FILE = path.join(TEMPLATE_DIR, 'collect_fee_partial_delivery_mass
 const ORDER_SHEET_NAME = 'Tạo đơn';
 const REQUIRED_ADDRESS_FIELDS = ['phone', 'province', 'district', 'ward', 'addressDetail'];
 
-const DEFAULT_OPTIONS = {
-    defaultWeightKg: 0.5,
-    defaultLengthCm: 20,
-    defaultWidthCm: 10,
-    defaultHeightCm: 10,
-    allowTryOn: 'Y',
-    viewOnlyNoTry: 'N',
-    partialDelivery: 'Y',
-    collectCod: 'Y',
-    paymentMethod: 'Người nhận trả phí'
-};
-
 function ensureTemplateDir() {
     if (!fs.existsSync(TEMPLATE_DIR)) {
         fs.mkdirSync(TEMPLATE_DIR, { recursive: true });
@@ -164,7 +152,7 @@ function setOrderRow(row, data) {
     row.commit();
 }
 
-async function exportDeliveryExcel({ userId, orders, options = {}, now = new Date() }) {
+async function exportDeliveryExcel({ userId, orders, now = new Date() }) {
     ensureTemplateDir();
     if (!fs.existsSync(TEMPLATE_FILE)) {
         const message = `Không tìm thấy file mẫu Excel tại ${TEMPLATE_FILE}`;
@@ -180,7 +168,6 @@ async function exportDeliveryExcel({ userId, orders, options = {}, now = new Dat
         throw new Error(`Không tìm thấy sheet "${ORDER_SHEET_NAME}" trong file mẫu`);
     }
 
-    const finalOptions = { ...DEFAULT_OPTIONS, ...(options || {}) };
     const customerGroups = groupOrdersByCustomer(orders);
     const dateKey = formatDateCompact(now);
     const styleSource = sheet.getRow(2);
@@ -218,46 +205,41 @@ async function exportDeliveryExcel({ userId, orders, options = {}, now = new Dat
         }
 
         const orderCode = `TK-${dateKey}-${String(groupIndex + 1).padStart(3, '0')}`;
-        const groupWeight = toNumber(customer.defaultWeightKg, toNumber(finalOptions.defaultWeightKg, 0.5));
-        const partialDelivery = customer.partialDelivery || finalOptions.partialDelivery;
-        const allowTryOn = customer.allowTryOn || finalOptions.allowTryOn;
-        const viewOnlyNoTry = customer.viewOnlyNoTry || finalOptions.viewOnlyNoTry;
-
-        group.orders.forEach(order => {
-            const row = sheet.getRow(rowNumber);
-            copyStyle(styleSource, row);
-            setOrderRow(row, {
-                orderCode,
-                receiverName: customer.displayName || fallbackName,
-                phone: customer.phone || '',
-                province: customer.province || '',
-                district: customer.district || '',
-                ward: customer.ward || '',
-                addressDetail: customer.addressDetail || '',
-                addressNote: customer.addressNote || '',
-                postalCode: customer.postalCode || '',
-                productName: order.productName || 'Đơn hàng',
-                quantity: order.quantity,
-                price: order.price,
-                weightKg: groupWeight,
-                lengthCm: toNumber(finalOptions.defaultLengthCm, 20),
-                widthCm: toNumber(finalOptions.defaultWidthCm, 10),
-                heightCm: toNumber(finalOptions.defaultHeightCm, 10),
-                customerCode: customer.customerCode || '',
-                orderValue: group.total,
-                partialDelivery,
-                allowTryOn,
-                viewOnlyNoTry,
-                rejectionFeeEnabled: finalOptions.rejectionFeeEnabled || 'N',
-                rejectionFeeAmount: toNumber(finalOptions.rejectionFeeAmount, 0),
-                collectCod: finalOptions.collectCod,
-                codAmount: finalOptions.collectCod === 'Y' ? group.total : 0,
-                highValue: finalOptions.highValue || 'N',
-                paymentMethod: finalOptions.paymentMethod,
-                deliveryNote: customer.deliveryNote || finalOptions.deliveryNote || ''
-            });
-            rowNumber += 1;
+        const row = sheet.getRow(rowNumber);
+        copyStyle(styleSource, row);
+        setOrderRow(row, {
+            // Giữ 1 khách hàng trên 1 dòng và chỉ điền phần thông tin vận chuyển.
+            orderCode,
+            receiverName: customer.displayName || fallbackName,
+            phone: customer.phone || '',
+            province: customer.province || '',
+            district: customer.district || '',
+            ward: customer.ward || '',
+            addressDetail: customer.addressDetail || '',
+            addressNote: customer.addressNote || '',
+            postalCode: customer.postalCode || '',
+            // Xóa trắng toàn bộ các cột từ "Tên sản phẩm" trở đi.
+            productName: '',
+            quantity: '',
+            price: '',
+            weightKg: '',
+            lengthCm: '',
+            widthCm: '',
+            heightCm: '',
+            customerCode: '',
+            orderValue: '',
+            partialDelivery: '',
+            allowTryOn: '',
+            viewOnlyNoTry: '',
+            rejectionFeeEnabled: '',
+            rejectionFeeAmount: '',
+            collectCod: '',
+            codAmount: '',
+            highValue: '',
+            paymentMethod: '',
+            deliveryNote: ''
         });
+        rowNumber += 1;
     });
 
     const buffer = await workbook.xlsx.writeBuffer();
