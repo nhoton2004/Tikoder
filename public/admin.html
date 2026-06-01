@@ -19,14 +19,14 @@
     <div class="bg-white border-b shadow-sm">
         <div class="max-w-7xl mx-auto px-4 py-3 flex justify-between items-center">
             <div class="flex items-center gap-3">
-                <a href="/" class="text-gray-400 hover:text-gray-600 text-sm">← App</a>
+                <a href="/app" class="text-gray-400 hover:text-gray-600 text-sm">← App</a>
                 <h1 class="text-lg font-bold text-gray-800">🛡️ Admin Panel</h1>
                 <span id="admin-role" class="text-[10px] px-2 py-0.5 rounded-full font-bold"></span>
                 <span id="dev-mode-badge" class="hidden text-[10px] px-2 py-0.5 rounded-full font-bold bg-amber-100 text-amber-700 border border-amber-200">DEV MODE</span>
             </div>
             <div class="flex items-center gap-3">
                 <span id="admin-email" class="text-xs text-gray-400"></span>
-                <button onclick="location.href='/'" class="text-xs bg-gray-100 px-3 py-1.5 rounded hover:bg-gray-200 transition">Quay lại App</button>
+                <button onclick="location.href='/app'" class="text-xs bg-gray-100 px-3 py-1.5 rounded hover:bg-gray-200 transition">Quay lại App</button>
             </div>
         </div>
     </div>
@@ -146,7 +146,7 @@
         async function loadUsers() {
             try {
                 const res = await fetch('/api/admin/users');
-                if (res.status === 403) return location.href = '/';
+                if (res.status === 403) return location.href = '/app';
                 const data = await res.json();
                 allUsers = data.users || [];
                 document.getElementById('user-count-label').textContent = `${allUsers.length} tài khoản`;

@@ -1,5 +1,4 @@
         const socket = io();
-        const ordersContainer = document.getElementById('orders-container');
         const chatFeed = document.getElementById('chat-feed');
         const tiktokIdInput = document.getElementById('tiktok-id');
         const btnConnect = document.getElementById('btn-connect');
@@ -11,18 +10,16 @@
         const historyModal = document.getElementById('history-modal');
         const historyListContent = document.getElementById('history-list-content');
         const sectionConnect = document.getElementById('section-connect');
-        const sectionKpi = document.getElementById('section-kpi');
         const sectionComments = document.getElementById('section-comments');
         const sectionOrders = document.getElementById('section-orders');
-        const sectionLiveOrders = document.getElementById('section-live-orders');
         const sectionOverview = document.getElementById('section-overview');
         const sectionCustomers = document.getElementById('section-customers');
+        const sectionShop = document.getElementById('section-shop');
+        const sectionReports = document.getElementById('section-reports');
         const rightCol = document.getElementById('right-col');
-        const guidePanel = document.getElementById('guide-panel');
         const dashboardSections = Array.from(document.querySelectorAll('.dashboard-section'));
         const menuItems = document.querySelectorAll('.menu-item[data-view]');
         const mobileNavItems = document.querySelectorAll('.mobile-nav-item');
-        const liveOrdersCompact = document.getElementById('live-orders-compact');
         const overviewStartInput = document.getElementById('overview-start');
         const overviewEndInput = document.getElementById('overview-end');
         const overviewRangeButtons = document.querySelectorAll('.overview-range-btn');
@@ -36,6 +33,19 @@
         const sidebarBackdrop = document.getElementById('sidebar-backdrop');
         const themeButtons = document.querySelectorAll('[data-theme-option]');
         const themeStatusLabel = document.getElementById('theme-status-label');
+        const ordersSearchInput = document.getElementById('orders-search');
+        const ordersStatusFilter = document.getElementById('orders-status-filter');
+        const ordersStartDate = document.getElementById('orders-start-date');
+        const ordersEndDate = document.getElementById('orders-end-date');
+        const ordersShopFilter = document.getElementById('orders-shop-filter');
+        const ordersTableBody = document.getElementById('orders-table-body');
+        const userMenu = document.getElementById('user-menu');
+        const userMenuTrigger = document.getElementById('user-bar');
+        const userMenuDropdown = document.getElementById('user-menu-dropdown');
+        const userMenuName = document.getElementById('user-menu-name');
+        const userMenuEmail = document.getElementById('user-menu-email');
+        const userMenuRole = document.getElementById('user-menu-role');
+        const sidebarAdminItem = document.getElementById('sidebar-admin-item');
 
         let ordersData = {};
         let customersData = [];
@@ -43,11 +53,16 @@
         let currentLang = localStorage.getItem('app_lang') || 'vi';
         let topShopStats = [];
         let overviewData = null;
+        let overviewComparison = null;
         let overviewRefreshTimer = null;
         let customerSearchTimer = null;
         let activeBroadcasterId = '';
         let currentUserUid = '';
-        let guideCollapsed = false;
+        let currentUserRole = 'user';
+        let currentView = 'overview';
+        let ordersFilterTimer = null;
+        let ordersRefreshTimer = null;
+        let ordersPageData = [];
         const seenChatMsgIds = new Set();
         let mobilePopoverEl = null;
         let mobilePopoverHideTimer = null;
@@ -61,10 +76,12 @@
                 'menu.shop': 'Shop',
                 'menu.reports': 'Báo cáo',
                 'menu.settings': 'Cài đặt',
+                'menu.admin': 'Admin',
                 'subtitle': 'Quản lý đơn hàng & luồng bình luận chuyên nghiệp cho TikTok Live',
                 'live.connect': 'Kết nối Live',
                 'live.helper': 'Nhập ID TikTok chủ live để theo dõi bình luận & đơn hàng realtime.',
                 'live.connectBtn': 'Kết nối',
+                'live.ordersSession': 'Đơn phát sinh trong phiên',
                 'status.disconnected': 'Chưa kết nối',
                 'status.connected': 'Đã kết nối',
                 'kpi.orders': 'Đơn hôm nay',
@@ -73,6 +90,8 @@
                 'kpi.liveStatus': 'Trạng thái',
                 'comments.title': 'Luồng bình luận',
                 'orders.current': 'Đơn hàng hiện tại',
+                'orders.title': 'Đơn hàng',
+                'orders.subtitle': 'Quản lý toàn bộ đơn hàng theo tài khoản, shop và thời gian.',
                 'customers.title': 'Khách hàng',
                 'customers.subtitle': 'Lưu địa chỉ theo từng tài khoản để xuất file đi đơn.',
                 'customers.new': 'Thêm khách',
@@ -123,11 +142,17 @@
                 'ov.orders': 'Đơn đã chốt',
                 'ov.comments': 'Bình luận live',
                 'ov.revenue': 'Doanh thu',
+                'ov.pending': 'Đơn cần xử lý',
                 'ov.today': 'Hôm nay',
                 'ov.range': '7 ngày qua',
                 'ov.last30': '30 ngày',
                 'ov.liveActive': 'Live đang hoạt động',
                 'ov.closeRate': 'Tỷ lệ chốt',
+                'ov.trendTitle': 'Xu hướng doanh thu',
+                'ov.emptyTitle': 'Chưa có dữ liệu trong khoảng thời gian này',
+                'ov.emptyDesc': 'Hãy kết nối live hoặc import đơn hàng để bắt đầu theo dõi',
+                'ov.actionLive': 'Kết nối live',
+                'ov.actionImport': 'Import đơn hàng',
                 'ov.orders7d': 'Đơn hàng 7 ngày gần đây',
                 'ov.revenue7d': 'Doanh thu 7 ngày gần đây',
                 'ov.topShop': 'Top khách chốt đơn',
@@ -146,10 +171,12 @@
                 'menu.shop': 'Shop',
                 'menu.reports': 'Reports',
                 'menu.settings': 'Settings',
+                'menu.admin': 'Admin',
                 'subtitle': 'Manage TikTok Live comments and orders in real time',
                 'live.connect': 'Connect Live',
                 'live.helper': 'Enter broadcaster TikTok ID to track comments and live orders.',
                 'live.connectBtn': 'Connect',
+                'live.ordersSession': 'Orders In This Live Session',
                 'status.disconnected': 'Disconnected',
                 'status.connected': 'Connected',
                 'kpi.orders': 'Orders today',
@@ -158,6 +185,8 @@
                 'kpi.liveStatus': 'Status',
                 'comments.title': 'Comment Stream',
                 'orders.current': 'Current Orders',
+                'orders.title': 'Orders',
+                'orders.subtitle': 'Manage all orders by account, shop and date range.',
                 'customers.title': 'Customers',
                 'customers.subtitle': 'Save delivery addresses per account for shipping exports.',
                 'customers.new': 'New customer',
@@ -208,11 +237,17 @@
                 'ov.orders': 'Confirmed orders',
                 'ov.comments': 'Live comments',
                 'ov.revenue': 'Revenue',
+                'ov.pending': 'Needs processing',
                 'ov.today': 'Today',
                 'ov.range': 'Last 7 days',
                 'ov.last30': 'Last 30 days',
                 'ov.liveActive': 'Active live sessions',
                 'ov.closeRate': 'Close rate',
+                'ov.trendTitle': 'Revenue trend',
+                'ov.emptyTitle': 'No data in this time range',
+                'ov.emptyDesc': 'Connect live or import orders to start tracking',
+                'ov.actionLive': 'Connect live',
+                'ov.actionImport': 'Import orders',
                 'ov.orders7d': 'Orders in last 7 days',
                 'ov.revenue7d': 'Revenue in last 7 days',
                 'ov.topShop': 'Top closing customers',
@@ -241,6 +276,16 @@
             document.getElementById('btn-lang-en').classList.toggle('active', lang === 'en');
             syncSidebarLabels();
             syncThemeControls();
+            if (userMenuRole) {
+                userMenuRole.textContent = currentUserRole ? `${currentLang === 'en' ? 'Role' : 'Vai trò'}: ${currentUserRole}` : '';
+            }
+            if (currentView === 'orders') {
+                renderOrdersTable(ordersPageData);
+            }
+            if (overviewData) {
+                renderOverview(overviewData, overviewComparison);
+            }
+            renderEmptyCommentState();
         }
         window.setLang = setLang;
 
@@ -319,8 +364,51 @@
             themeButtons.forEach(btn => btn.addEventListener('click', () => applyTheme(btn.dataset.themeOption)));
         }
 
-        initSidebar();
+        function setUserMenuOpen(open) {
+            if (!userMenuDropdown) return;
+            userMenuDropdown.classList.toggle('hidden', !open);
+            userMenuTrigger?.setAttribute('aria-expanded', open ? 'true' : 'false');
+        }
+
+        function initUserAvatarMenu() {
+            if (!userMenu || !userMenuTrigger || !userMenuDropdown) return;
+            userMenuTrigger.addEventListener('click', (event) => {
+                event.stopPropagation();
+                const isOpen = !userMenuDropdown.classList.contains('hidden');
+                setUserMenuOpen(!isOpen);
+            });
+            document.addEventListener('click', (event) => {
+                if (!userMenu.contains(event.target)) {
+                    setUserMenuOpen(false);
+                }
+            });
+            document.addEventListener('keydown', (event) => {
+                if (event.key === 'Escape') setUserMenuOpen(false);
+            });
+        }
+
+        function initOrdersPageFilters() {
+            const controls = [ordersSearchInput, ordersStatusFilter, ordersStartDate, ordersEndDate, ordersShopFilter].filter(Boolean);
+            controls.forEach(control => {
+                const eventName = control.tagName === 'SELECT' || control.type === 'date' ? 'change' : 'input';
+                control.addEventListener(eventName, () => {
+                    if (ordersFilterTimer) clearTimeout(ordersFilterTimer);
+                    ordersFilterTimer = setTimeout(() => {
+                        loadOrdersPageData();
+                    }, 220);
+                });
+            });
+        }
+
+        const Sidebar = { init: initSidebar };
+        const Topbar = { init: initUserAvatarMenu };
+        const UserAvatarMenu = { close: () => setUserMenuOpen(false) };
+        const OrderTable = { refresh: () => loadOrdersPageData() };
+
+        Sidebar.init();
         initTheme();
+        Topbar.init();
+        initOrdersPageFilters();
 
         menuItems.forEach(btn => {
             btn.addEventListener('click', () => {
@@ -365,12 +453,35 @@
                 totalOrders += Array.isArray(o.items) ? o.items.length : 0;
                 totalRevenue += Number(o.total || 0);
             });
-            document.getElementById('kpi-orders').textContent = totalOrders;
-            document.getElementById('kpi-comments').textContent = kpiComments;
-            document.getElementById('kpi-revenue').textContent = formatMoney(totalRevenue);
-            document.getElementById('chat-count').textContent = `${chatFeed.children.length} items`;
-            renderLiveOrdersCompact();
+            const kpiOrdersEl = document.getElementById('kpi-orders');
+            const kpiCommentsEl = document.getElementById('kpi-comments');
+            const kpiRevenueEl = document.getElementById('kpi-revenue');
+            if (kpiOrdersEl) kpiOrdersEl.textContent = totalOrders;
+            if (kpiCommentsEl) kpiCommentsEl.textContent = kpiComments;
+            if (kpiRevenueEl) kpiRevenueEl.textContent = formatMoney(totalRevenue);
+            const commentCount = chatFeed.querySelectorAll('[data-chat-row="1"]').length;
+            document.getElementById('chat-count').textContent = `${commentCount} items`;
             scheduleOverviewRefresh();
+            scheduleOrdersPageRefresh();
+        }
+
+        function renderEmptyCommentState() {
+            if (!chatFeed) return;
+            const hasCommentRows = chatFeed.querySelector('[data-chat-row="1"]');
+            const existingEmpty = document.getElementById('chat-feed-empty');
+            if (hasCommentRows) {
+                if (existingEmpty) existingEmpty.remove();
+                return;
+            }
+            if (existingEmpty) {
+                existingEmpty.textContent = currentLang === 'en' ? 'No realtime comments yet' : 'Chưa có bình luận realtime';
+                return;
+            }
+            const empty = document.createElement('div');
+            empty.id = 'chat-feed-empty';
+            empty.className = 'text-center text-gray-400 text-sm py-8';
+            empty.textContent = currentLang === 'en' ? 'No realtime comments yet' : 'Chưa có bình luận realtime';
+            chatFeed.appendChild(empty);
         }
 
         function buildConfirmedAmountTooltip(userId) {
@@ -493,6 +604,138 @@
             overviewRefreshTimer = setTimeout(() => refreshOverviewData(false), 800);
         }
 
+        function scheduleOrdersPageRefresh() {
+            if (currentView !== 'orders') return;
+            if (ordersRefreshTimer) clearTimeout(ordersRefreshTimer);
+            ordersRefreshTimer = setTimeout(() => loadOrdersPageData(false), 500);
+        }
+
+        function toLocalDate(value) {
+            const date = new Date(`${value}T00:00:00`);
+            return Number.isNaN(date.getTime()) ? null : date;
+        }
+
+        function formatApiDateShort(value) {
+            const formatted = formatApiDate(value);
+            return String(formatted || '').slice(0, 5) || formatted || '';
+        }
+
+        function renderOverviewInlineEmpty(show) {
+            const emptyStateEl = document.getElementById('overview-empty-state');
+            const miniMetricsEl = document.getElementById('overview-mini-metrics');
+            if (emptyStateEl) emptyStateEl.classList.toggle('hidden', !show);
+            if (miniMetricsEl) miniMetricsEl.classList.toggle('overview-mini-metrics-dimmed', show);
+        }
+
+        function buildComparisonLine(comparison = {}) {
+            const ordersDiff = Number(comparison.ordersDiff || 0);
+            const revenueDiff = Number(comparison.revenueDiff || 0);
+            const hasPreviousData = Boolean(comparison.hasPreviousData);
+            const hasCurrentData = Boolean(comparison.hasCurrentData);
+            if (!hasPreviousData && hasCurrentData) {
+                return currentLang === 'en'
+                    ? 'No previous-period data to compare yet.'
+                    : 'Chưa có dữ liệu kỳ trước để so sánh.';
+            }
+            const hasDelta = ordersDiff !== 0 || revenueDiff !== 0;
+            if (!hasDelta) {
+                return currentLang === 'en'
+                    ? 'Stable compared to previous period.'
+                    : 'Ổn định so với kỳ trước.';
+            }
+            const parts = [];
+            if (ordersDiff !== 0) {
+                const ordersDirection = ordersDiff > 0
+                    ? (currentLang === 'en' ? 'up' : 'tăng')
+                    : (currentLang === 'en' ? 'down' : 'giảm');
+                parts.push(currentLang === 'en'
+                    ? `orders ${ordersDirection} ${Math.abs(ordersDiff)}`
+                    : `đơn ${ordersDirection} ${Math.abs(ordersDiff)}`);
+            }
+            if (revenueDiff !== 0) {
+                const revenueDirection = revenueDiff > 0
+                    ? (currentLang === 'en' ? 'up' : 'tăng')
+                    : (currentLang === 'en' ? 'down' : 'giảm');
+                parts.push(currentLang === 'en'
+                    ? `revenue ${revenueDirection} ${formatMoney(Math.abs(revenueDiff))}`
+                    : `doanh thu ${revenueDirection} ${formatMoney(Math.abs(revenueDiff))}`);
+            }
+            if (currentLang === 'en') {
+                return `Compared to previous period: ${parts.join(', ')}.`;
+            }
+            return `So với kỳ trước: ${parts.join(', ')}.`;
+        }
+
+        function renderOverview(data, comparison = null) {
+            const summary = data?.summary || {};
+            const totalOrders = Number(summary.orders || 0);
+            const totalRevenue = Number(summary.revenue || 0);
+            const comments = Number(summary.comments || 0);
+            const pendingOrders = Number(summary.pendingOrders || 0);
+            const activeLive = Number(summary.activeLive || 0);
+            const closeRate = Number(summary.closeRate || 0);
+            const hasData = totalOrders > 0 || totalRevenue > 0;
+            const startText = formatApiDate(data?.meta?.start || '');
+            const endText = formatApiDate(data?.meta?.end || '');
+            const rangeText = `${startText} → ${endText}`;
+
+            setText(document.getElementById('ov-orders'), totalOrders);
+            setText(document.getElementById('ov-comments'), comments);
+            setText(document.getElementById('ov-revenue'), formatMoney(totalRevenue));
+            setText(document.getElementById('ov-pending'), pendingOrders);
+            setText(document.getElementById('ov-live-active'), String(activeLive));
+            setText(document.getElementById('ov-close-rate'), `${closeRate.toFixed(1)}%`);
+            setText(document.getElementById('ov-orders-note'), rangeText);
+            setText(document.getElementById('ov-revenue-note'), currentLang === 'en' ? 'Confirmed orders only' : 'Chỉ tính đơn đã chốt');
+            setText(document.getElementById('ov-pending-note'), pendingOrders > 0
+                ? (currentLang === 'en' ? 'Need follow-up' : 'Cần xử lý thêm')
+                : (currentLang === 'en' ? 'No pending orders' : 'Không có đơn treo'));
+
+            const insightText = hasData
+                ? (currentLang === 'en'
+                    ? `Period ${rangeText}: ${totalOrders} orders, ${formatMoney(totalRevenue)} revenue.`
+                    : `${rangeText}: ${totalOrders} đơn, ${formatMoney(totalRevenue)} doanh thu.`)
+                : (currentLang === 'en'
+                    ? 'No recorded orders in this period.'
+                    : 'Chưa ghi nhận đơn hàng trong khoảng này.');
+            setText(document.getElementById('overview-insight-text'), insightText);
+            const deltaEl = document.getElementById('overview-insight-delta');
+            const deltaText = buildComparisonLine({
+                ...(comparison || {}),
+                hasCurrentData: hasData
+            });
+            setText(deltaEl, deltaText);
+            if (deltaEl) {
+                deltaEl.classList.remove('is-positive', 'is-negative', 'is-neutral');
+                const ordersDiff = Number(comparison?.ordersDiff || 0);
+                const revenueDiff = Number(comparison?.revenueDiff || 0);
+                if (ordersDiff > 0 || revenueDiff > 0) {
+                    deltaEl.classList.add('is-positive');
+                } else if (ordersDiff < 0 || revenueDiff < 0) {
+                    deltaEl.classList.add('is-negative');
+                } else {
+                    deltaEl.classList.add('is-neutral');
+                }
+            }
+
+            const trendTitle = document.getElementById('overview-trend-title');
+            if (trendTitle) trendTitle.textContent = totalRevenue > 0 ? t('ov.trendTitle') : t('ov.orders7d');
+            const trendSubtitle = document.getElementById('overview-trend-subtitle');
+            if (trendSubtitle) {
+                trendSubtitle.textContent = currentLang === 'en'
+                    ? `From ${formatApiDateShort(data?.meta?.start)} to ${formatApiDateShort(data?.meta?.end)}`
+                    : `Từ ${formatApiDateShort(data?.meta?.start)} đến ${formatApiDateShort(data?.meta?.end)}`;
+            }
+
+            renderOverviewInlineEmpty(!hasData);
+            topShopStats = Array.isArray(data.topShops) ? data.topShops : [];
+            renderOverviewChart('overview-trend-chart', data.daily || [], totalRevenue > 0 ? 'revenue' : 'orders');
+            renderOverviewChart('overview-orders-chart', data.daily || [], 'orders');
+            renderOverviewChart('overview-revenue-chart', data.daily || [], 'revenue');
+            renderOverviewTopShops();
+            renderOverviewLatestOrders();
+        }
+
         async function refreshOverviewData(showLoading = true) {
             const startDate = parseDisplayDate(overviewStartInput.value);
             const endDate = parseDisplayDate(overviewEndInput.value);
@@ -501,35 +744,48 @@
                 document.getElementById('overview-top-shop-list').innerHTML = `<p class="text-gray-400 text-sm">${currentLang === 'en' ? 'Loading...' : 'Đang tải...'}</p>`;
             }
             try {
+                const startObj = toLocalDate(startDate);
+                const endObj = toLocalDate(endDate);
+                if (!startObj || !endObj) return;
+                const daySpan = Math.max(1, Math.floor((endObj - startObj) / 86400000) + 1);
+                const previousEndObj = new Date(startObj);
+                previousEndObj.setDate(previousEndObj.getDate() - 1);
+                const previousStartObj = new Date(previousEndObj);
+                previousStartObj.setDate(previousStartObj.getDate() - (daySpan - 1));
+
                 const params = new URLSearchParams({
                     start: startDate,
                     end: endDate
                 });
-                const res = await fetch(`/api/overview?${params.toString()}`);
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Load overview error');
-                overviewData = data;
-                renderOverview(data);
+                const previousParams = new URLSearchParams({
+                    start: toDateInputValue(previousStartObj),
+                    end: toDateInputValue(previousEndObj)
+                });
+
+                const [currentRes, previousRes] = await Promise.all([
+                    fetch(`/api/overview?${params.toString()}`),
+                    fetch(`/api/overview?${previousParams.toString()}`)
+                ]);
+                const [currentData, previousData] = await Promise.all([currentRes.json(), previousRes.json()]);
+                if (!currentRes.ok) throw new Error(currentData.error || 'Load overview error');
+
+                const previousSummary = previousRes.ok ? (previousData?.summary || {}) : {};
+                const currentSummary = currentData?.summary || {};
+                const previousOrders = Number(previousSummary.orders || 0);
+                const previousRevenue = Number(previousSummary.revenue || 0);
+                const currentOrders = Number(currentSummary.orders || 0);
+                const currentRevenue = Number(currentSummary.revenue || 0);
+                overviewComparison = {
+                    ordersDiff: currentOrders - previousOrders,
+                    revenueDiff: currentRevenue - previousRevenue,
+                    hasPreviousData: previousOrders > 0 || previousRevenue > 0,
+                    hasCurrentData: currentOrders > 0 || currentRevenue > 0
+                };
+                overviewData = currentData;
+                renderOverview(currentData, overviewComparison);
             } catch (e) {
                 console.warn('Overview load error:', e);
             }
-        }
-
-        function renderOverview(data) {
-            const summary = data?.summary || {};
-            document.getElementById('ov-orders').textContent = Number(summary.orders || 0);
-            document.getElementById('ov-comments').textContent = Number(summary.comments || 0);
-            document.getElementById('ov-revenue').textContent = formatMoney(Number(summary.revenue || 0));
-            document.getElementById('ov-live-active').textContent = Number(summary.activeLive || 0);
-            document.getElementById('ov-close-rate').textContent = `${Number(summary.closeRate || 0).toFixed(1)}%`;
-            document.getElementById('ov-orders-note').textContent = `${formatApiDate(data.meta?.start)} → ${formatApiDate(data.meta?.end)}`;
-            document.getElementById('ov-comments-note').textContent = currentLang === 'en' ? 'Current live only' : 'Chỉ live hiện tại';
-            document.getElementById('ov-revenue-note').textContent = currentLang === 'en' ? 'Real orders' : 'Đơn thật';
-            topShopStats = Array.isArray(data.topShops) ? data.topShops : [];
-            renderOverviewChart('overview-orders-chart', data.daily || [], 'orders');
-            renderOverviewChart('overview-revenue-chart', data.daily || [], 'revenue');
-            renderOverviewTopShops();
-            renderOverviewLatestOrders();
         }
 
         function renderOverviewChart(containerId, daily, metric) {
@@ -652,6 +908,16 @@
         }
 
         function switchView(view) {
+            if (view === 'admin') {
+                if (currentUserRole === 'admin' || currentUserRole === 'super_admin') {
+                    window.location.href = '/admin';
+                } else {
+                    alert(currentLang === 'en' ? 'You do not have admin access.' : 'Bạn không có quyền truy cập Admin.');
+                }
+                return;
+            }
+
+            currentView = view;
             document.body.dataset.view = view;
             menuItems.forEach(btn => {
                 btn.classList.toggle('active', btn.dataset.view === view);
@@ -661,31 +927,39 @@
             });
             const sectionMap = {
                 overview: [sectionOverview],
-                live: [sectionConnect, sectionKpi, sectionComments, sectionLiveOrders, guidePanel],
+                live: [sectionConnect, sectionComments],
                 orders: [sectionOrders],
                 customers: [sectionCustomers],
+                shop: [sectionShop],
+                reports: [sectionReports],
                 settings: [settingsPanel]
             };
             const activeSections = sectionMap[view] || sectionMap.overview;
             dashboardSections.forEach(sectionEl => setSectionVisibility(sectionEl, activeSections.includes(sectionEl)));
-            setSectionVisibility(rightCol, view === 'live' || view === 'settings');
+            setSectionVisibility(rightCol, view === 'settings');
+            UserAvatarMenu.close();
 
             if (view === 'customers') {
                 loadCustomers();
             }
+            if (view === 'live') {
+                LivePage.refresh();
+            }
+            if (view === 'orders') {
+                OrdersPage.refresh();
+            }
         }
         window.switchView = switchView;
 
-        function setGuideCollapsed(collapsed) {
-            guideCollapsed = collapsed;
-            const body = document.getElementById('guide-body');
-            const icon = document.getElementById('guide-toggle-icon');
-            if (!body || !icon) return;
-            body.classList.toggle('hidden', collapsed);
-            icon.textContent = collapsed ? '+' : '-';
-        }
-
-        window.toggleGuide = () => setGuideCollapsed(!guideCollapsed);
+        const LivePage = {
+            refresh: () => {
+                refreshCommentUserTooltips();
+                renderEmptyCommentState();
+            }
+        };
+        const OrdersPage = {
+            refresh: () => OrderTable.refresh()
+        };
 
         window.toggleSettings = () => switchView('settings');
         window.saveSettings = () => {
@@ -730,8 +1004,6 @@
 
         socket.on('history-data', (res) => {
             ordersData = normalizeOrdersMap(res.data);
-            ordersContainer.innerHTML = '';
-            Object.values(ordersData).forEach(order => renderOrderCard(order));
             statusMsg.innerText = (currentLang === 'en' ? 'History: ' : 'Lịch sử: ') + res.fileName;
             calculateKpis();
             refreshCommentUserTooltips();
@@ -750,8 +1022,6 @@
 
         socket.on('all-confirmed-orders', (allOrders) => {
             ordersData = normalizeOrdersMap(allOrders);
-            ordersContainer.innerHTML = '';
-            Object.values(ordersData).forEach(order => renderOrderCard(order));
             calculateKpis();
             refreshCommentUserTooltips();
         });
@@ -780,6 +1050,7 @@
             kpiComments = 0;
             seenChatMsgIds.clear();
             calculateKpis();
+            renderEmptyCommentState();
         }
 
         function renderChatRow(data) {
@@ -798,6 +1069,7 @@
                 ? new Date(data.timestamp).toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' })
                 : new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             const row = document.createElement('div');
+            row.dataset.chatRow = '1';
             row.className = 'chat-row border border-gray-100 rounded-xl p-3 flex gap-3 items-start';
             const commenterId = normalizeTikTokUsername(data.uniqueId || data.username || '');
             const rawNickname = cleanDisplayText(data.nickname || data.displayName || '');
@@ -848,9 +1120,12 @@
 
             body.append(header, commentEl, actions);
             row.appendChild(body);
+            const emptyState = document.getElementById('chat-feed-empty');
+            if (emptyState) emptyState.remove();
             chatFeed.appendChild(row);
             chatFeed.scrollTop = chatFeed.scrollHeight;
-            if (chatFeed.children.length > 300) chatFeed.removeChild(chatFeed.firstChild);
+            const commentRows = Array.from(chatFeed.querySelectorAll('[data-chat-row="1"]'));
+            if (commentRows.length > 300) commentRows[0].remove();
             calculateKpis();
         }
 
@@ -866,9 +1141,11 @@
             const errorText = currentLang === 'en' ? `Error: ${data.error}` : `Lỗi: ${data.error}`;
             statusMsg.innerText = data.connected ? connectedText : errorText;
             statusMsg.className = data.connected ? 'mt-3 text-sm text-green-600 font-semibold' : 'mt-3 text-sm text-red-600 font-semibold';
-            document.getElementById('kpi-status').textContent = data.connected ? t('status.connected') : t('status.disconnected');
-            document.getElementById('kpi-status').className = data.connected ? 'text-base font-bold mt-3 text-green-600' : 'text-base font-bold mt-3 text-gray-500';
-            if (data.connected) setGuideCollapsed(true);
+            const kpiStatusEl = document.getElementById('kpi-status');
+            if (kpiStatusEl) {
+                kpiStatusEl.textContent = data.connected ? t('status.connected') : t('status.disconnected');
+                kpiStatusEl.className = data.connected ? 'text-base font-bold mt-3 text-green-600' : 'text-base font-bold mt-3 text-gray-500';
+            }
             if (data.connected && data.broadcasterId) {
                 activeBroadcasterId = data.broadcasterId;
                 const scopedLastBroadcasterKey = getScopedStorageKey('lastBroadcasterId');
@@ -892,6 +1169,7 @@
 
             resetChatFeed();
             comments.forEach(renderChatRow);
+            if (comments.length === 0) renderEmptyCommentState();
         });
 
         window.manualConfirm = (uniqueId, nickname, profilePictureUrl, comment, suggestedPrice) => {
@@ -917,7 +1195,6 @@
                 nickname: cleanDisplayText(userOrder.nickname || userOrder.displayName || '')
             };
             ordersData[username || userOrder.username] = normalizedOrder;
-            renderOrderCard(normalizedOrder);
             calculateKpis();
             refreshCommentUserTooltips();
         });
@@ -997,6 +1274,31 @@
             if (el) el.textContent = normalizeDisplayText(value);
         }
 
+        function isAvatarUrl(value) {
+            const url = normalizeDisplayText(value);
+            return /^https?:\/\//i.test(url) || /^data:image\//i.test(url);
+        }
+
+        function buildInitialAvatarDataUri(seedText) {
+            const cleaned = normalizeDisplayText(seedText);
+            const initial = (cleaned.charAt(0) || 'U').toUpperCase();
+            const safeInitial = escapeHtml(initial);
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#e5e7eb"/><text x="50%" y="54%" text-anchor="middle" font-family="Arial,sans-serif" font-size="28" font-weight="700" fill="#4b5563">${safeInitial}</text></svg>`;
+            return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
+        }
+
+        function applyUserAvatar(avatarEl, pictureUrl, name, email) {
+            if (!avatarEl) return;
+            const safePictureUrl = normalizeDisplayText(pictureUrl);
+            const fallbackAvatar = buildInitialAvatarDataUri(name || email || 'User');
+            avatarEl.onerror = () => {
+                avatarEl.onerror = null;
+                avatarEl.src = fallbackAvatar;
+            };
+            avatarEl.src = isAvatarUrl(safePictureUrl) ? safePictureUrl : fallbackAvatar;
+            avatarEl.classList.remove('hidden');
+        }
+
         function getScopedStorageKey(baseKey) {
             return currentUserUid ? `${baseKey}_${currentUserUid}` : '';
         }
@@ -1007,11 +1309,11 @@
             kpiComments = 0;
             seenChatMsgIds.clear();
             activeBroadcasterId = '';
-            if (ordersContainer) ordersContainer.textContent = '';
-            if (liveOrdersCompact) liveOrdersCompact.textContent = '';
             if (chatFeed) chatFeed.textContent = '';
             if (customersTableBody) customersTableBody.textContent = '';
+            if (ordersTableBody) ordersTableBody.textContent = '';
             calculateKpis();
+            renderEmptyCommentState();
             refreshCommentUserTooltips();
         }
 
@@ -1201,98 +1503,117 @@
             }
         };
 
-        function renderLiveOrdersCompact() {
-            if (!liveOrdersCompact) return;
-            const orders = Object.values(ordersData || {});
-            if (orders.length === 0) {
-                liveOrdersCompact.innerHTML = `<p class="text-center text-gray-400 py-6 text-sm">${currentLang === 'en' ? 'No current orders' : 'Chưa có đơn hàng hiện tại'}</p>`;
+        function formatOrderStatus(status) {
+            if (status === 'done') {
+                return {
+                    label: currentLang === 'en' ? 'Done' : 'Thành công',
+                    className: 'bg-emerald-100 text-emerald-700'
+                };
+            }
+            if (status === 'failed') {
+                return {
+                    label: currentLang === 'en' ? 'Failed' : 'Hoàn/Thất bại',
+                    className: 'bg-rose-100 text-rose-700'
+                };
+            }
+            return {
+                label: currentLang === 'en' ? 'Pending' : 'Chờ xử lý',
+                className: 'bg-amber-100 text-amber-700'
+            };
+        }
+
+        function renderOrdersSummary(summary) {
+            const totalCountEl = document.getElementById('orders-total-count');
+            const totalCodEl = document.getElementById('orders-total-cod');
+            const successEl = document.getElementById('orders-success-count');
+            const failedEl = document.getElementById('orders-failed-count');
+            if (totalCountEl) totalCountEl.textContent = Number(summary?.totalOrders || 0);
+            if (totalCodEl) totalCodEl.textContent = formatMoney(Number(summary?.totalCod || 0));
+            if (successEl) successEl.textContent = Number(summary?.successOrders || 0);
+            if (failedEl) failedEl.textContent = Number(summary?.failedOrders || 0);
+        }
+
+        function renderOrdersShopOptions(shops = []) {
+            if (!ordersShopFilter) return;
+            const previous = ordersShopFilter.value || '';
+            ordersShopFilter.innerHTML = `<option value="">Tất cả shop</option>`;
+            shops.forEach(shop => {
+                const normalized = normalizeTikTokUsername(shop);
+                if (!normalized) return;
+                const option = document.createElement('option');
+                option.value = normalized;
+                option.textContent = `@${normalized}`;
+                ordersShopFilter.appendChild(option);
+            });
+            const hasPrevious = Array.from(ordersShopFilter.options).some(option => option.value === previous);
+            if (hasPrevious) {
+                ordersShopFilter.value = previous;
+            }
+        }
+
+        function renderOrdersTable(orders) {
+            if (!ordersTableBody) return;
+            ordersTableBody.textContent = '';
+            if (!Array.isArray(orders) || orders.length === 0) {
+                ordersTableBody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-gray-400">${currentLang === 'en' ? 'No orders found' : 'Không có đơn hàng phù hợp'}</td></tr>`;
                 return;
             }
 
-            liveOrdersCompact.innerHTML = orders.map(order => {
-                const items = Array.isArray(order.items) ? order.items : [];
-                const username = normalizeTikTokUsername(order.username || order.customerUsername || '');
-                const handle = formatTikTokUsername(username);
-                const displayName = getDisplayName(order.nickname || order.displayName || '', username);
-                const itemsHtml = items.map(item => `
-                    <div class="live-order-item">
-                        <span class="truncate text-gray-700">${escapeHtml(normalizeDisplayText(item.text || item.productName || ''))}</span>
-                        <span class="font-black text-red-600 whitespace-nowrap">${formatMoney(Number(item.price || 0))}</span>
-                        <div class="flex items-center gap-1">
-                            <button onclick="reprintItem('${escapeJsString(username)}', ${Number(item.id) || 0})" class="live-order-action text-slate-700 bg-slate-100" title="In lại">IN</button>
-                            <button onclick="editItem('${escapeJsString(username)}', ${Number(item.id) || 0}, ${Number(item.price) || 0})" class="live-order-action text-slate-700 bg-slate-100" title="Sửa giá">SUA</button>
-                            <button onclick="deleteItem('${escapeJsString(username)}', ${Number(item.id) || 0})" class="live-order-action text-red-600 bg-red-50" title="Xóa">XOA</button>
-                        </div>
-                    </div>
-                `).join('');
+            orders.forEach(order => {
+                const row = document.createElement('tr');
+                row.className = 'border-b';
+                const status = formatOrderStatus(order.status);
+                const customerLabel = buildCustomerLabel(order.customerName || '', order.customerUsername || '');
+                const createdAt = order.createdAt
+                    ? new Date(order.createdAt).toLocaleString('vi-VN', {
+                        year: 'numeric',
+                        month: '2-digit',
+                        day: '2-digit',
+                        hour: '2-digit',
+                        minute: '2-digit'
+                    })
+                    : '—';
 
-                return `
-                    <div class="live-order-card">
-                        <div class="flex items-center justify-between gap-2">
-                            <div class="min-w-0">
-                                <p class="font-bold text-sm truncate customer-display-name" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</p>
-                                <p class="text-[10px] text-gray-400 truncate" title="${escapeHtml(handle)}">${escapeHtml(handle)}</p>
-                            </div>
-                            <div class="flex items-center gap-1">
-                                <button onclick="reprintTotal('${escapeJsString(username)}')" class="text-[10px] bg-white border border-gray-200 px-2 py-1 rounded font-bold">${currentLang === 'en' ? 'Print' : 'In'}</button>
-                                <button onclick="deleteCustomer('${escapeJsString(username)}')" class="text-[10px] bg-red-50 text-red-600 px-2 py-1 rounded font-bold">${currentLang === 'en' ? 'Delete' : 'Xóa'}</button>
-                            </div>
-                        </div>
-                        <div class="mt-2 space-y-1">${itemsHtml}</div>
-                        <div class="mt-2 pt-2 border-t flex items-center justify-between">
-                            <span class="text-[10px] font-bold text-gray-500 uppercase">TOTAL</span>
-                            <span class="text-sm font-black text-red-600">${formatMoney(Number(order.total || 0))}</span>
-                        </div>
-                    </div>
+                row.innerHTML = `
+                    <td class="p-3 text-xs font-bold text-gray-700">${escapeHtml(order.orderId || '—')}</td>
+                    <td class="p-3">
+                        <p class="font-bold text-sm customer-display-name" title="${escapeHtml(customerLabel)}">${escapeHtml(customerLabel || '—')}</p>
+                    </td>
+                    <td class="p-3 text-xs">${escapeHtml(order.phone || '—')}</td>
+                    <td class="p-3 text-xs">${escapeHtml(order.shop ? `@${order.shop}` : '—')}</td>
+                    <td class="p-3 text-xs truncate max-w-[220px]" title="${escapeHtml(order.productName || '')}">${escapeHtml(order.productName || '—')}</td>
+                    <td class="p-3 text-xs">${escapeHtml(createdAt)}</td>
+                    <td class="p-3 text-sm text-right font-black text-red-600">${formatMoney(Number(order.total || 0))}</td>
+                    <td class="p-3 text-xs"><span class="px-2 py-1 rounded font-bold ${status.className}">${escapeHtml(status.label)}</span></td>
                 `;
-            }).join('');
+                ordersTableBody.appendChild(row);
+            });
         }
 
-        function renderOrderCard(order) {
-            const username = normalizeTikTokUsername(order.username || order.customerUsername || '');
-            const handle = formatTikTokUsername(username);
-            const displayName = getDisplayName(order.nickname || order.displayName || '', username);
-            let card = document.getElementById(`card-${username}`);
-            if (!card) {
-                card = document.createElement('div');
-                card.id = `card-${username}`;
-                card.className = 'bg-white rounded-xl shadow border border-gray-200 flex flex-col overflow-hidden';
-                ordersContainer.prepend(card);
+        async function loadOrdersPageData(showLoading = true) {
+            if (!ordersTableBody) return;
+            const params = new URLSearchParams({
+                q: ordersSearchInput?.value?.trim() || '',
+                status: ordersStatusFilter?.value || 'all',
+                shop: ordersShopFilter?.value || '',
+                start: ordersStartDate?.value || '',
+                end: ordersEndDate?.value || ''
+            });
+            if (showLoading) {
+                ordersTableBody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-gray-400">${currentLang === 'en' ? 'Loading...' : 'Đang tải...'}</td></tr>`;
             }
-            const itemsHtml = order.items.map(i => `
-                <div class="group flex justify-between items-center text-[10px] py-2 border-b border-gray-50 hover:bg-gray-50 px-2 transition">
-                    <span class="text-gray-600 truncate mr-2 flex-1">${escapeHtml(normalizeDisplayText(i.text || i.productName || ''))}</span>
-                    <div class="flex items-center gap-3 ml-2">
-                        <span class="font-bold text-red-500 whitespace-nowrap">${formatMoney(i.price)}</span>
-                        <div class="flex gap-2 border-l pl-2 border-gray-200">
-                            <button onclick="reprintItem('${escapeJsString(username)}', ${Number(i.id) || 0})" class="order-action-btn text-slate-700 bg-slate-100 rounded" title="In lại">IN</button>
-                            <button onclick="editItem('${escapeJsString(username)}', ${Number(i.id) || 0}, ${Number(i.price) || 0})" class="order-action-btn text-slate-700 bg-slate-100 rounded" title="Sửa giá">SUA</button>
-                            <button onclick="deleteItem('${escapeJsString(username)}', ${Number(i.id) || 0})" class="order-action-btn text-red-600 bg-red-50 rounded" title="Xóa">XOA</button>
-                        </div>
-                    </div>
-                </div>
-            `).join('');
-
-            card.innerHTML = `
-                <div class="p-3 bg-gray-50 flex items-center justify-between border-b">
-                    <div class="flex items-center gap-2 min-w-0">
-                        <img src="${escapeHtml(normalizeDisplayText(order.profilePictureUrl || ''))}" class="w-8 h-8 rounded-full border">
-                        <div class="overflow-hidden min-w-0">
-                            <h3 class="font-bold text-xs truncate customer-display-name" title="${escapeHtml(displayName)}">${escapeHtml(displayName)}</h3>
-                            <p class="text-[9px] text-gray-400 truncate" title="${escapeHtml(handle)}">${escapeHtml(handle)}</p>
-                        </div>
-                    </div>
-                    <button onclick="deleteCustomer('${escapeJsString(username)}')" class="text-gray-400 hover:text-red-500 text-sm">✕</button>
-                </div>
-                <div class="flex-1 max-h-48 overflow-y-auto">${itemsHtml}</div>
-                <div class="p-3 bg-red-50 flex justify-between items-center border-t">
-                    <div class="flex items-center gap-2">
-                        <span class="text-[10px] font-bold text-gray-700 uppercase">TOTAL</span>
-                        <button onclick="reprintTotal('${escapeJsString(username)}')" class="text-[9px] bg-white border border-gray-300 px-1 py-0.5 rounded">${currentLang === 'en' ? 'Reprint total' : 'In lại tổng'}</button>
-                    </div>
-                    <span class="text-sm font-black text-red-600">${formatMoney(order.total)}</span>
-                </div>
-            `;
+            try {
+                const res = await fetch(`/api/orders?${params.toString()}`);
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Load orders error');
+                ordersPageData = Array.isArray(data.orders) ? data.orders : [];
+                renderOrdersSummary(data.summary || {});
+                renderOrdersShopOptions(data.options?.shops || []);
+                renderOrdersTable(ordersPageData);
+            } catch (error) {
+                ordersTableBody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-red-500">${escapeHtml(error.message)}</td></tr>`;
+                renderOrdersSummary({});
+            }
         }
 
         window.reprintItem = (username, itemId) => socket.emit('reprint-item', { username: normalizeTikTokUsername(username), itemId });
@@ -1357,31 +1678,37 @@
             switchView('overview');
             setLang(currentLang);
             setupMobileCommentPopover();
-            setGuideCollapsed(false);
             setOverviewRange('7');
             try {
                 const res = await fetch('/api/me');
                 const data = await res.json();
                 if (data.loggedIn && data.user) {
                     currentUserUid = normalizeDisplayText(data.user.uid || '');
-                    const bar = document.getElementById('user-bar');
                     const avatar = document.getElementById('user-avatar');
                     const nameEl = document.getElementById('user-name');
                     const emailEl = document.getElementById('user-email');
+                    currentUserRole = normalizeDisplayText(data.user.role || 'user').toLowerCase() || 'user';
 
                     emailEl.textContent = data.user.email || '';
                     nameEl.textContent = data.user.name || data.user.email?.split('@')[0] || '';
+                    if (userMenuName) userMenuName.textContent = nameEl.textContent;
+                    if (userMenuEmail) userMenuEmail.textContent = emailEl.textContent;
+                    if (userMenuRole) userMenuRole.textContent = currentUserRole ? `${currentLang === 'en' ? 'Role' : 'Vai trò'}: ${currentUserRole}` : '';
 
-                    if (data.user.picture) {
-                        avatar.src = data.user.picture;
-                        avatar.classList.remove('hidden');
+                    applyUserAvatar(avatar, data.user.picture, nameEl.textContent, emailEl.textContent);
+
+                    if (userMenu) {
+                        userMenu.classList.remove('hidden');
+                        userMenu.style.display = 'block';
+                    }
+                    if (userMenuTrigger) {
+                        userMenuTrigger.classList.remove('hidden');
+                        userMenuTrigger.style.display = 'inline-flex';
                     }
 
-                    bar.classList.remove('hidden');
-                    bar.style.display = 'flex';
-
-                    if (data.user.role === 'admin' || data.user.role === 'super_admin') {
+                    if (currentUserRole === 'admin' || currentUserRole === 'super_admin') {
                         document.getElementById('btn-admin').classList.remove('hidden');
+                        if (sidebarAdminItem) sidebarAdminItem.classList.remove('hidden');
                     }
 
                     if (data.devSkipAuth) {
@@ -1406,6 +1733,7 @@
                 clearRealtimeUi();
             }
             calculateKpis();
+            renderEmptyCommentState();
         })();
 
         let selectedSessionIds = new Set();

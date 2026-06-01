@@ -433,7 +433,7 @@
                 if (isDevSkipAuth) {
                     showDevNote('DEV MODE đang bật (VITE_DEV_SKIP_AUTH=true). Hệ thống sẽ tự vào app, không cần đăng nhập.');
                     setTimeout(() => {
-                        window.location.href = '/';
+                        window.location.href = '/app';
                     }, 700);
                 }
             } catch (_) {}
@@ -441,7 +441,7 @@
 
         // --- Send token to backend ---
         async function sendTokenToServer(user) {
-            const idToken = await user.getIdToken();
+            const idToken = await user.getIdToken(true);
             const res = await fetch('/sessionLogin', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -449,7 +449,7 @@
             });
             const result = await res.json();
             if (res.ok && result.success) {
-                window.location.href = '/';
+                window.location.href = '/app';
             } else {
                 // Backend rejected — sign out Firebase client
                 await signOut(auth);

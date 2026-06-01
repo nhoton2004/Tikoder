@@ -64,10 +64,10 @@ app.use(ensureDevSession);
 
 app.get('/login', (req, res) => {
     if (req.session && req.session.user) {
-        return res.redirect('/');
+        return res.redirect('/app');
     }
     if (DEV_SKIP_AUTH) {
-        return res.redirect('/');
+        return res.redirect('/app');
     }
     res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
@@ -103,11 +103,17 @@ app.post('/sessionLogin', async (req, res) => {
             return res.status(403).json({ message: 'Tài khoản đã bị khóa. Vui lòng liên hệ Admin.' });
         }
 
+        const providerPhoto = Array.isArray(userRecord.providerData)
+            ? (userRecord.providerData.find(p => p?.providerId === 'google.com' && p?.photoURL)?.photoURL || '')
+            : '';
+        const displayName = userRecord.displayName || decodedToken.name || '';
+        const picture = userRecord.photoURL || decodedToken.picture || providerPhoto || '';
+
         req.session.user = {
             uid: decodedToken.uid,
             email: decodedToken.email,
-            name: decodedToken.name || '',
-            picture: decodedToken.picture || '',
+            name: displayName,
+            picture,
             provider: decodedToken.firebase?.sign_in_provider || '',
             role: decodedToken.role || 'user',
             permissions: decodedToken.permissions || []
@@ -145,7 +151,21 @@ app.post('/logout', (req, res) => {
 });
 
 const requireLogin = (req, res, next) => {
-    if (req.path === '/login' || req.path === '/sessionLogin' || req.path === '/api/me') return next();
+    const isPublicAsset =
+        req.path.startsWith('/fonts/') ||
+        req.path === '/favicon.ico' ||
+        req.path === '/css/marketing-pages.css' ||
+        req.path === '/js/marketing.js';
+    if (isPublicAsset) return next();
+    if (
+        req.path === '/' ||
+        req.path === '/pricing' ||
+        req.path === '/demo' ||
+        req.path === '/contact' ||
+        req.path === '/login' ||
+        req.path === '/sessionLogin' ||
+        req.path === '/api/me'
+    ) return next();
     if (req.path === '/logout') return next();
     if (req.session && req.session.user) {
         return next();
@@ -357,6 +377,25 @@ app.get('/api/overview', requireApiAuth, (req, res) => {
     } catch (error) {
         console.error('Lỗi tổng hợp overview:', error);
         res.status(500).json({ error: 'Lỗi server khi tải tổng quan' });
+    }
+});
+
+// GET /api/orders — Danh sách đơn hàng phục vụ trang quản lý đơn
+app.get('/api/orders', requireApiAuth, (req, res) => {
+    try {
+        const user = req.session.user;
+        const filters = {
+            q: String(req.query.q || '').trim(),
+            status: String(req.query.status || 'all').trim().toLowerCase(),
+            shop: String(req.query.shop || '').trim().toLowerCase(),
+            start: String(req.query.start || '').trim(),
+            end: String(req.query.end || '').trim()
+        };
+        const result = buildOrdersDataset(user, filters);
+        res.json(result);
+    } catch (error) {
+        console.error('Lỗi tải danh sách đơn hàng:', error);
+        res.status(500).json({ error: 'Lỗi server khi tải đơn hàng' });
     }
 });
 
@@ -625,12 +664,24 @@ app.get('/admin', (req, res) => {
             <html><body style="font-family:Inter, 'Segoe UI', Roboto, Arial, 'Helvetica Neue', sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji';display:flex;align-items:center;justify-content:center;height:100vh;background:#f3f4f6;">
             <div style="text-align:center;"><h1 style="color:#ef4444;">⛔ Không có quyền truy cập</h1>
             <p>Tài khoản của bạn không có quyền vào trang Admin.</p>
-            <a href="/" style="color:#3b82f6;">← Quay về trang chính</a></div></body></html>`);
+            <a href="/app" style="color:#3b82f6;">← Quay về trang chính</a></div></body></html>`);
     }
     res.sendFile(path.join(__dirname, 'public', 'admin.html'));
 });
 
 app.use('/api/admin', adminRoutes);
+app.get('/app', (req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'app.html'));
+});
+app.get('/pricing', (_req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'pricing.html'));
+});
+app.get('/demo', (_req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'demo.html'));
+});
+app.get('/contact', (_req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'contact.html'));
+});
 
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -1577,6 +1628,8 @@ function buildOverviewDataset(currentUser, range) {
     const currentLiveOrderCount = rows.filter(row => row.source === 'current_live').length;
     const totalOrders = rows.length;
     const totalRevenue = rows.reduce((sum, row) => sum + Number(row.value || 0), 0);
+    const pendingOrders = rows.filter(row => normalizeOrdersStatus(row.status) === 'pending').length;
+    const failedOrders = rows.filter(row => normalizeOrdersStatus(row.status) === 'failed').length;
     const closeRate = comments > 0 ? Math.min(99.9, (currentLiveOrderCount / comments) * 100) : 0;
 
     const topCustomerMap = {};
@@ -1598,6 +1651,8 @@ function buildOverviewDataset(currentUser, range) {
         summary: {
             orders: totalOrders,
             revenue: totalRevenue,
+            pendingOrders,
+            failedOrders,
             comments,
             activeLive: runtime.currentBroadcasterId ? 1 : 0,
             closeRate
@@ -1630,6 +1685,111 @@ function buildOverviewDataset(currentUser, range) {
             sources: ['current_live', 'live_session', 'legacy_history'],
             rows: rows.length
         }
+    };
+}
+
+function normalizeOrdersStatus(status) {
+    const raw = String(status || '').trim().toLowerCase();
+    if (!raw || raw === 'done' || raw === 'success' || raw === 'completed') return 'done';
+    if (['failed', 'cancelled', 'canceled', 'returned', 'refund'].includes(raw)) return 'failed';
+    return 'pending';
+}
+
+function buildOrdersDataset(currentUser, filters = {}) {
+    const includeSharedLegacy = isAdminOrSuperAdmin(currentUser);
+    const phoneByUsername = new Map();
+    customerStore.readUserCustomers(currentUser.uid).forEach(customer => {
+        const username = customerStore.normalizeTikTokUsername(customer.tiktokUsername || '');
+        if (!username) return;
+        const phone = normalizeDisplayText(customer.phone || '');
+        phoneByUsername.set(username, phone);
+    });
+
+    const rows = dedupeOverviewRows([
+        ...currentLiveRows(currentUser),
+        ...liveSessionOverviewRows(currentUser),
+        ...legacyHistoryOverviewRows(currentUser.uid, { includeSharedLegacy })
+    ]);
+
+    const parsedStart = parseDateKey(filters.start);
+    const parsedEnd = parseDateKey(filters.end);
+    const normalizedStart = parsedStart ? formatDateKey(parsedStart) : '';
+    const normalizedEnd = parsedEnd ? formatDateKey(parsedEnd) : '';
+    const q = String(filters.q || '').toLowerCase();
+    const statusFilter = String(filters.status || 'all');
+    const shopFilter = customerStore.normalizeTikTokUsername(filters.shop || '');
+
+    const mapped = rows
+        .map((row, index) => {
+            const timestamp = Number.isFinite(row.timestamp) ? row.timestamp : timestampFromParts(row.date || formatDateKey(new Date()), '00:00:00');
+            const customerUsername = customerStore.normalizeTikTokUsername(row.customerUsername || '');
+            const phone = phoneByUsername.get(customerUsername) || '';
+            const status = normalizeOrdersStatus(row.status);
+            const shop = customerStore.normalizeTikTokUsername(row.shop || '');
+            const orderId = String(row.orderId || '').trim();
+            return {
+                id: `${row.source}_${row.date || 'unknown'}_${customerUsername || 'guest'}_${orderId || index}`,
+                orderId: orderId || `ORD-${String(index + 1).padStart(4, '0')}`,
+                customerName: row.customer || '',
+                customerUsername,
+                phone,
+                shop,
+                productName: row.productName || '',
+                quantity: Number(row.quantity || 1),
+                total: Number(row.value || 0),
+                status,
+                source: row.source || 'live_session',
+                date: row.date || '',
+                timestamp,
+                createdAt: new Date(timestamp).toISOString()
+            };
+        })
+        .filter(order => {
+            if (normalizedStart && order.date && order.date < normalizedStart) return false;
+            if (normalizedEnd && order.date && order.date > normalizedEnd) return false;
+            if (statusFilter !== 'all' && order.status !== statusFilter) return false;
+            if (shopFilter && order.shop !== shopFilter) return false;
+            if (!q) return true;
+            const haystack = [
+                order.orderId,
+                order.customerName,
+                order.customerUsername,
+                order.phone,
+                order.productName,
+                order.shop
+            ].join(' ').toLowerCase();
+            return haystack.includes(q);
+        })
+        .sort((a, b) => b.timestamp - a.timestamp);
+
+    const shops = Array.from(
+        new Set(
+            mapped
+                .map(order => order.shop)
+                .filter(Boolean)
+        )
+    ).sort();
+
+    const summary = {
+        totalOrders: mapped.length,
+        totalCod: mapped.reduce((sum, order) => sum + Number(order.total || 0), 0),
+        successOrders: mapped.filter(order => order.status === 'done').length,
+        failedOrders: mapped.filter(order => order.status === 'failed').length
+    };
+
+    return {
+        filters: {
+            status: statusFilter,
+            shop: shopFilter,
+            start: normalizedStart,
+            end: normalizedEnd,
+            q: filters.q || ''
+        },
+        options: {
+            shops
+        },
+        summary,
+        orders: mapped
     };
 }
 

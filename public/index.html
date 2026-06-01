@@ -2,469 +2,602 @@
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>TikTok Order Dashboard</title>
-    <script>
-        (() => {
-            const theme = localStorage.getItem('theme') || 'light';
-            document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
-        })();
-    </script>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="/socket.io/socket.io.js"></script>
-    <link rel="stylesheet" href="/css/dashboard.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>TikTok Order Pro | Track Comment, Print Bill, Chốt Đơn Nhanh</title>
+    <meta name="description" content="Nền tảng tracking bình luận TikTok Live, in bill tự động và quản lý khách hàng/đơn hàng realtime cho team bán hàng.">
+    <meta name="theme-color" content="#0B1020">
+    <link rel="preload" href="/fonts/geist-vietnamese-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+    <link rel="preload" href="/fonts/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
+    <style>
+        @font-face {
+            font-family: "Geist";
+            font-style: normal;
+            font-weight: 100 900;
+            font-display: swap;
+            src: url("/fonts/geist-vietnamese-wght-normal.woff2") format("woff2-variations");
+            unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303, U+0309, U+0323, U+1EA0-1EF9, U+20AB;
+        }
+
+        @font-face {
+            font-family: "Geist";
+            font-style: normal;
+            font-weight: 100 900;
+            font-display: swap;
+            src: url("/fonts/geist-latin-wght-normal.woff2") format("woff2-variations");
+            unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+        }
+
+        :root {
+            --bg: #06090f;
+            --bg-soft: #0b1020;
+            --surface: #11182f;
+            --surface-2: #162245;
+            --line: rgba(255, 255, 255, 0.14);
+            --text: #f4f7ff;
+            --muted: #a8b3cf;
+            --brand: #ff2a55;
+            --brand-2: #ff8a00;
+            --brand-3: #00d4ff;
+            --good: #33d17a;
+            --maxw: 1200px;
+            --radius: 22px;
+            --shadow: 0 28px 70px rgba(0, 0, 0, 0.42);
+        }
+
+        *, *::before, *::after { box-sizing: border-box; }
+
+        html { scroll-behavior: smooth; }
+        body {
+            margin: 0;
+            font-family: "Geist", "Segoe UI", Roboto, Arial, sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at 8% 12%, rgba(255, 42, 85, 0.22), transparent 34%),
+                radial-gradient(circle at 90% 10%, rgba(255, 138, 0, 0.22), transparent 30%),
+                radial-gradient(circle at 78% 72%, rgba(0, 212, 255, 0.16), transparent 38%),
+                linear-gradient(140deg, #05070d 0%, #0a1020 45%, #11182f 100%);
+            min-height: 100vh;
+            line-height: 1.55;
+            overflow-x: hidden;
+        }
+
+        .noise {
+            position: fixed;
+            inset: 0;
+            pointer-events: none;
+            opacity: 0.06;
+            background-image: radial-gradient(circle at 1px 1px, #fff 1px, transparent 1px);
+            background-size: 3px 3px;
+            z-index: 1;
+        }
+
+        .container {
+            width: min(var(--maxw), 92vw);
+            margin: 0 auto;
+            position: relative;
+            z-index: 2;
+        }
+
+        .site-header {
+            position: sticky;
+            top: 0;
+            z-index: 50;
+            backdrop-filter: blur(14px);
+            background: rgba(6, 9, 15, 0.72);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+        }
+
+        .nav-wrap {
+            min-height: 72px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 14px;
+        }
+
+        .brand {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 800;
+            letter-spacing: 0.2px;
+            color: var(--text);
+            text-decoration: none;
+        }
+
+        .brand-mark {
+            width: 36px;
+            height: 36px;
+            border-radius: 11px;
+            background: linear-gradient(130deg, var(--brand), var(--brand-2));
+            box-shadow: 0 10px 20px rgba(255, 42, 85, 0.38);
+            display: grid;
+            place-items: center;
+        }
+
+        .nav-links {
+            display: flex;
+            align-items: center;
+            gap: 18px;
+            color: var(--muted);
+            font-size: 14px;
+        }
+
+        .nav-links a {
+            color: inherit;
+            text-decoration: none;
+        }
+
+        .nav-actions {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .btn {
+            border: 1px solid transparent;
+            border-radius: 12px;
+            padding: 11px 16px;
+            font: inherit;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            text-decoration: none;
+            color: var(--text);
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            gap: 8px;
+            transition: transform .22s cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow .22s ease, background .22s ease, border-color .22s ease;
+            min-height: 44px;
+        }
+
+        .btn:hover { transform: translateY(-1px); }
+        .btn:active { transform: translateY(0); }
+
+        .btn-line {
+            border-color: rgba(255, 255, 255, 0.18);
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .btn-hot {
+            background: linear-gradient(130deg, var(--brand), var(--brand-2));
+            box-shadow: 0 12px 30px rgba(255, 42, 85, 0.36);
+        }
+
+        .hero {
+            padding: 74px 0 46px;
+            display: grid;
+            gap: 24px;
+            grid-template-columns: 1.1fr .9fr;
+            align-items: center;
+        }
+
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border-radius: 999px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            padding: 8px 14px;
+            color: #d7def3;
+            font-size: 13px;
+            background: rgba(255, 255, 255, 0.03);
+        }
+
+        .pulse-dot {
+            width: 8px;
+            aspect-ratio: 1;
+            border-radius: 50%;
+            background: var(--good);
+            box-shadow: 0 0 0 0 rgba(51, 209, 122, 0.62);
+            animation: pulse 1.8s infinite;
+        }
+
+        @keyframes pulse {
+            0% { box-shadow: 0 0 0 0 rgba(51, 209, 122, 0.62); }
+            72% { box-shadow: 0 0 0 12px rgba(51, 209, 122, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(51, 209, 122, 0); }
+        }
+
+        h1 {
+            margin: 14px 0 12px;
+            line-height: 1.02;
+            font-size: clamp(38px, 6.7vw, 72px);
+            letter-spacing: -1.5px;
+        }
+
+        .hero-sub {
+            max-width: 58ch;
+            color: var(--muted);
+            font-size: clamp(16px, 2vw, 19px);
+        }
+
+        .hero-cta {
+            margin-top: 22px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .trust {
+            margin-top: 18px;
+            color: #d0daf5;
+            font-size: 13px;
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+        }
+
+        .surface {
+            border: 1px solid var(--line);
+            border-radius: var(--radius);
+            background: linear-gradient(165deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.02));
+            box-shadow: var(--shadow);
+        }
+
+        .hero-board {
+            padding: 16px;
+            display: grid;
+            gap: 12px;
+        }
+
+        .metric-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+        }
+
+        .metric {
+            border-radius: 15px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.04);
+        }
+
+        .metric p {
+            margin: 0;
+            font-size: 12px;
+            color: #c0cbea;
+        }
+
+        .metric strong {
+            display: block;
+            margin-top: 5px;
+            font-size: 22px;
+            letter-spacing: -0.3px;
+        }
+
+        .ticker {
+            overflow: hidden;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            background: rgba(0, 0, 0, 0.18);
+        }
+
+        .ticker-track {
+            display: inline-flex;
+            min-width: 200%;
+            gap: 24px;
+            padding: 11px 0;
+            animation: ticker 22s linear infinite;
+            white-space: nowrap;
+            font-size: 13px;
+            color: #d2dcf9;
+        }
+
+        @keyframes ticker {
+            from { transform: translateX(0); }
+            to { transform: translateX(-50%); }
+        }
+
+        section {
+            padding: 34px 0;
+        }
+
+        h2 {
+            margin: 0 0 8px;
+            font-size: clamp(28px, 4vw, 46px);
+            line-height: 1.08;
+            letter-spacing: -0.7px;
+        }
+
+        .section-sub {
+            margin: 0;
+            color: var(--muted);
+            max-width: 66ch;
+        }
+
+        .feature-grid {
+            margin-top: 18px;
+            display: grid;
+            gap: 12px;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+        }
+
+        .feature-card {
+            padding: 18px;
+            border-radius: 18px;
+            border: 1px solid rgba(255, 255, 255, 0.16);
+            background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
+            transition: transform .2s ease, border-color .2s ease;
+            min-height: 170px;
+        }
+
+        .feature-card:hover {
+            transform: translateY(-2px);
+            border-color: rgba(255, 255, 255, 0.32);
+        }
+
+        .feature-icon {
+            width: 38px;
+            height: 38px;
+            border-radius: 10px;
+            display: grid;
+            place-items: center;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            background: rgba(0, 0, 0, 0.2);
+        }
+
+        .feature-card h3 {
+            margin: 12px 0 6px;
+            font-size: 19px;
+            letter-spacing: -0.3px;
+        }
+
+        .feature-card p {
+            margin: 0;
+            color: #c3cfe9;
+            font-size: 14px;
+        }
+
+        .stack {
+            display: grid;
+            margin-top: 18px;
+            gap: 12px;
+            grid-template-columns: repeat(7, minmax(0, 1fr));
+        }
+
+        .stack-item {
+            text-align: center;
+            border-radius: 14px;
+            border: 1px solid rgba(255, 255, 255, 0.14);
+            padding: 12px 10px;
+            font-size: 12px;
+            color: #ced8f2;
+            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .cta {
+            margin: 24px 0 56px;
+            padding: 24px;
+            border-radius: 24px;
+            border: 1px solid rgba(255, 255, 255, 0.18);
+            background: linear-gradient(130deg, rgba(255, 42, 85, 0.26), rgba(255, 138, 0, 0.24), rgba(0, 212, 255, 0.22));
+        }
+
+        .cta-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+
+        .footer {
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            color: #9aa8ca;
+            font-size: 13px;
+            padding: 16px 0 26px;
+        }
+
+        .reveal {
+            opacity: 0;
+            transform: translateY(12px) scale(.992);
+            transition: opacity .6s ease, transform .6s ease;
+        }
+
+        .reveal.in {
+            opacity: 1;
+            transform: translateY(0) scale(1);
+        }
+
+        @media (max-width: 1024px) {
+            .hero { grid-template-columns: 1fr; }
+            .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .stack { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+            .nav-links { display: none; }
+        }
+
+        @media (max-width: 640px) {
+            .nav-actions .btn-line { display: none; }
+            .hero { padding-top: 48px; }
+            .feature-grid { grid-template-columns: 1fr; }
+            .stack { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+            .metric-grid { grid-template-columns: 1fr; }
+            .cta { margin-bottom: 40px; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+            * { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+            html { scroll-behavior: auto; }
+        }
+    </style>
 </head>
 <body>
-    <div id="sidebar-backdrop" class="sidebar-backdrop no-print" hidden></div>
-    <div class="app-shell">
-        <aside id="app-sidebar" class="sidebar no-print" aria-label="Điều hướng chính">
-            <div class="brand-lockup">
-                <div class="brand-mark">TO</div>
-                <div class="brand-copy">
-                    <div class="font-black text-2xl leading-6 text-red-600">TikTok Order</div>
-                    <div class="text-[11px] text-gray-400">Dashboard</div>
-                </div>
-                <span id="dev-mode-badge" class="badge badge-dev hidden ml-auto">DEV MODE</span>
-            </div>
+    <div class="noise" aria-hidden="true"></div>
 
-            <nav class="mt-3 space-y-1">
-                <button class="menu-item active w-full text-left" data-view="overview" data-tooltip="Tổng quan"><span class="nav-key"><img src="/icons/layout-dashboard.svg" alt=""></span><span class="menu-label" data-i18n="menu.overview">Tổng quan</span></button>
-                <button class="menu-item w-full text-left" data-view="live" data-tooltip="Live"><span class="nav-key"><img src="/icons/radio-tower.svg" alt=""></span><span class="menu-label" data-i18n="menu.live">Live</span></button>
-                <button class="menu-item w-full text-left" data-view="orders" data-tooltip="Đơn hàng"><span class="nav-key"><img src="/icons/receipt-text.svg" alt=""></span><span class="menu-label" data-i18n="menu.orders">Đơn hàng</span></button>
-                <button class="menu-item w-full text-left" data-view="customers" data-tooltip="Khách hàng"><span class="nav-key"><img src="/icons/users.svg" alt=""></span><span class="menu-label" data-i18n="menu.customers">Khách hàng</span></button>
-                <button class="menu-item soon w-full text-left" data-tooltip="Shop"><span class="nav-key"><img src="/icons/store.svg" alt=""></span><span class="menu-label" data-i18n="menu.shop">Shop</span></button>
-                <button class="menu-item soon w-full text-left" data-tooltip="Báo cáo"><span class="nav-key"><img src="/icons/chart-no-axes-combined.svg" alt=""></span><span class="menu-label" data-i18n="menu.reports">Báo cáo</span></button>
-                <button class="menu-item w-full text-left" data-view="settings" data-tooltip="Cài đặt"><span class="nav-key"><img src="/icons/settings.svg" alt=""></span><span class="menu-label" data-i18n="menu.settings">Cài đặt</span></button>
+    <header class="site-header">
+        <div class="container nav-wrap">
+            <a class="brand" href="#top">
+                <span class="brand-mark" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M15.5 3v7.3a4.8 4.8 0 1 1-4.8-4.8" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </span>
+                <span>TikTok Order Pro</span>
+            </a>
+
+            <nav class="nav-links" aria-label="Điều hướng nhanh">
+                <a href="#features">Tính năng</a>
+                <a href="#workflow">Quy trình</a>
+                <a href="#system">Hệ thống</a>
+                <a href="/pricing">Bảng giá</a>
+                <a href="/demo">Demo</a>
+                <a href="/contact">Liên hệ</a>
             </nav>
 
-            <button id="sidebar-toggle" class="sidebar-toggle-btn" type="button" aria-label="Thu gọn sidebar" title="Thu gọn sidebar">
-                <span class="sidebar-toggle-icon">‹</span>
-                <span class="sidebar-toggle-label" data-i18n="sidebar.collapse">Thu gọn</span>
-            </button>
-        </aside>
+            <div class="nav-actions">
+                <a class="btn btn-line" href="/login">Đăng nhập</a>
+                <a class="btn btn-hot" id="main-action" href="/app">Vào Dashboard</a>
+            </div>
+        </div>
+    </header>
 
-        <div class="main-wrap">
-            <header class="topbar no-print">
-                <div class="topbar-title">
-                    <button id="sidebar-mobile-toggle" class="hamburger-btn" type="button" aria-label="Mở menu" aria-expanded="false">☰</button>
-                    <div>
-                    <h1 class="text-4xl font-black text-slate-900 leading-9">TikTok Order</h1>
-                    <p class="text-sm text-slate-500" data-i18n="subtitle">Quản lý đơn hàng & luồng bình luận chuyên nghiệp cho TikTok Live</p>
+    <main id="top" class="container" tabindex="-1">
+        <section class="hero">
+            <div class="reveal in">
+                <span class="badge"><span class="pulse-dot" aria-hidden="true"></span>Realtime Comment to Order Engine</span>
+                <h1>Track bình luận, in đơn, quản lý khách trong một luồng cực nhanh.</h1>
+                <p class="hero-sub">Thiết kế cho team bán TikTok Live cần tốc độ chốt cao: nhìn rõ tín hiệu mua, tách đơn tức thì, in bill ngay và tổng hợp dữ liệu khách hàng/order không mất mạch làm việc.</p>
+                <div class="hero-cta">
+                    <a class="btn btn-hot" href="/app">Bắt đầu làm việc</a>
+                    <a class="btn btn-line" href="#features">Xem demo tính năng</a>
+                </div>
+                <div class="trust">
+                    <span>Socket.IO realtime</span>
+                    <span>Print thermal giữ luồng cũ</span>
+                    <span>Mobile và desktop tối ưu</span>
+                </div>
+            </div>
+
+            <aside class="surface hero-board reveal" aria-label="Live performance panel">
+                <div class="metric-grid">
+                    <div class="metric"><p>Tốc độ phản hồi</p><strong>&lt;100ms</strong></div>
+                    <div class="metric"><p>Trạng thái luồng</p><strong>Realtime</strong></div>
+                    <div class="metric"><p>In đơn</p><strong>Tức thì</strong></div>
+                    <div class="metric"><p>Lưu dữ liệu</p><strong>An toàn</strong></div>
+                </div>
+                <div class="ticker" aria-hidden="true">
+                    <div class="ticker-track">
+                        <span>• Bình luận vào luồng xử lý •</span>
+                        <span>• Tạo đơn nhanh theo khách •</span>
+                        <span>• In bill nhiệt ngay khi chốt •</span>
+                        <span>• Quản lý khách hàng tập trung •</span>
+                        <span>• Export dữ liệu linh hoạt •</span>
+                        <span>• Bình luận vào luồng xử lý •</span>
+                        <span>• Tạo đơn nhanh theo khách •</span>
+                        <span>• In bill nhiệt ngay khi chốt •</span>
+                        <span>• Quản lý khách hàng tập trung •</span>
+                        <span>• Export dữ liệu linh hoạt •</span>
                     </div>
                 </div>
-                <div class="topbar-actions flex items-center gap-2">
-                    <button onclick="showLiveSessions()" class="topbar-session-btn p-2 bg-red-50 border border-red-100 rounded-xl" title="Lịch sử Phiên Live" aria-label="Lịch sử Phiên Live">LS</button>
-                    <div id="user-bar" class="hidden items-center gap-2 bg-white border border-gray-200 rounded-full pl-1 pr-3 py-1 shadow-sm">
-                        <img id="user-avatar" src="" alt="avatar" class="w-7 h-7 rounded-full border border-gray-300 hidden">
-                        <div class="leading-tight">
-                            <div id="user-name" class="text-[12px] font-bold text-gray-700 max-w-[140px] truncate"></div>
-                            <div id="user-email" class="text-[10px] text-gray-400 max-w-[140px] truncate"></div>
-                        </div>
-                    </div>
-                </div>
-            </header>
+            </aside>
+        </section>
 
-            <main class="content-area">
-                <div class="left-col space-y-4">
-                    <section id="section-overview" class="dashboard-section overview-bento">
-                        <div class="panel p-4 overview-hero">
-                            <div class="overview-header-row flex items-center justify-between">
-                                <div>
-                                    <h2 class="text-3xl font-black" data-i18n="ov.title">Tổng quan</h2>
-                                    <p class="text-sm text-gray-500" data-i18n="ov.subtitle">Theo dõi nhanh tình hình đơn hàng, live và doanh thu</p>
-                                </div>
-                                <div class="overview-controls flex flex-wrap items-center justify-end gap-2 text-xs">
-                                    <button type="button" class="overview-range-btn px-3 py-2 bg-white border border-gray-200 rounded-xl font-bold" data-range="today" data-i18n="ov.today">Hôm nay</button>
-                                    <button type="button" class="overview-range-btn px-3 py-2 bg-white border border-gray-200 rounded-xl font-bold" data-range="7" data-i18n="ov.range">7 ngày qua</button>
-                                    <button type="button" class="overview-range-btn px-3 py-2 bg-white border border-gray-200 rounded-xl font-bold" data-range="30" data-i18n="ov.last30">30 ngày</button>
-                                    <input id="overview-start" type="text" inputmode="numeric" placeholder="dd/mm/yyyy" class="px-3 py-2 bg-white border border-gray-200 rounded-xl">
-                                    <input id="overview-end" type="text" inputmode="numeric" placeholder="dd/mm/yyyy" class="px-3 py-2 bg-white border border-gray-200 rounded-xl">
-                                </div>
-                            </div>
-                        </div>
+        <section id="features" class="reveal">
+            <h2>Bộ màn hình nên dùng cho phase 1</h2>
+            <p class="section-sub">Đây là cấu hình tốt nhất để vừa nhanh triển khai vừa hiệu quả vận hành cho mô hình TikTok Live hiện tại của bạn.</p>
 
-                        <div class="overview-kpi-grid grid grid-cols-1 xl:grid-cols-5 gap-3">
-                            <div class="kpi-card"><p class="text-xs text-gray-500" data-i18n="ov.orders">Đơn đã chốt</p><p class="text-4xl font-black mt-1" id="ov-orders">0</p><p class="text-xs text-gray-400 mt-1" id="ov-orders-note">—</p></div>
-                            <div class="kpi-card"><p class="text-xs text-gray-500" data-i18n="ov.comments">Bình luận live</p><p class="text-4xl font-black mt-1" id="ov-comments">0</p><p class="text-xs text-gray-400 mt-1" id="ov-comments-note">—</p></div>
-                            <div class="kpi-card"><p class="text-xs text-gray-500" data-i18n="ov.revenue">Doanh thu</p><p class="text-2xl font-black mt-2" id="ov-revenue">0đ</p><p class="text-xs text-gray-400 mt-1" id="ov-revenue-note">—</p></div>
-                            <div class="kpi-card"><p class="text-xs text-gray-500" data-i18n="ov.liveActive">Live đang hoạt động</p><p class="text-4xl font-black mt-1" id="ov-live-active">0</p><p class="text-xs text-gray-500 mt-1">—</p></div>
-                            <div class="kpi-card"><p class="text-xs text-gray-500" data-i18n="ov.closeRate">Tỷ lệ chốt</p><p class="text-4xl font-black mt-1" id="ov-close-rate">0%</p><p class="text-xs text-gray-500 mt-1">—</p></div>
-                        </div>
-
-                        <div class="overview-split-grid overview-chart-grid grid grid-cols-1 xl:grid-cols-2 gap-3">
-                            <div class="panel p-4 bento-chart bento-chart-orders">
-                                <h3 class="font-black text-2xl mb-2" data-i18n="ov.orders7d">Đơn hàng 7 ngày gần đây</h3>
-                                <div id="overview-orders-chart" class="overview-chart h-[220px]"></div>
-                            </div>
-                            <div class="panel p-4 bento-chart bento-chart-revenue">
-                                <h3 class="font-black text-2xl mb-2" data-i18n="ov.revenue7d">Doanh thu 7 ngày gần đây</h3>
-                                <div id="overview-revenue-chart" class="overview-chart h-[220px]"></div>
-                            </div>
-                        </div>
-
-                        <div class="overview-split-grid overview-list-grid grid grid-cols-1 xl:grid-cols-2 gap-3">
-                            <div class="panel p-4 bento-list bento-list-top">
-                                <h3 class="font-black text-2xl mb-4" data-i18n="ov.topShop">Top khách chốt đơn</h3>
-                                <div id="overview-top-shop-list" class="space-y-3 text-sm"></div>
-                            </div>
-                            <div class="panel p-4 bento-list bento-list-latest">
-                                <div class="flex items-center justify-between mb-3">
-                                    <h3 class="font-black text-2xl" data-i18n="ov.latestOrders">Đơn mới nhất</h3>
-                                    <button class="text-red-500 text-xs font-bold" data-i18n="ov.viewAll">Xem tất cả</button>
-                                </div>
-                                <div class="latest-orders-table-wrap overflow-x-auto">
-                                    <table class="w-full text-xs">
-                                        <thead class="text-gray-500 border-b"><tr><th class="py-2 text-left">ID</th><th class="py-2 text-left" data-i18n="tb.customer">Khách</th><th class="py-2 text-left" data-i18n="tb.time">Thời gian</th><th class="py-2 text-left" data-i18n="tb.value">Giá trị</th><th class="py-2 text-left" data-i18n="tb.status">Trạng thái</th></tr></thead>
-                                        <tbody id="overview-latest-orders"></tbody>
-                                    </table>
-                                </div>
-                                <div id="overview-latest-cards" class="overview-latest-cards hidden"></div>
-                            </div>
-                        </div>
-                    </section>
-
-                    <section id="section-connect" class="dashboard-section panel p-5 border-l-4 border-l-red-500" hidden>
-                        <div class="flex gap-4 items-start">
-                            <div class="live-mark w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center">ON</div>
-                            <div class="flex-1">
-                                <h2 class="text-2xl font-black" data-i18n="live.connect">Kết nối Live</h2>
-                                <p class="text-xs text-gray-500 mb-2" data-i18n="live.helper">Nhập ID TikTok chủ live để theo dõi bình luận & đơn hàng realtime.</p>
-                                <div class="flex gap-2">
-                                    <input id="tiktok-id" type="text" class="flex-1 border border-gray-300 rounded-xl px-3 py-2" placeholder="Nhập ID TikTok chủ Live">
-                                    <button id="btn-connect" class="bg-red-500 text-white px-5 py-2 rounded-xl font-bold" data-i18n="live.connectBtn">Kết nối</button>
-                                </div>
-                                <div id="status-msg" class="mt-3 text-sm text-gray-500 italic" data-i18n="status.disconnected">Chưa kết nối</div>
-                            </div>
-                        </div>
-                    </section>
-
-                    <section id="section-kpi" class="dashboard-section kpi-grid no-print" hidden>
-                        <div class="kpi-card"><p class="text-xs text-gray-500" data-i18n="kpi.orders">Đơn hôm nay</p><p id="kpi-orders" class="text-4xl font-black mt-1">0</p></div>
-                        <div class="kpi-card"><p class="text-xs text-gray-500" data-i18n="kpi.comments">Bình luận</p><p id="kpi-comments" class="text-4xl font-black mt-1">0</p></div>
-                        <div class="kpi-card"><p class="text-xs text-gray-500" data-i18n="kpi.revenue">Doanh thu</p><p id="kpi-revenue" class="text-2xl font-black mt-2">0đ</p></div>
-                        <div class="kpi-card"><p class="text-xs text-gray-500" data-i18n="kpi.liveStatus">Trạng thái</p><p id="kpi-status" class="text-base font-bold mt-3 text-gray-500" data-i18n="status.disconnected">Chưa kết nối</p></div>
-                    </section>
-
-                    <section id="section-live-orders" class="dashboard-section panel overflow-hidden no-print" hidden>
-                        <div class="p-4 border-b bg-gray-50 flex items-center justify-between">
-                            <h3 class="font-black text-xl" data-i18n="orders.current">Đơn hàng hiện tại</h3>
-                            <div class="flex gap-2">
-                                <button onclick="window.saveCurrentSession()" class="bg-purple-600 text-white px-3 py-2 rounded-lg text-sm font-bold" data-i18n="actions.saveSession">Lưu phiên</button>
-                                <button onclick="window.printAllSummary()" class="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-bold" data-i18n="actions.printSummary">In tổng kết</button>
-                            </div>
-                        </div>
-                        <div id="live-orders-compact" class="p-3 space-y-2"></div>
-                    </section>
-
-                    <section id="section-comments" class="dashboard-section panel overflow-hidden" hidden>
-                        <div class="p-4 border-b bg-gray-50 flex items-center justify-between">
-                            <h3 class="font-black text-xl" data-i18n="comments.title">Luồng bình luận</h3>
-                            <span class="text-xs text-gray-400" id="chat-count">0 items</span>
-                        </div>
-                        <div id="chat-feed" class="max-h-[420px] overflow-y-auto p-3 space-y-2 bg-white"></div>
-                    </section>
-
-                    <section id="section-orders" class="dashboard-section panel overflow-hidden" hidden>
-                        <div class="p-4 border-b bg-gray-50 flex items-center justify-between">
-                            <h3 class="font-black text-xl" data-i18n="orders.current">Đơn hàng hiện tại</h3>
-                            <div class="flex gap-2 no-print">
-                                <button onclick="window.saveCurrentSession()" class="bg-purple-600 text-white px-3 py-2 rounded-lg text-sm font-bold" data-i18n="actions.saveSession">Lưu phiên</button>
-                                <button onclick="window.printAllSummary()" class="bg-blue-600 text-white px-3 py-2 rounded-lg text-sm font-bold" data-i18n="actions.printSummary">In tổng kết</button>
-                            </div>
-                        </div>
-                        <div class="p-3">
-                            <div class="grid grid-cols-1 xl:grid-cols-2 gap-3" id="orders-container"></div>
-                        </div>
-                    </section>
-
-                    <section id="section-customers" class="dashboard-section space-y-4 no-print" hidden>
-                        <div class="panel p-4">
-                            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                                <div>
-                                    <h2 class="text-3xl font-black" data-i18n="customers.title">Khách hàng</h2>
-                                    <p class="text-sm text-gray-500" data-i18n="customers.subtitle">Lưu địa chỉ theo từng tài khoản để xuất file đi đơn.</p>
-                                </div>
-                                <div class="flex flex-wrap gap-2">
-                                    <button type="button" onclick="importCustomersFromHistory()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl text-sm font-bold" data-i18n="customers.importHistory">Lấy từ lịch sử chốt</button>
-                                    <button type="button" onclick="resetCustomerForm()" class="bg-red-500 text-white px-4 py-2 rounded-xl text-sm font-bold" data-i18n="customers.new">Thêm khách</button>
-                                </div>
-                            </div>
-                        </div>
-
-                        <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-4">
-                            <div class="panel overflow-hidden">
-                                <div class="p-4 border-b bg-gray-50">
-                                    <input id="customer-search" type="search" class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm" placeholder="Tìm theo tên, TikTok username, số điện thoại">
-                                </div>
-                                <div class="overflow-x-auto">
-                                    <table class="customers-table w-full text-sm">
-                                        <thead class="bg-white border-b text-xs text-gray-500">
-                                            <tr>
-                                                <th class="p-3 text-left">TikTok</th>
-                                                <th class="p-3 text-left">Tên</th>
-                                                <th class="p-3 text-left">Số điện thoại</th>
-                                                <th class="p-3 text-left">Địa chỉ</th>
-                                                <th class="p-3 text-right">Thao tác</th>
-                                            </tr>
-                                        </thead>
-                                        <tbody id="customers-table-body"></tbody>
-                                    </table>
-                                </div>
-                            </div>
-
-                            <form id="customer-form" class="panel p-4 space-y-3">
-                                <input type="hidden" id="customer-id">
-                                <div>
-                                    <h3 id="customer-form-title" class="font-black text-xl">Thêm khách hàng</h3>
-                                    <p id="customer-form-status" class="text-xs text-gray-400 mt-1"></p>
-                                </div>
-                                <label class="block text-xs font-bold text-gray-500">TikTok username
-                                    <input id="customer-tiktok" type="text" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm" placeholder="@username">
-                                </label>
-                                <label class="block text-xs font-bold text-gray-500">Tên người nhận *
-                                    <input id="customer-display-name" type="text" required class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm">
-                                </label>
-                                <label class="block text-xs font-bold text-gray-500">Số điện thoại
-                                    <input id="customer-phone" type="tel" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm">
-                                </label>
-                                <div class="grid grid-cols-1 md:grid-cols-3 xl:grid-cols-1 gap-3">
-                                    <label class="block text-xs font-bold text-gray-500">Tỉnh/Thành phố
-                                        <input id="customer-province" type="text" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm">
-                                    </label>
-                                    <label class="block text-xs font-bold text-gray-500">Quận/Huyện
-                                        <input id="customer-district" type="text" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm">
-                                    </label>
-                                    <label class="block text-xs font-bold text-gray-500">Xã/Phường
-                                        <input id="customer-ward" type="text" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm">
-                                    </label>
-                                </div>
-                                <label class="block text-xs font-bold text-gray-500">Địa chỉ chi tiết
-                                    <input id="customer-address-detail" type="text" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm">
-                                </label>
-                                <label class="block text-xs font-bold text-gray-500">Ghi chú
-                                    <textarea id="customer-address-note" rows="2" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm"></textarea>
-                                </label>
-                                <label class="block text-xs font-bold text-gray-500">Mã khách hàng
-                                    <input id="customer-code" type="text" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm">
-                                </label>
-                                <div class="flex gap-2 pt-2">
-                                    <button type="submit" class="flex-1 bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold">Lưu</button>
-                                    <button type="button" onclick="resetCustomerForm()" class="bg-white border border-gray-300 px-4 py-2 rounded-xl text-sm font-bold">Hủy</button>
-                                </div>
-                            </form>
-                        </div>
-                    </section>
-                </div>
-
-                <aside id="right-col" class="right-col space-y-4" hidden>
-                    <section id="settings-panel" class="dashboard-section settings-page no-print" hidden>
-                        <div class="settings-page-heading">
-                            <h3 data-i18n="settings.title">Cấu hình hệ thống</h3>
-                            <p data-i18n="settings.subtitle">Quản lý tùy chọn kết nối, hiển thị và dữ liệu của bạn.</p>
-                        </div>
-
-                        <div class="settings-layout">
-                            <div class="settings-main-col">
-                                <div class="settings-card">
-                                    <div class="settings-card-head">
-                                        <div class="settings-icon settings-icon-blue">◎</div>
-                                        <div>
-                                            <h4 data-i18n="settings.languageTitle">Ngôn ngữ hiển thị</h4>
-                                            <p data-i18n="settings.languageDesc">Chọn ngôn ngữ giao diện cho ứng dụng.</p>
-                                        </div>
-                                    </div>
-                                    <div class="settings-card-body settings-language-body">
-                                        <div class="language-segment" role="group" aria-label="Language">
-                                            <button onclick="setLang('vi')" id="btn-lang-vi" class="language-option" type="button">
-                                                <span class="language-code">VI</span><span>Tiếng Việt</span>
-                                            </button>
-                                            <button onclick="setLang('en')" id="btn-lang-en" class="language-option" type="button">
-                                                <span class="language-code">EN</span><span>English</span>
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="settings-card">
-                                    <div class="settings-card-head settings-card-head-between">
-                                        <div class="settings-head-left">
-                                            <div class="settings-icon settings-icon-blue">◐</div>
-                                            <div>
-                                                <h4 data-i18n="settings.appearanceTitle">Giao diện</h4>
-                                                <p data-i18n="settings.appearanceDesc">Chọn chế độ sáng hoặc tối cho toàn bộ ứng dụng.</p>
-                                            </div>
-                                        </div>
-                                        <span id="theme-status-label" class="settings-status-dot theme-status-dot" data-i18n="settings.lightMode">Chế độ sáng</span>
-                                    </div>
-                                    <div class="settings-card-body settings-appearance-body">
-                                        <div class="theme-segment" role="group" aria-label="Giao diện">
-                                            <button id="btn-theme-light" class="theme-option" type="button" data-theme-option="light">
-                                                <span class="theme-dot theme-dot-light"></span><span data-i18n="settings.lightMode">Chế độ sáng</span>
-                                            </button>
-                                            <button id="btn-theme-dark" class="theme-option" type="button" data-theme-option="dark">
-                                                <span class="theme-dot theme-dot-dark"></span><span data-i18n="settings.darkMode">Chế độ tối</span>
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                <div class="settings-card">
-                                    <div class="settings-card-head settings-card-head-between">
-                                        <div class="settings-head-left">
-                                            <div class="settings-icon settings-icon-red">IN</div>
-                                            <div>
-                                                <h4 data-i18n="settings.integrationTitle">Kết nối & Tích hợp</h4>
-                                                <p data-i18n="settings.integrationDesc">Cấu hình các dịch vụ bên thứ ba và thiết bị ngoại vi.</p>
-                                            </div>
-                                        </div>
-                                        <span class="settings-status-dot" data-i18n="settings.online">Online</span>
-                                    </div>
-                                    <div class="settings-card-body">
-                                        <div class="settings-field">
-                                            <label for="printer-ip" data-i18n="settings.printer">Máy in hóa đơn</label>
-                                            <p data-i18n="settings.printerDesc">Địa chỉ IP hoặc cổng kết nối của máy in.</p>
-                                            <div class="settings-input-wrap">
-                                                <span>▣</span>
-                                                <input type="text" id="printer-ip" placeholder="tcp://192.168.1.9">
-                                            </div>
-                                        </div>
-                                        <div class="settings-field">
-                                            <label for="tiktok-api-key" data-i18n="settings.apiKey">TikTok Sign API Key</label>
-                                            <p data-i18n="settings.apiKeyDesc">Khóa bảo mật để đồng bộ với hệ thống TikTok.</p>
-                                            <div class="settings-input-wrap">
-                                                <span>⌁</span>
-                                                <input type="password" id="tiktok-api-key" placeholder="Nhập API key tại đây...">
-                                            </div>
-                                        </div>
-                                        <div class="settings-save-row">
-                                            <button onclick="saveSettings()" class="settings-save-btn" type="button">
-                                                <span>OK</span><span data-i18n="settings.save">Lưu thay đổi</span>
-                                            </button>
-                                            <p id="system-status-msg"></p>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="settings-side-col">
-                                <div class="settings-side-card">
-                                    <div class="settings-side-title">
-                                        <span>▱</span>
-                                        <div>
-                                            <h4 data-i18n="settings.quickTools">Tiện ích hệ thống</h4>
-                                        </div>
-                                    </div>
-                                    <div class="settings-tool-list">
-                                        <button id="btn-admin" onclick="location.href='/admin'" class="settings-tool-row hidden" type="button">
-                                            <span class="settings-tool-icon amber">⌁</span>
-                                            <span>Admin</span>
-                                            <span class="settings-tool-arrow">↗</span>
-                                        </button>
-                                        <button onclick="logout()" class="settings-tool-row danger" type="button">
-                                            <span class="settings-tool-icon red">↪</span>
-                                            <span data-i18n="settings.logout">Đăng xuất</span>
-                                            <span class="settings-tool-arrow">›</span>
-                                        </button>
-                                    </div>
-                                </div>
-
-                                <div class="settings-side-card">
-                                    <div class="settings-side-title">
-                                        <span>▤</span>
-                                        <div>
-                                            <h4 data-i18n="backup.title">Quản lý dữ liệu</h4>
-                                            <p data-i18n="backup.desc">Sao lưu và xuất dữ liệu hệ thống.</p>
-                                        </div>
-                                    </div>
-                                    <select id="backup-scope" class="settings-select">
-                                        <option value="mine" data-i18n="backup.mine">Dữ liệu tài khoản hiện tại</option>
-                                        <option value="all" data-i18n="backup.all">Toàn bộ dữ liệu (Admin)</option>
-                                    </select>
-                                    <div class="settings-export-list">
-                                        <button onclick="downloadBackup('excel')" class="settings-export-btn excel" type="button">▦ <span data-i18n="backup.exportExcel">Xuất Excel</span></button>
-                                        <button onclick="downloadBackup('csv')" class="settings-export-btn csv" type="button">▤ <span data-i18n="backup.exportCsv">Xuất CSV</span></button>
-                                        <button onclick="downloadBackup('json')" class="settings-export-btn json" type="button">▧ <span data-i18n="backup.exportJson">Xuất JSON</span></button>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </section>
-
-                    <section class="dashboard-section panel p-4 no-print" id="guide-panel" hidden>
-                        <button type="button" onclick="toggleGuide()" class="w-full flex items-center justify-between text-left">
-                            <span class="font-black text-lg" data-i18n="tips.title">Hướng dẫn</span>
-                            <span id="guide-toggle-icon" class="text-gray-400 text-sm">-</span>
-                        </button>
-                        <p id="guide-body" class="text-sm text-gray-500 mt-3" data-i18n="tips.desc">Nhập ID TikTok của chủ live để kết nối và bắt đầu theo dõi luồng bình luận, đơn hàng theo thời gian thực.</p>
-                    </section>
-                </aside>
-            </main>
-        </div>
-    </div>
-
-    <nav class="mobile-bottom-nav no-print" aria-label="Mobile navigation">
-        <button type="button" class="mobile-nav-item active" data-view="overview"><span><img src="/icons/layout-dashboard.svg" alt=""></span><span data-i18n="menu.overview">Tổng quan</span></button>
-        <button type="button" class="mobile-nav-item" data-view="live"><span><img src="/icons/radio-tower.svg" alt=""></span><span data-i18n="menu.live">Live</span></button>
-        <button type="button" class="mobile-nav-item" data-view="orders"><span><img src="/icons/receipt-text.svg" alt=""></span><span data-i18n="menu.orders">Đơn hàng</span></button>
-        <button type="button" class="mobile-nav-item" data-view="customers"><span><img src="/icons/users.svg" alt=""></span><span data-i18n="menu.customers">Khách hàng</span></button>
-        <button type="button" class="mobile-nav-item" data-view="settings"><span><img src="/icons/settings.svg" alt=""></span><span data-i18n="menu.settings">Cài đặt</span></button>
-    </nav>
-
-    <div id="print-section" class="p-4"></div>
-
-    <div id="history-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center p-4 no-print">
-        <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
-            <div class="p-4 border-b flex justify-between items-center bg-gray-50 rounded-t-xl">
-                <h3 class="font-bold text-lg" data-i18n="history.title">Lịch sử phiên Live</h3>
-                <button onclick="closeHistory()" class="text-gray-500 hover:text-black text-xl">✕</button>
+            <div class="feature-grid">
+                <article class="feature-card">
+                    <div class="feature-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 13h8V3H3zm10 8h8V11h-8zM3 21h8v-6H3zm10-10h8V3h-8z" stroke="currentColor" stroke-width="1.8"/></svg></div>
+                    <h3>Overview Command Center</h3>
+                    <p>KPI chốt đơn, doanh thu, tỷ lệ chốt, xu hướng theo ngày và đơn mới nhất để bạn nắm nhịp ngay khi vào app.</p>
+                </article>
+                <article class="feature-card">
+                    <div class="feature-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M12 5v14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
+                    <h3>Live + Comment Stream</h3>
+                    <p>Kết nối TikTok ID, nhận bình luận realtime, bóc tách tín hiệu mua hàng và giữ lịch sử phiên live để đối soát dễ.</p>
+                </article>
+                <article class="feature-card">
+                    <div class="feature-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 7h16v10H4z" stroke="currentColor" stroke-width="1.8"/><path d="M8 11h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
+                    <h3>Orders + Print Flow</h3>
+                    <p>Danh sách đơn có filter/search mạnh, in bill giữ chuẩn hiện tại, hỗ trợ xuất file đi đơn cho đơn vị vận chuyển.</p>
+                </article>
+                <article class="feature-card">
+                    <div class="feature-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" stroke="currentColor" stroke-width="1.8"/><path d="M4 20a8 8 0 0 1 16 0" stroke="currentColor" stroke-width="1.8"/></svg></div>
+                    <h3>Customer Tracking Hub</h3>
+                    <p>Quản lý hồ sơ khách, địa chỉ/sđt, import từ lịch sử chốt để giảm nhập tay và tăng tốc chốt đơn lặp lại.</p>
+                </article>
+                <article class="feature-card">
+                    <div class="feature-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 20V10m6 10V4m6 16v-7m6 7V7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
+                    <h3>Reports + Export Layer</h3>
+                    <p>Báo cáo theo khoảng thời gian, top khách chốt, và xuất JSON/CSV/Excel để chia sẻ cho kế toán/vận hành.</p>
+                </article>
+                <article class="feature-card">
+                    <div class="feature-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3v3m0 12v3m9-9h-3M6 12H3m14.36 6.36-2.12-2.12M8.76 8.76 6.64 6.64m10.72 0-2.12 2.12M8.76 15.24l-2.12 2.12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
+                    <h3>Settings + Admin</h3>
+                    <p>Phase 1 chỉ cần 2 role: user/admin. User tập trung vận hành, admin quản lý user/quyền và cấu hình hệ thống.</p>
+                </article>
             </div>
-            <div id="history-list-content" class="overflow-y-auto p-4 space-y-2"></div>
-        </div>
-    </div>
+        </section>
 
-    <div id="live-sessions-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center p-4 no-print">
-        <div class="bg-white rounded-xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
-            <div class="p-4 border-b flex justify-between items-center bg-purple-50 rounded-t-xl">
-                <h3 class="font-bold text-lg text-purple-800" data-i18n="sessions.title">Lịch sử Phiên Live</h3>
-                <div class="flex items-center gap-2">
-                    <button onclick="mergeSelectedSessions()" id="btn-merge" class="bg-purple-600 text-white px-3 py-1.5 rounded text-xs font-bold hidden">
-                        <span data-i18n="sessions.merge">Gộp phiên đã chọn</span> (<span id="merge-count">0</span>)
-                    </button>
-                    <button onclick="exportSelectedSessionsExcel()" id="btn-export-selected" class="bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold hidden">Xuất Excel đi đơn</button>
-                    <button onclick="closeLiveSessions()" class="text-gray-500 hover:text-black text-xl">✕</button>
+        <section id="workflow" class="reveal">
+            <h2>Luồng bán hàng được tối ưu theo tốc độ chốt</h2>
+            <p class="section-sub">Từ bình luận đến in đơn là một hành trình liên tục, không đứt gãy thao tác.</p>
+            <div class="stack">
+                <div class="stack-item">01 Kết nối live</div>
+                <div class="stack-item">02 Bắt bình luận</div>
+                <div class="stack-item">03 Chuẩn hóa đơn</div>
+                <div class="stack-item">04 In bill</div>
+                <div class="stack-item">05 Lưu session</div>
+                <div class="stack-item">06 Theo dõi khách</div>
+                <div class="stack-item">07 Xuất báo cáo</div>
+            </div>
+        </section>
+
+        <section id="system" class="reveal">
+            <h2>Nâng cấp kiến trúc mà không phá lõi hiện tại</h2>
+            <p class="section-sub">Giữ nguyên API, dữ liệu và cơ chế in hiện có; tách lớp marketing và dashboard để tải nhanh hơn, bảo trì dễ hơn, trải nghiệm cao cấp hơn.</p>
+        </section>
+
+        <section class="cta reveal">
+            <div class="cta-row">
+                <div>
+                    <h2 style="margin-bottom:6px">Sẵn sàng vào dashboard?</h2>
+                    <p class="section-sub" style="margin:0">Bạn đã có đầy đủ nền tảng để chạy TikTok Live theo chuẩn vận hành chuyên nghiệp.</p>
+                </div>
+                <div class="hero-cta" style="margin-top:0">
+                    <a class="btn btn-hot" href="/app">Mở Dashboard</a>
+                    <a class="btn btn-line" href="/login">Đăng nhập</a>
                 </div>
             </div>
-            <div id="live-sessions-list" class="overflow-y-auto p-4 space-y-2 flex-1"></div>
-        </div>
-    </div>
+        </section>
+    </main>
 
-    <div id="merge-modal" class="fixed inset-0 bg-black bg-opacity-60 z-[60] hidden flex items-center justify-center p-4 no-print">
-        <div class="bg-white rounded-xl shadow-2xl w-full max-w-4xl max-h-[90vh] flex flex-col">
-            <div class="p-4 border-b flex justify-between items-center bg-green-50 rounded-t-xl">
-                <h3 class="font-bold text-lg text-green-800" data-i18n="merge.title">Kết quả gộp phiên</h3>
-                <div class="flex items-center gap-2 flex-wrap justify-end">
-                    <span id="merge-save-status" class="text-xs font-bold text-green-700"></span>
-                    <button onclick="exportMergedExcel()" class="bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold">Xuất Excel đi đơn</button>
-                    <button onclick="saveMergedSession()" id="btn-save-merged" class="bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold hidden" data-i18n="merge.save">Lưu phiên gộp</button>
-                    <button onclick="printMergeSummary()" class="bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-bold" data-i18n="merge.printSummary">In tổng hợp</button>
-                    <button onclick="printMergeDetails()" class="bg-slate-800 text-white px-3 py-1.5 rounded text-xs font-bold" data-i18n="merge.printDetails">In chi tiết</button>
-                    <button onclick="closeMergeModal()" class="text-gray-500 hover:text-black text-xl">✕</button>
-                </div>
-            </div>
-            <div id="merge-results-content" class="overflow-y-auto p-4 flex-1"></div>
-        </div>
-    </div>
+    <footer class="footer">
+        <div class="container">TikTok Order Pro • Comment Tracking • Order Operations • Print Automation • <a href="/pricing" style="color:inherit">Bảng giá</a> • <a href="/demo" style="color:inherit">Demo</a> • <a href="/contact" style="color:inherit">Liên hệ</a></div>
+    </footer>
 
-    <div id="delivery-warning-modal" class="fixed inset-0 bg-black bg-opacity-60 z-[70] hidden flex items-center justify-center p-4 no-print">
-        <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[85vh] flex flex-col">
-            <div class="p-4 border-b flex justify-between items-center bg-amber-50 rounded-t-xl">
-                <h3 class="font-bold text-lg text-amber-800">Cảnh báo thông tin giao hàng</h3>
-                <button onclick="closeDeliveryWarnings()" class="text-gray-500 hover:text-black text-xl">✕</button>
-            </div>
-            <div id="delivery-warning-list" class="overflow-y-auto p-4 space-y-2"></div>
-        </div>
-    </div>
+    <script>
+        (() => {
+            const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+            const mainAction = document.getElementById('main-action');
 
-    <script src="/js/dashboard.js"></script>
+            fetch('/api/me', { credentials: 'same-origin' })
+                .then((res) => res.json())
+                .then((data) => {
+                    if (data && data.loggedIn) {
+                        mainAction.textContent = 'Tiếp tục Dashboard';
+                        mainAction.href = '/app';
+                    }
+                })
+                .catch(() => {});
+
+            if (!prefersReducedMotion && 'IntersectionObserver' in window) {
+                const nodes = document.querySelectorAll('.reveal:not(.in)');
+                const observer = new IntersectionObserver((entries) => {
+                    entries.forEach((entry) => {
+                        if (entry.isIntersecting) {
+                            entry.target.classList.add('in');
+                            observer.unobserve(entry.target);
+                        }
+                    });
+                }, { threshold: 0.12 });
+                nodes.forEach((node) => observer.observe(node));
+            } else {
+                document.querySelectorAll('.reveal').forEach((node) => node.classList.add('in'));
+            }
+        })();
+    </script>
 </body>
 </html>
