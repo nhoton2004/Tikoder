@@ -72,6 +72,19 @@ app.get('/login', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'login.html'));
 });
 
+app.get([
+    '/',
+    '/index.html',
+    '/pricing',
+    '/pricing.html',
+    '/demo',
+    '/demo.html',
+    '/contact',
+    '/contact.html'
+], (_req, res) => {
+    res.redirect('/login');
+});
+
 // --- Hàm kiểm tra email có quyền truy cập ---
 function isEmailAllowed(email) {
     const allowRegister = (process.env.ALLOW_REGISTER || 'true').toLowerCase() === 'true';
@@ -158,10 +171,6 @@ const requireLogin = (req, res, next) => {
         req.path === '/js/marketing.js';
     if (isPublicAsset) return next();
     if (
-        req.path === '/' ||
-        req.path === '/pricing' ||
-        req.path === '/demo' ||
-        req.path === '/contact' ||
         req.path === '/login' ||
         req.path === '/sessionLogin' ||
         req.path === '/api/me'
