@@ -13,6 +13,7 @@
     </script>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="/socket.io/socket.io.js"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/css/dashboard.css">
     <link rel="stylesheet" href="/css/dashboard-premium.css">
 </head>
@@ -26,7 +27,6 @@
                     <div class="font-black text-2xl leading-6 text-red-600">TikTok Order</div>
                     <div class="text-[11px] text-gray-400">Dashboard</div>
                 </div>
-                <span id="dev-mode-badge" class="badge badge-dev hidden ml-auto">DEV MODE</span>
             </div>
 
             <nav class="mt-3 space-y-1">
@@ -34,8 +34,6 @@
                 <button class="menu-item w-full text-left" data-view="live" data-tooltip="Live"><span class="nav-key"><img src="/icons/radio-tower.svg" alt=""></span><span class="menu-label" data-i18n="menu.live">Live</span></button>
                 <button class="menu-item w-full text-left" data-view="orders" data-tooltip="Đơn hàng"><span class="nav-key"><img src="/icons/receipt-text.svg" alt=""></span><span class="menu-label" data-i18n="menu.orders">Đơn hàng</span></button>
                 <button class="menu-item w-full text-left" data-view="customers" data-tooltip="Khách hàng"><span class="nav-key"><img src="/icons/users.svg" alt=""></span><span class="menu-label" data-i18n="menu.customers">Khách hàng</span></button>
-                <button class="menu-item w-full text-left" data-view="shop" data-tooltip="Shop"><span class="nav-key"><img src="/icons/store.svg" alt=""></span><span class="menu-label" data-i18n="menu.shop">Shop</span></button>
-                <button class="menu-item w-full text-left" data-view="reports" data-tooltip="Báo cáo"><span class="nav-key"><img src="/icons/chart-no-axes-combined.svg" alt=""></span><span class="menu-label" data-i18n="menu.reports">Báo cáo</span></button>
                 <button class="menu-item w-full text-left" data-view="settings" data-tooltip="Cài đặt"><span class="nav-key"><img src="/icons/settings.svg" alt=""></span><span class="menu-label" data-i18n="menu.settings">Cài đặt</span></button>
                 <button id="sidebar-admin-item" class="menu-item w-full text-left hidden" data-view="admin" data-tooltip="Admin"><span class="nav-key"><img src="/icons/settings.svg" alt=""></span><span class="menu-label" data-i18n="menu.admin">Admin</span></button>
             </nav>
@@ -53,11 +51,15 @@
                         <img src="/icons/layout-dashboard.svg" alt="" width="16" height="16">
                     </button>
                     <div>
-                    <h1 class="text-4xl font-black text-slate-900 leading-9">TikTok Order</h1>
-                    <p class="text-sm text-slate-500" data-i18n="subtitle">Quản lý đơn hàng & luồng bình luận chuyên nghiệp cho TikTok Live</p>
+                    <h1 id="page-title" class="text-4xl font-black text-slate-900 leading-9">TikTok Order</h1>
                     </div>
+                    <span id="page-live-status" class="topbar-live-status" hidden><span></span> Connected</span>
                 </div>
                 <div class="topbar-actions flex items-center gap-2">
+                    <button id="topbar-save-session-btn" onclick="saveCurrentSession()" class="topbar-save-session-btn" type="button" hidden>
+                        <img src="/icons/receipt-text.svg" alt="" width="14" height="14">
+                        <span>Lưu phiên</span>
+                    </button>
                     <button onclick="showLiveSessions()" class="topbar-session-btn p-2 bg-red-50 border border-red-100 rounded-xl flex items-center gap-1" title="Lịch sử Phiên Live" aria-label="Lịch sử Phiên Live">
                         <img src="/icons/receipt-text.svg" alt="" width="14" height="14">
                         <span class="text-[11px] font-bold">Lịch sử</span>
@@ -184,27 +186,83 @@
                         </div>
                     </section>
 
-                    <section id="section-connect" class="dashboard-section panel p-5 border-l-4 border-l-red-500" hidden>
-                        <div class="flex gap-4 items-start">
-                            <div class="live-mark w-12 h-12 rounded-full bg-red-50 text-red-600 flex items-center justify-center">ON</div>
-                            <div class="flex-1">
-                                <h2 class="text-2xl font-black" data-i18n="live.connect">Kết nối Live</h2>
-                                <p class="text-xs text-gray-500 mb-2" data-i18n="live.helper">Nhập ID TikTok chủ live để theo dõi bình luận & đơn hàng realtime.</p>
-                                <div class="flex gap-2">
-                                    <input id="tiktok-id" type="text" class="flex-1 border border-gray-300 rounded-xl px-3 py-2" placeholder="Nhập ID TikTok chủ Live">
-                                    <button id="btn-connect" class="bg-red-500 text-white px-5 py-2 rounded-xl font-bold" data-i18n="live.connectBtn">Kết nối</button>
+                    <section id="section-connect" class="dashboard-section live-command no-print" hidden>
+                        <div class="live-kpi-strip" aria-label="Live metrics">
+                            <div class="live-stat live-stat-status">
+                                <div>
+                                    <span>Trạng thái</span>
+                                    <strong id="kpi-status" data-i18n="status.disconnected">Chưa kết nối</strong>
                                 </div>
-                                <div id="status-msg" class="mt-3 text-sm text-gray-500 italic" data-i18n="status.disconnected">Chưa kết nối</div>
+                                <span class="material-symbols-outlined live-stat-icon">sensors</span>
+                            </div>
+                            <div class="live-stat">
+                                <div>
+                                    <span>Bình luận / phút</span>
+                                    <strong id="kpi-comments">0</strong>
+                                </div>
+                                <span class="material-symbols-outlined live-stat-icon">forum</span>
+                            </div>
+                            <div class="live-stat">
+                                <div>
+                                    <span>Đơn chốt</span>
+                                    <strong id="kpi-orders">0</strong>
+                                </div>
+                                <span class="material-symbols-outlined live-stat-icon">shopping_bag</span>
+                            </div>
+                            <div class="live-stat live-stat-revenue">
+                                <div>
+                                    <span>Doanh thu (ước tính)</span>
+                                    <strong id="kpi-revenue">0đ</strong>
+                                </div>
+                                <span class="material-symbols-outlined live-stat-icon">payments</span>
                             </div>
                         </div>
+
+                        <div class="live-connect-bar">
+                            <span class="live-status-chip"><span></span> TikTok Live</span>
+                            <div class="live-connect-row">
+                                <input id="tiktok-id" type="text" placeholder="Nhập ID TikTok chủ Live để kết nối...">
+                                    <button id="btn-connect" type="button" data-i18n="live.connectBtn"><span class="material-symbols-outlined">link</span> Kết nối ngay</button>
+                            </div>
+                            <div class="live-quick-actions">
+                                <span>Rapid fire</span>
+                                <button type="button" onclick="printAllSummary()"><span class="material-symbols-outlined">receipt_long</span> In chốt</button>
+                                <button type="button" onclick="showLiveSessions()"><span class="material-symbols-outlined">history</span> Lịch sử</button>
+                            </div>
+                        </div>
+                        <div id="status-msg" class="live-status-text" data-i18n="status.disconnected">Chưa kết nối</div>
                     </section>
 
-                    <section id="section-comments" class="dashboard-section panel overflow-hidden" hidden>
+                    <div id="section-live-workspace" class="dashboard-section live-workspace" hidden>
+                        <section id="section-comments" class="live-panel live-comments-panel">
+                            <div class="live-panel-head">
+                                <h3 data-i18n="comments.title"><span class="material-symbols-outlined">forum</span> Luồng bình luận Realtime</h3>
+                                <span class="live-count-pill" id="chat-count">0 items</span>
+                            </div>
+                            <div id="chat-feed" class="live-feed"></div>
+                        </section>
+
+                        <section id="section-current-orders" class="live-panel live-orders-panel">
+                            <div class="live-panel-head">
+                                <h3 data-i18n="orders.current"><span class="material-symbols-outlined">local_mall</span> Đơn hàng hiện tại (Phiên này)</h3>
+                                <span id="live-orders-count" class="live-count-pill">0 đơn - 0đ</span>
+                            </div>
+                            <div id="current-orders-empty" class="live-orders-empty">
+                                Chưa có đơn nào. Khi bấm CHỐT từ bình luận, thông tin khách hàng và đơn sẽ xuất hiện ở đây.
+                            </div>
+                            <div id="current-orders-grid" class="live-orders-grid"></div>
+                        </section>
+                    </div>
+
+                    <section id="section-comments-legacy" class="dashboard-section panel overflow-hidden" hidden>
                         <div class="p-4 border-b bg-gray-50 flex items-center justify-between">
-                            <h3 class="font-black text-xl" data-i18n="comments.title">Luồng bình luận</h3>
-                            <span class="text-xs text-gray-400" id="chat-count">0 items</span>
+                            <div>
+                                <h3 class="font-black text-xl" data-i18n="comments.title">Luồng bình luận</h3>
+                                <p class="text-xs text-gray-500">Theo dõi comment mới nhất và chốt nhanh từng khách.</p>
+                            </div>
+                            <span class="live-count-pill">0 items</span>
                         </div>
-                        <div id="chat-feed" class="max-h-[420px] overflow-y-auto p-3 space-y-2 bg-white"></div>
+                        <div class="max-h-[420px] overflow-y-auto p-3 space-y-2 bg-white"></div>
                     </section>
 
                     <section id="section-orders" class="dashboard-section panel overflow-hidden" hidden>
@@ -340,15 +398,6 @@
                         </div>
                     </section>
 
-                    <section id="section-shop" class="dashboard-section panel p-6" hidden>
-                        <h3 class="font-black text-2xl mb-2">Shop</h3>
-                        <p class="text-sm text-gray-500">Trang Shop đang được hoàn thiện. Điều hướng đã được tách riêng để không lẫn nội dung với các trang khác.</p>
-                    </section>
-
-                    <section id="section-reports" class="dashboard-section panel p-6" hidden>
-                        <h3 class="font-black text-2xl mb-2">Báo cáo</h3>
-                        <p class="text-sm text-gray-500">Trang Báo cáo đang được hoàn thiện. Điều hướng đã được tách riêng để không lẫn nội dung với các trang khác.</p>
-                    </section>
                 </div>
 
                 <aside id="right-col" class="right-col space-y-4" hidden>

@@ -5,13 +5,146 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Panel - TikTok Order Collector</title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <style>
-        body { font-family: Inter, "Segoe UI", Roboto, Arial, "Helvetica Neue", sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji"; }
-        .role-super_admin { background: #fef3c7; color: #92400e; }
-        .role-admin { background: #dbeafe; color: #1e40af; }
-        .role-staff { background: #d1fae5; color: #065f46; }
-        .role-user { background: #f3f4f6; color: #374151; }
+        @font-face {
+            font-family: "Geist";
+            font-style: normal;
+            font-weight: 100 900;
+            font-display: swap;
+            src: url("/fonts/geist-vietnamese-wght-normal.woff2") format("woff2-variations");
+            unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303, U+0309, U+0323, U+1EA0-1EF9, U+20AB;
+        }
+
+        @font-face {
+            font-family: "Geist";
+            font-style: normal;
+            font-weight: 100 900;
+            font-display: swap;
+            src: url("/fonts/geist-latin-wght-normal.woff2") format("woff2-variations");
+            unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+2074, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+        }
+
+        :root {
+            --brand: #E8002D;
+            --brand-cyan: #00D4FF;
+            --bg: #f7f8fb;
+            --text: #14171f;
+            --muted: #667085;
+            --line: rgba(20, 23, 31, 0.1);
+            --shadow: 0 20px 58px rgba(15, 23, 42, 0.08);
+        }
+
+        body {
+            font-family: "Geist", "Segoe UI", Roboto, Arial, sans-serif;
+            color: var(--text);
+            background:
+                radial-gradient(circle at 10% 8%, rgba(232, 0, 45, 0.12), transparent 28%),
+                radial-gradient(circle at 90% 2%, rgba(0, 212, 255, 0.14), transparent 26%),
+                linear-gradient(180deg, #ffffff 0%, var(--bg) 48%, #eef2f6 100%) !important;
+            -webkit-font-smoothing: antialiased;
+        }
+
+        body > .bg-white.border-b {
+            position: sticky;
+            top: 0;
+            z-index: 40;
+            border-bottom: 1px solid var(--line) !important;
+            background: rgba(248, 249, 250, 0.78) !important;
+            backdrop-filter: blur(22px) saturate(1.2);
+            box-shadow: none !important;
+        }
+
+        h1, h2, h3 {
+            letter-spacing: 0;
+            font-variation-settings: "wght" 850;
+        }
+
+        a[href="/app"] {
+            color: var(--brand) !important;
+            font-weight: 900;
+        }
+
+        input,
+        select {
+            border-radius: 12px !important;
+            border-color: var(--line) !important;
+            background: #fff !important;
+            color: var(--text) !important;
+        }
+
+        input:focus,
+        select:focus {
+            border-color: var(--brand) !important;
+            box-shadow: 0 0 0 3px rgba(232, 0, 45, 0.12) !important;
+            outline: none !important;
+        }
+
+        button {
+            border-radius: 12px !important;
+            font-weight: 900 !important;
+            transition: transform .18s ease, box-shadow .18s ease, background .18s ease;
+        }
+
+        button:hover {
+            transform: translateY(-1px);
+        }
+
+        .bg-blue-600,
+        .bg-purple-600 {
+            background: var(--brand) !important;
+            box-shadow: 0 14px 30px rgba(232, 0, 45, 0.18);
+        }
+
+        .bg-gray-100 {
+            background: #fff !important;
+            border: 1px solid var(--line);
+        }
+
+        .bg-white.rounded-xl,
+        #user-modal > div,
+        #sessions-modal > div {
+            border: 1px solid var(--line) !important;
+            border-radius: 22px !important;
+            background: rgba(255, 255, 255, 0.82) !important;
+            box-shadow: var(--shadow) !important;
+            backdrop-filter: blur(18px);
+        }
+
+        table thead {
+            background: #f8fafc !important;
+            color: var(--muted) !important;
+        }
+
+        tbody tr:hover {
+            background: #fff7f9 !important;
+        }
+
+        .role-super_admin { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+        .role-admin { background: #fff1f2; color: #be123c; border: 1px solid #fecdd3; }
+        .role-staff { background: #ecfeff; color: #0e7490; border: 1px solid #a5f3fc; }
+        .role-user { background: #f3f4f6; color: #374151; border: 1px solid #e5e7eb; }
+
+        #dev-mode-badge {
+            border-radius: 999px;
+        }
+
+        @media (max-width: 375px) {
+            .max-w-7xl {
+                padding-left: 12px !important;
+                padding-right: 12px !important;
+            }
+
+            .py-3.flex.justify-between,
+            .mb-6 {
+                align-items: flex-start !important;
+                flex-direction: column !important;
+            }
+
+            #search-input,
+            .flex.gap-2.w-full {
+                width: 100% !important;
+            }
+        }
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen">
@@ -40,6 +173,7 @@
             </div>
             <div class="flex gap-2 w-full sm:w-auto">
                 <input type="text" id="search-input" placeholder="Tìm email hoặc tên..." class="flex-1 sm:w-64 border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-blue-500 outline-none" oninput="filterUsers()">
+                <button onclick="viewAllSessions()" class="bg-purple-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-purple-700 transition whitespace-nowrap">Toàn bộ phiên live</button>
                 <button onclick="showCreateModal()" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-bold hover:bg-blue-700 transition whitespace-nowrap">+ Thêm user</button>
             </div>
         </div>
@@ -319,22 +453,46 @@
             document.getElementById('sessions-content').innerHTML = '<p class="text-center text-gray-400 py-6">Đang tải...</p>';
             document.getElementById('sessions-modal').classList.remove('hidden');
             try {
-                const res = await fetch(`/api/admin/users/${uid}/live-sessions`);
+                const res = await fetch('/api/live-sessions');
                 const data = await res.json();
-                const sessions = data.sessions || [];
-                if (sessions.length === 0) {
-                    document.getElementById('sessions-content').innerHTML = '<p class="text-center text-gray-400 py-10">Chưa có phiên live nào</p>';
-                    return;
-                }
-                document.getElementById('sessions-content').innerHTML = sessions.map(s => `
+                const sessions = (data.sessions || []).filter(s => (s.ownerUserId || s.userId) === uid);
+                renderSessions(sessions, 'Chưa có phiên live nào');
+            } catch (e) { document.getElementById('sessions-content').innerHTML = '<p class="text-red-400 text-center py-6">Lỗi tải</p>'; }
+        }
+
+        async function viewAllSessions() {
+            document.getElementById('sessions-title').textContent = 'Toàn bộ lịch sử phiên live';
+            document.getElementById('sessions-content').innerHTML = '<p class="text-center text-gray-400 py-6">Đang tải...</p>';
+            document.getElementById('sessions-modal').classList.remove('hidden');
+            try {
+                const res = await fetch('/api/live-sessions');
+                const data = await res.json();
+                renderSessions(data.sessions || [], 'Chưa có phiên live nào trong hệ thống');
+            } catch (e) {
+                document.getElementById('sessions-content').innerHTML = '<p class="text-red-400 text-center py-6">Lỗi tải</p>';
+            }
+        }
+
+        function renderSessions(sessions, emptyText) {
+            if (sessions.length === 0) {
+                document.getElementById('sessions-content').innerHTML = `<p class="text-center text-gray-400 py-10">${escapeHtml(emptyText)}</p>`;
+                return;
+            }
+            document.getElementById('sessions-content').innerHTML = sessions.map(s => {
+                const owner = s.ownerUserId ? `<p class="text-[10px] text-purple-500 font-bold truncate max-w-[300px]" title="${escapeHtml(s.ownerUserId)}">User: ${escapeHtml(s.ownerUserId)}</p>` : '';
+                return `
                     <div class="p-3 border rounded-lg mb-2 hover:bg-gray-50">
-                        <div class="flex justify-between items-center">
-                            <div><p class="font-bold text-sm">${s.liveName}</p><p class="text-[10px] text-gray-400">${new Date(s.createdAt).toLocaleString('vi-VN')}${s.tiktokUsername ? ' • @' + s.tiktokUsername : ''}</p></div>
-                            <div class="text-right"><span class="text-xs font-bold text-red-500">${fmtMoney(s.summary?.totalRevenue || 0)}đ</span><p class="text-[9px] text-gray-400">${s.summary?.totalOrders || 0} đơn</p></div>
+                        <div class="flex justify-between items-center gap-3">
+                            <div class="min-w-0">
+                                <p class="font-bold text-sm truncate">${escapeHtml(s.liveName)}</p>
+                                <p class="text-[10px] text-gray-400">${new Date(s.createdAt).toLocaleString('vi-VN')}${s.tiktokUsername ? ' • @' + escapeHtml(s.tiktokUsername) : ''}</p>
+                                ${owner}
+                            </div>
+                            <div class="text-right shrink-0"><span class="text-xs font-bold text-red-500">${fmtMoney(s.summary?.totalRevenue || 0)}đ</span><p class="text-[9px] text-gray-400">${s.summary?.totalOrders || 0} đơn</p></div>
                         </div>
                     </div>
-                `).join('');
-            } catch (e) { document.getElementById('sessions-content').innerHTML = '<p class="text-red-400 text-center py-6">Lỗi tải</p>'; }
+                `;
+            }).join('');
         }
     </script>
 </body>

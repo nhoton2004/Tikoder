@@ -29,7 +29,7 @@
             --border: #e2e8f0;
             --primary: #e11d48;
             --brand: #e11d48;
-            --brand-strong: #be123c;
+            --brand-strong: #E8002D;
             --brand-soft: #fff1f2;
             --surface-soft: #f8fafc;
             --radius: 24px;
@@ -62,6 +62,10 @@
 
         * {
             box-sizing: border-box;
+        }
+
+        [hidden] {
+            display: none !important;
         }
 
         ::selection {
@@ -649,7 +653,7 @@
             background: #fff6f7;
             border: 1px solid #ffe1e5;
             font-size: 12px;
-            color: #be123c;
+            color: #E8002D;
             font-weight: 600;
             letter-spacing: 0.01em;
         }
@@ -657,7 +661,7 @@
         .overview-insight-delta.is-positive {
             background: #fff4f6;
             border-color: #fecdd3;
-            color: #be123c;
+            color: #E8002D;
         }
 
         .overview-insight-delta.is-negative {
@@ -765,7 +769,7 @@
 
         .overview-cta-secondary {
             background: #fff;
-            color: #be123c;
+            color: #E8002D;
             border: 1px solid #fecdd3;
         }
 
@@ -789,7 +793,7 @@
         }
 
         .overview-meta-pill strong {
-            color: #be123c;
+            color: #E8002D;
             font-size: 12px;
             font-weight: 900;
         }
@@ -1290,6 +1294,510 @@
         .orders-table th:nth-child(8),
         .orders-table td:nth-child(8) {
             width: 10%;
+        }
+
+        .live-command {
+            padding: 18px !important;
+            overflow: hidden;
+            border-left: 0 !important;
+            position: relative;
+        }
+
+        .live-command::before {
+            content: "";
+            position: absolute;
+            inset: 0;
+            pointer-events: none;
+            background:
+                radial-gradient(circle at 0% 0%, rgba(225, 29, 72, 0.18), transparent 34%),
+                radial-gradient(circle at 88% 16%, rgba(37, 244, 238, 0.16), transparent 30%);
+            opacity: 0.9;
+        }
+
+        .live-command > * {
+            position: relative;
+            z-index: 1;
+        }
+
+        .live-command-grid {
+            display: grid;
+            grid-template-columns: minmax(0, 1.3fr) minmax(280px, 0.95fr);
+            gap: 14px;
+            align-items: stretch;
+        }
+
+        .live-command-main {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+
+        .live-status-chip {
+            width: fit-content;
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            border: 1px solid rgba(37, 244, 238, 0.48);
+            border-radius: 999px;
+            padding: 6px 10px;
+            background: rgba(37, 244, 238, 0.12);
+            color: #036b68;
+            font-size: 11px;
+            font-weight: 900;
+            letter-spacing: 0.04em;
+            text-transform: uppercase;
+        }
+
+        .live-status-chip span {
+            width: 7px;
+            height: 7px;
+            border-radius: 999px;
+            background: #00D4FF;
+            box-shadow: 0 0 0 6px rgba(37, 244, 238, 0.14);
+        }
+
+        .live-command h2 {
+            margin-top: 14px;
+            font-size: clamp(28px, 4vw, 44px);
+            line-height: 1.02;
+            font-weight: 900;
+            color: #0f172a;
+        }
+
+        .live-command-main p,
+        .live-script-card p,
+        .live-orders-head p,
+        .feature-hero p,
+        .shop-insight-card p,
+        .report-card p {
+            color: #64748b;
+        }
+
+        .live-command-main p {
+            margin-top: 8px;
+            max-width: 680px;
+            font-size: 14px;
+        }
+
+        .live-connect-row {
+            margin-top: 18px;
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 10px;
+        }
+
+        .live-connect-row input {
+            min-height: 54px;
+            border: 1px solid #dbe3ef;
+            border-radius: 16px;
+            background: rgba(255, 255, 255, 0.9);
+            padding: 0 16px;
+            font-weight: 800;
+        }
+
+        .live-connect-row button,
+        .feature-hero button,
+        .shop-insight-card button,
+        .live-quick-actions button {
+            min-height: 44px;
+            border-radius: 14px;
+            padding: 0 16px;
+            background: linear-gradient(122deg, #E8002D, #ff7a18);
+            color: #fff;
+            font-size: 13px;
+            font-weight: 900;
+            box-shadow: 0 12px 26px rgba(254, 44, 85, 0.18);
+        }
+
+        .live-connect-row button {
+            min-width: 132px;
+            min-height: 54px;
+        }
+
+        .live-status-text {
+            margin-top: 10px;
+            font-size: 13px;
+            color: #64748b;
+            font-style: italic;
+        }
+
+        .live-kpi-strip {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .live-stat,
+        .live-script-card,
+        .live-order-card,
+        .shop-insight-card,
+        .report-card {
+            border: 1px solid rgba(226, 232, 240, 0.92);
+            border-radius: 18px;
+            background: rgba(255, 255, 255, 0.78);
+            box-shadow: 0 8px 22px rgba(16, 24, 40, 0.04);
+        }
+
+        .live-stat {
+            min-height: 96px;
+            padding: 14px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+        }
+
+        .live-stat span {
+            color: #64748b;
+            font-size: 11px;
+            font-weight: 900;
+            text-transform: uppercase;
+            letter-spacing: 0.04em;
+        }
+
+        .live-stat strong {
+            display: block;
+            margin-top: 12px;
+            color: #0f172a;
+            font-size: 24px;
+            line-height: 1.05;
+            font-weight: 900;
+        }
+
+        .live-stat-revenue {
+            grid-column: span 2;
+        }
+
+        .live-script-card {
+            grid-column: 1 / -1;
+            padding: 16px;
+        }
+
+        .live-script-label,
+        .feature-eyebrow,
+        .report-card span,
+        .shop-insight-card span {
+            display: inline-flex;
+            width: fit-content;
+            border-radius: 999px;
+            background: var(--brand-soft);
+            color: var(--brand-strong);
+            padding: 5px 9px;
+            font-size: 10px;
+            font-weight: 900;
+            letter-spacing: 0.06em;
+            text-transform: uppercase;
+        }
+
+        .live-script-card h3 {
+            margin-top: 10px;
+            font-size: 18px;
+            line-height: 24px;
+            font-weight: 900;
+        }
+
+        .live-script-card p {
+            margin-top: 4px;
+            font-size: 13px;
+        }
+
+        .live-quick-actions {
+            margin-top: 12px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+
+        .live-quick-actions button {
+            min-height: 38px;
+            background: #0f172a;
+            box-shadow: none;
+        }
+
+        .live-count-pill {
+            display: inline-flex;
+            align-items: center;
+            white-space: nowrap;
+            border-radius: 999px;
+            border: 1px solid #fecdd3;
+            background: #fff1f2;
+            color: #E8002D;
+            padding: 6px 10px;
+            font-size: 11px;
+            font-weight: 900;
+        }
+
+        .live-orders-head {
+            padding: 16px;
+            border-bottom: 1px solid var(--line);
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            background: rgba(248, 250, 252, 0.76);
+        }
+
+        .live-orders-head p {
+            margin-top: 4px;
+            font-size: 12px;
+        }
+
+        .live-orders-empty {
+            margin: 16px;
+            border: 1px dashed #fda4af;
+            border-radius: 16px;
+            padding: 18px;
+            background: rgba(255, 241, 242, 0.42);
+            color: #9f1239;
+            font-size: 13px;
+            font-weight: 800;
+            text-align: center;
+        }
+
+        .live-orders-grid {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 12px;
+            padding: 14px;
+        }
+
+        .live-order-card {
+            min-width: 0;
+            overflow: hidden;
+        }
+
+        .live-order-card-head {
+            display: grid;
+            grid-template-columns: 42px minmax(0, 1fr) auto;
+            gap: 10px;
+            align-items: center;
+            padding: 12px;
+            border-bottom: 1px solid rgba(226, 232, 240, 0.82);
+        }
+
+        .live-order-card-head img {
+            width: 42px;
+            height: 42px;
+            border-radius: 999px;
+            object-fit: cover;
+            border: 1px solid var(--line);
+        }
+
+        .live-order-card h4 {
+            overflow: hidden;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            color: #0f172a;
+            font-size: 14px;
+            font-weight: 900;
+        }
+
+        .live-order-card-head p {
+            margin-top: 2px;
+            color: #64748b;
+            font-size: 11px;
+            font-weight: 800;
+        }
+
+        .live-order-card button,
+        .live-order-item-actions button {
+            min-height: 30px;
+            border-radius: 10px;
+            padding: 0 10px;
+            background: #f8fafc;
+            color: #334155;
+            border: 1px solid #e2e8f0;
+            font-size: 11px;
+            font-weight: 900;
+        }
+
+        .live-order-items {
+            display: grid;
+            gap: 8px;
+            padding: 10px 12px;
+        }
+
+        .live-order-item {
+            display: grid;
+            grid-template-columns: minmax(0, 1fr) auto;
+            gap: 10px;
+            align-items: center;
+            border-radius: 12px;
+            background: #f8fafc;
+            padding: 10px;
+        }
+
+        .live-order-item strong {
+            display: block;
+            color: #0f172a;
+            font-size: 12px;
+            line-height: 16px;
+            font-weight: 900;
+        }
+
+        .live-order-item span {
+            display: block;
+            margin-top: 2px;
+            color: #94a3b8;
+            font-size: 10px;
+            font-weight: 800;
+        }
+
+        .live-order-item-actions {
+            display: flex;
+            flex-wrap: wrap;
+            justify-content: flex-end;
+            gap: 6px;
+        }
+
+        .live-order-item-actions button:first-child {
+            color: #E8002D;
+            background: #fff1f2;
+            border-color: #fecdd3;
+        }
+
+        .live-order-card-foot {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 10px;
+            padding: 12px;
+            border-top: 1px solid rgba(226, 232, 240, 0.82);
+        }
+
+        .live-order-card-foot strong {
+            color: #E8002D;
+            font-size: 18px;
+            font-weight: 900;
+        }
+
+        .feature-page {
+            display: grid;
+            gap: 14px;
+        }
+
+        .feature-hero {
+            padding: 24px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 18px;
+            overflow: hidden;
+        }
+
+        .feature-hero h2 {
+            margin-top: 10px;
+            color: #0f172a;
+            font-size: clamp(28px, 4vw, 42px);
+            line-height: 1;
+            font-weight: 900;
+        }
+
+        .feature-hero p {
+            margin-top: 8px;
+            max-width: 640px;
+            font-size: 14px;
+        }
+
+        .feature-grid,
+        .report-metric-grid {
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .shop-insight-card,
+        .report-card {
+            padding: 18px;
+        }
+
+        .shop-insight-card h3,
+        .report-card strong {
+            display: block;
+            margin-top: 14px;
+            color: #0f172a;
+            font-size: 19px;
+            line-height: 24px;
+            font-weight: 900;
+        }
+
+        .shop-insight-card p,
+        .report-card p {
+            margin-top: 8px;
+            font-size: 13px;
+            line-height: 1.5;
+        }
+
+        .shop-insight-card button {
+            margin-top: 16px;
+            min-height: 38px;
+            background: #0f172a;
+            box-shadow: none;
+        }
+
+        [data-theme="dark"] .live-command h2,
+        [data-theme="dark"] .live-stat strong,
+        [data-theme="dark"] .live-script-card h3,
+        [data-theme="dark"] .live-order-card h4,
+        [data-theme="dark"] .live-order-item strong,
+        [data-theme="dark"] .feature-hero h2,
+        [data-theme="dark"] .shop-insight-card h3,
+        [data-theme="dark"] .report-card strong {
+            color: var(--txt);
+        }
+
+        [data-theme="dark"] .live-command-main p,
+        [data-theme="dark"] .live-script-card p,
+        [data-theme="dark"] .live-orders-head p,
+        [data-theme="dark"] .feature-hero p,
+        [data-theme="dark"] .shop-insight-card p,
+        [data-theme="dark"] .report-card p,
+        [data-theme="dark"] .live-stat span,
+        [data-theme="dark"] .live-order-card-head p,
+        [data-theme="dark"] .live-order-item span {
+            color: var(--muted);
+        }
+
+        [data-theme="dark"] .live-status-chip {
+            background: rgba(37, 244, 238, 0.12);
+            border-color: rgba(37, 244, 238, 0.28);
+            color: #67e8f9;
+        }
+
+        [data-theme="dark"] .live-stat,
+        [data-theme="dark"] .live-script-card,
+        [data-theme="dark"] .live-order-card,
+        [data-theme="dark"] .shop-insight-card,
+        [data-theme="dark"] .report-card,
+        [data-theme="dark"] .live-order-item {
+            background: rgba(15, 23, 42, 0.42);
+            border-color: rgba(148, 163, 184, 0.22);
+        }
+
+        [data-theme="dark"] .live-orders-head,
+        [data-theme="dark"] .live-order-card-head,
+        [data-theme="dark"] .live-order-card-foot {
+            background: rgba(15, 23, 42, 0.22);
+            border-color: rgba(148, 163, 184, 0.2);
+        }
+
+        [data-theme="dark"] .live-count-pill,
+        [data-theme="dark"] .live-orders-empty,
+        [data-theme="dark"] .live-script-label,
+        [data-theme="dark"] .feature-eyebrow,
+        [data-theme="dark"] .report-card span,
+        [data-theme="dark"] .shop-insight-card span,
+        [data-theme="dark"] .live-order-item-actions button:first-child {
+            background: rgba(251, 113, 133, 0.14);
+            border-color: rgba(251, 113, 133, 0.28);
+            color: #fda4af;
+        }
+
+        [data-theme="dark"] .live-order-card button,
+        [data-theme="dark"] .live-order-item-actions button {
+            background: rgba(148, 163, 184, 0.12);
+            border-color: rgba(148, 163, 184, 0.22);
+            color: #e2e8f0;
         }
 
         .customers-table {
@@ -2498,6 +3006,43 @@
             .orders-summary-card strong {
                 font-size: 18px;
                 line-height: 24px;
+            }
+
+            .live-command-grid,
+            .feature-grid,
+            .report-metric-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .live-kpi-strip {
+                grid-template-columns: repeat(2, minmax(0, 1fr));
+            }
+
+            .live-connect-row {
+                grid-template-columns: 1fr;
+            }
+
+            .live-connect-row button {
+                width: 100%;
+            }
+
+            .live-orders-head,
+            .feature-hero {
+                align-items: stretch;
+                flex-direction: column;
+            }
+
+            .live-orders-grid {
+                grid-template-columns: 1fr;
+                padding: 10px;
+            }
+
+            .live-order-item {
+                grid-template-columns: 1fr;
+            }
+
+            .live-order-item-actions {
+                justify-content: flex-start;
             }
 
             #history-modal,

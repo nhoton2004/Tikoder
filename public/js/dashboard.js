@@ -12,6 +12,8 @@
         const sectionConnect = document.getElementById('section-connect');
         const sectionComments = document.getElementById('section-comments');
         const sectionOrders = document.getElementById('section-orders');
+        const sectionCurrentOrders = document.getElementById('section-current-orders');
+        const sectionLiveWorkspace = document.getElementById('section-live-workspace');
         const sectionOverview = document.getElementById('section-overview');
         const sectionCustomers = document.getElementById('section-customers');
         const sectionShop = document.getElementById('section-shop');
@@ -46,6 +48,9 @@
         const userMenuEmail = document.getElementById('user-menu-email');
         const userMenuRole = document.getElementById('user-menu-role');
         const sidebarAdminItem = document.getElementById('sidebar-admin-item');
+        const pageTitle = document.getElementById('page-title');
+        const pageLiveStatus = document.getElementById('page-live-status');
+        const topbarSaveSessionBtn = document.getElementById('topbar-save-session-btn');
 
         let ordersData = {};
         let customersData = [];
@@ -460,9 +465,79 @@
             if (kpiCommentsEl) kpiCommentsEl.textContent = kpiComments;
             if (kpiRevenueEl) kpiRevenueEl.textContent = formatMoney(totalRevenue);
             const commentCount = chatFeed.querySelectorAll('[data-chat-row="1"]').length;
-            document.getElementById('chat-count').textContent = `${commentCount} items`;
+            const chatCountEl = document.getElementById('chat-count');
+            if (chatCountEl) chatCountEl.textContent = `${commentCount} items`;
+            renderCurrentOrders(totalOrders, totalRevenue);
             scheduleOverviewRefresh();
             scheduleOrdersPageRefresh();
+        }
+
+        function renderCurrentOrders(totalOrders = 0, totalRevenue = 0) {
+            const grid = document.getElementById('current-orders-grid');
+            const empty = document.getElementById('current-orders-empty');
+            const count = document.getElementById('live-orders-count');
+            if (!grid) return;
+
+            const orders = Object.values(ordersData || {})
+                .map(order => ({
+                    ...order,
+                    username: normalizeTikTokUsername(order.username || order.customerUsername || '')
+                }))
+                .filter(order => order.username);
+
+            if (count) {
+                count.textContent = `${totalOrders} đơn · ${formatMoney(totalRevenue)}`;
+            }
+
+            if (orders.length === 0) {
+                grid.innerHTML = '';
+                if (empty) empty.classList.remove('hidden');
+                return;
+            }
+
+            if (empty) empty.classList.add('hidden');
+            grid.innerHTML = orders.map(order => {
+                const items = Array.isArray(order.items) ? order.items : [];
+                const username = normalizeTikTokUsername(order.username || order.customerUsername || '');
+                const usernameArg = escapeHtml(JSON.stringify(username));
+                const customerLabel = buildCustomerLabel(order.nickname || order.displayName || '', username);
+                const total = Number(order.total || items.reduce((sum, item) => sum + Number(item.price || 0), 0));
+                const avatarSrc = isAvatarUrl(order.profilePictureUrl) ? order.profilePictureUrl : buildInitialAvatarDataUri(customerLabel);
+                const itemRows = items.map(item => {
+                    const itemIdArg = escapeHtml(JSON.stringify(item.id ?? null));
+                    const price = Number(item.price || 0);
+                    return `
+                        <div class="live-order-item">
+                            <div>
+                                <strong>${escapeHtml(normalizeDisplayText(item.text || item.productName || 'Sản phẩm'))}</strong>
+                                <span>${escapeHtml(normalizeDisplayText(item.time || 'Vừa chốt'))}</span>
+                            </div>
+                            <div class="live-order-item-actions">
+                                <button type="button" onclick="editItem(${usernameArg}, ${itemIdArg}, ${price})">${formatMoney(price)}</button>
+                                <button type="button" onclick="deleteItem(${usernameArg}, ${itemIdArg})">Xóa</button>
+                            </div>
+                        </div>
+                    `;
+                }).join('');
+
+                return `
+                    <article class="live-order-card">
+                        <div class="live-order-card-head">
+                            <img src="${escapeHtml(avatarSrc)}" alt="">
+                            <div>
+                                <h4>${escapeHtml(customerLabel)}</h4>
+                                <p>${items.length} món · ${formatMoney(total)}</p>
+                            </div>
+                            <button type="button" onclick="reprintTotal(${usernameArg})">In</button>
+                        </div>
+                        <div class="live-order-items">${itemRows}</div>
+                        <div class="live-order-card-foot">
+                            <strong>${formatMoney(total)}</strong>
+                            <button type="button" onclick="deleteCustomer(${usernameArg})">Xóa khách</button>
+                        </div>
+                    </article>
+                `;
+            }).join('');
         }
 
         function renderEmptyCommentState() {
@@ -474,13 +549,17 @@
                 return;
             }
             if (existingEmpty) {
-                existingEmpty.textContent = currentLang === 'en' ? 'No realtime comments yet' : 'Chưa có bình luận realtime';
+                existingEmpty.innerHTML = currentLang === 'en'
+                    ? '<span class="material-symbols-outlined">chat_bubble_outline</span><strong>No realtime comments yet</strong><small>Connect a Live ID to start tracking comments.</small>'
+                    : '<span class="material-symbols-outlined">chat_bubble_outline</span><strong>Chưa có bình luận realtime</strong><small>Kết nối ID Live để bắt đầu theo dõi bình luận.</small>';
                 return;
             }
             const empty = document.createElement('div');
             empty.id = 'chat-feed-empty';
-            empty.className = 'text-center text-gray-400 text-sm py-8';
-            empty.textContent = currentLang === 'en' ? 'No realtime comments yet' : 'Chưa có bình luận realtime';
+            empty.className = 'live-empty-state';
+            empty.innerHTML = currentLang === 'en'
+                ? '<span class="material-symbols-outlined">chat_bubble_outline</span><strong>No realtime comments yet</strong><small>Connect a Live ID to start tracking comments.</small>'
+                : '<span class="material-symbols-outlined">chat_bubble_outline</span><strong>Chưa có bình luận realtime</strong><small>Kết nối ID Live để bắt đầu theo dõi bình luận.</small>';
             chatFeed.appendChild(empty);
         }
 
@@ -927,7 +1006,7 @@
             });
             const sectionMap = {
                 overview: [sectionOverview],
-                live: [sectionConnect, sectionComments],
+                live: [sectionConnect, sectionLiveWorkspace],
                 orders: [sectionOrders],
                 customers: [sectionCustomers],
                 shop: [sectionShop],
@@ -937,6 +1016,15 @@
             const activeSections = sectionMap[view] || sectionMap.overview;
             dashboardSections.forEach(sectionEl => setSectionVisibility(sectionEl, activeSections.includes(sectionEl)));
             setSectionVisibility(rightCol, view === 'settings');
+            if (pageTitle) {
+                pageTitle.textContent = view === 'live' ? 'TikTok Live Management' : 'TikTok Order';
+            }
+            if (pageLiveStatus) {
+                pageLiveStatus.hidden = view !== 'live';
+            }
+            if (topbarSaveSessionBtn) {
+                topbarSaveSessionBtn.hidden = view !== 'live';
+            }
             UserAvatarMenu.close();
 
             if (view === 'customers') {
@@ -1140,10 +1228,10 @@
             const connectedText = currentLang === 'en' ? `Connected: ${data.roomId}` : `Kết nối: ${data.roomId}`;
             const errorText = currentLang === 'en' ? `Error: ${data.error}` : `Lỗi: ${data.error}`;
             statusMsg.innerText = data.connected ? connectedText : errorText;
-            statusMsg.className = data.connected ? 'mt-3 text-sm text-green-600 font-semibold' : 'mt-3 text-sm text-red-600 font-semibold';
+            statusMsg.className = data.connected ? 'live-status-text text-green-600 font-semibold' : 'live-status-text text-red-600 font-semibold';
             const kpiStatusEl = document.getElementById('kpi-status');
             if (kpiStatusEl) {
-                kpiStatusEl.textContent = data.connected ? t('status.connected') : t('status.disconnected');
+                kpiStatusEl.textContent = data.connected ? (currentLang === 'en' ? 'Live' : 'Đang Live') : t('status.disconnected');
                 kpiStatusEl.className = data.connected ? 'text-base font-bold mt-3 text-green-600' : 'text-base font-bold mt-3 text-gray-500';
             }
             if (data.connected && data.broadcasterId) {
@@ -1153,6 +1241,11 @@
                     localStorage.setItem(scopedLastBroadcasterKey, data.broadcasterId);
                 }
                 socket.emit('get-chat-buffer', { broadcasterId: data.broadcasterId });
+            }
+            if (pageLiveStatus) {
+                pageLiveStatus.classList.toggle('is-offline', !data.connected);
+                const label = data.connected ? 'Connected' : 'Disconnected';
+                pageLiveStatus.lastChild.textContent = ` ${label}`;
             }
             scheduleOverviewRefresh();
         });
@@ -1712,7 +1805,8 @@
                     }
 
                     if (data.devSkipAuth) {
-                        document.getElementById('dev-mode-badge').classList.remove('hidden');
+                        const devBadge = document.getElementById('dev-mode-badge');
+                        if (devBadge) devBadge.classList.remove('hidden');
                     }
 
                     const scopedLastBroadcasterKey = getScopedStorageKey('lastBroadcasterId');
@@ -1829,13 +1923,25 @@
                 const orders = s.summary ? s.summary.totalOrders : 0;
                 const qty = s.summary ? s.summary.totalQuantity : 0;
                 const isLegacy = s.source === 'legacy_history';
+                const ownerLabel = s.ownerUserId
+                    ? (s.ownerUserId === currentUserUid
+                        ? (currentLang === 'en' ? 'Mine' : 'Của tôi')
+                        : `User: ${s.ownerUserId}`)
+                    : '';
+                const ownerBadge = ownerLabel
+                    ? `<span class="inline-block mt-1 max-w-[220px] truncate rounded bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-500 align-middle" title="${escapeHtml(ownerLabel)}">${escapeHtml(ownerLabel)}</span>`
+                    : '';
                 const openLabel = currentLang === 'en' ? 'OPEN' : 'MỞ';
                 const safeSessionId = escapeJsString(s.id);
                 const safeSessionName = escapeJsString(s.liveName);
                 const safeFileName = escapeJsString(s.fileName || '');
+                const canOpenLegacy = isLegacy && (!s.ownerUserId || s.ownerUserId === currentUserUid || s.userId === 'shared-admin-legacy');
                 const actionButtons = isLegacy
-                    ? `
+                    ? canOpenLegacy ? `
                         <button onclick="openLegacyHistorySession('${safeFileName}')" class="text-blue-600 px-2 py-1 bg-blue-50 rounded text-xs font-bold">${openLabel}</button>
+                        <button onclick="deleteSession('${safeSessionId}', '${safeSessionName}')" class="text-red-600 px-2 py-1 bg-red-50 rounded text-xs font-bold">XOA</button>
+                    ` : `
+                        <button onclick="viewSessionDetail('${safeSessionId}')" class="text-slate-700 px-2 py-1 bg-slate-100 rounded text-xs font-bold">XEM</button>
                         <button onclick="deleteSession('${safeSessionId}', '${safeSessionName}')" class="text-red-600 px-2 py-1 bg-red-50 rounded text-xs font-bold">XOA</button>
                     `
                     : `
@@ -1850,6 +1956,7 @@
                             <div>
                                 <p class="font-bold text-gray-800 text-sm">${escapeHtml(s.liveName)}</p>
                                 <p class="text-[10px] text-gray-400">${date}${s.tiktokUsername ? ' • @' + escapeHtml(s.tiktokUsername) : ''}</p>
+                                ${ownerBadge}
                             </div>
                             <div class="text-right">
                                 <span class="text-xs font-bold text-red-500">${revenue}</span>
@@ -1882,7 +1989,7 @@
 
         window.viewSessionDetail = async (sessionId) => {
             try {
-                const res = await fetch('/api/live-sessions/' + sessionId);
+                const res = await fetch('/api/live-sessions/' + encodeURIComponent(sessionId));
                 const data = await res.json();
                 if (!data.session) return alert('Not found');
                 const s = data.session;

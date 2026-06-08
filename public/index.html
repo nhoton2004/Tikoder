@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>TikTok Order Pro | Track Comment, Print Bill, Chốt Đơn Nhanh</title>
     <meta name="description" content="Nền tảng tracking bình luận TikTok Live, in bill tự động và quản lý khách hàng/đơn hàng realtime cho team bán hàng.">
-    <meta name="theme-color" content="#0B1020">
+    <meta name="theme-color" content="#F8F9FA">
     <link rel="preload" href="/fonts/geist-vietnamese-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
     <link rel="preload" href="/fonts/geist-latin-wght-normal.woff2" as="font" type="font/woff2" crossorigin>
     <style>
@@ -28,418 +28,767 @@
         }
 
         :root {
-            --bg: #06090f;
-            --bg-soft: #0b1020;
-            --surface: #11182f;
-            --surface-2: #162245;
-            --line: rgba(255, 255, 255, 0.14);
-            --text: #f4f7ff;
-            --muted: #a8b3cf;
-            --brand: #ff2a55;
-            --brand-2: #ff8a00;
-            --brand-3: #00d4ff;
-            --good: #33d17a;
-            --maxw: 1200px;
-            --radius: 22px;
-            --shadow: 0 28px 70px rgba(0, 0, 0, 0.42);
+            --bg: #f8f9fa;
+            --paper: #ffffff;
+            --surface: rgba(255, 255, 255, 0.72);
+            --surface-strong: rgba(255, 255, 255, 0.9);
+            --ink: #191c1d;
+            --muted: #5d6675;
+            --soft: #e9edf2;
+            --line: rgba(25, 28, 29, 0.1);
+            --line-strong: rgba(25, 28, 29, 0.16);
+            --red: #fe2c55;
+            --red-deep: #ba0035;
+            --cyan: #25f4ee;
+            --cyan-deep: #006a67;
+            --green: #22c55e;
+            --amber: #f59e0b;
+            --radius: 16px;
+            --radius-lg: 24px;
+            --maxw: 1180px;
+            --shadow: 0 22px 60px rgba(25, 28, 29, 0.1);
         }
 
         *, *::before, *::after { box-sizing: border-box; }
-
         html { scroll-behavior: smooth; }
+
         body {
             margin: 0;
-            font-family: "Geist", "Segoe UI", Roboto, Arial, sans-serif;
-            color: var(--text);
-            background:
-                radial-gradient(circle at 8% 12%, rgba(255, 42, 85, 0.22), transparent 34%),
-                radial-gradient(circle at 90% 10%, rgba(255, 138, 0, 0.22), transparent 30%),
-                radial-gradient(circle at 78% 72%, rgba(0, 212, 255, 0.16), transparent 38%),
-                linear-gradient(140deg, #05070d 0%, #0a1020 45%, #11182f 100%);
             min-height: 100vh;
+            font-family: "Geist", "Segoe UI", Roboto, Arial, sans-serif;
+            color: var(--ink);
+            background:
+                radial-gradient(circle at 10% 8%, rgba(254, 44, 85, 0.18), transparent 29%),
+                radial-gradient(circle at 88% 4%, rgba(37, 244, 238, 0.2), transparent 28%),
+                linear-gradient(180deg, #ffffff 0%, #f8f9fa 46%, #eef2f6 100%);
             line-height: 1.55;
             overflow-x: hidden;
         }
 
-        .noise {
+        body::before {
+            content: "";
             position: fixed;
             inset: 0;
             pointer-events: none;
-            opacity: 0.06;
-            background-image: radial-gradient(circle at 1px 1px, #fff 1px, transparent 1px);
-            background-size: 3px 3px;
-            z-index: 1;
+            background-image:
+                linear-gradient(rgba(25, 28, 29, 0.045) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(25, 28, 29, 0.045) 1px, transparent 1px);
+            background-size: 64px 64px;
+            mask-image: linear-gradient(180deg, black, transparent 86%);
         }
 
         .container {
-            width: min(var(--maxw), 92vw);
+            width: min(var(--maxw), calc(100vw - 36px));
             margin: 0 auto;
             position: relative;
-            z-index: 2;
         }
 
         .site-header {
             position: sticky;
             top: 0;
             z-index: 50;
-            backdrop-filter: blur(14px);
-            background: rgba(6, 9, 15, 0.72);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+            background: rgba(248, 249, 250, 0.72);
+            border-bottom: 1px solid rgba(25, 28, 29, 0.08);
+            backdrop-filter: blur(22px) saturate(1.3);
         }
 
         .nav-wrap {
-            min-height: 72px;
+            min-height: 76px;
             display: flex;
             align-items: center;
             justify-content: space-between;
-            gap: 14px;
+            gap: 16px;
+        }
+
+        .brand,
+        .btn,
+        .nav-links a {
+            color: inherit;
+            text-decoration: none;
         }
 
         .brand {
             display: inline-flex;
             align-items: center;
             gap: 10px;
-            font-weight: 800;
-            letter-spacing: 0.2px;
-            color: var(--text);
-            text-decoration: none;
+            font-size: 15px;
+            font-weight: 900;
+            letter-spacing: 0;
         }
 
         .brand-mark {
-            width: 36px;
-            height: 36px;
-            border-radius: 11px;
-            background: linear-gradient(130deg, var(--brand), var(--brand-2));
-            box-shadow: 0 10px 20px rgba(255, 42, 85, 0.38);
+            width: 40px;
+            height: 40px;
+            border-radius: 14px;
+            color: #fff;
             display: grid;
             place-items: center;
+            background: linear-gradient(135deg, var(--red), #ff7a18);
+            box-shadow: 0 14px 28px rgba(254, 44, 85, 0.28);
         }
 
         .nav-links {
             display: flex;
             align-items: center;
-            gap: 18px;
-            color: var(--muted);
-            font-size: 14px;
+            gap: 22px;
+            color: #596474;
+            font-size: 13px;
+            font-weight: 800;
         }
 
-        .nav-links a {
-            color: inherit;
-            text-decoration: none;
-        }
+        .nav-links a:hover { color: var(--red-deep); }
 
         .nav-actions {
             display: flex;
-            gap: 10px;
             align-items: center;
+            gap: 10px;
         }
 
         .btn {
-            border: 1px solid transparent;
-            border-radius: 12px;
-            padding: 11px 16px;
-            font: inherit;
-            font-size: 14px;
-            font-weight: 700;
-            cursor: pointer;
-            text-decoration: none;
-            color: var(--text);
+            min-height: 44px;
             display: inline-flex;
             align-items: center;
             justify-content: center;
             gap: 8px;
-            transition: transform .22s cubic-bezier(0.2, 0.7, 0.2, 1), box-shadow .22s ease, background .22s ease, border-color .22s ease;
-            min-height: 44px;
+            border-radius: 12px;
+            padding: 0 16px;
+            border: 1px solid transparent;
+            font-size: 14px;
+            font-weight: 900;
+            transition: transform .18s ease, box-shadow .18s ease, border-color .18s ease, background .18s ease;
         }
 
-        .btn:hover { transform: translateY(-1px); }
-        .btn:active { transform: translateY(0); }
+        .btn:hover {
+            transform: translateY(-1px);
+        }
 
         .btn-line {
-            border-color: rgba(255, 255, 255, 0.18);
-            background: rgba(255, 255, 255, 0.02);
+            background: rgba(255, 255, 255, 0.68);
+            border-color: var(--line);
+            color: #2e3132;
         }
 
         .btn-hot {
-            background: linear-gradient(130deg, var(--brand), var(--brand-2));
-            box-shadow: 0 12px 30px rgba(255, 42, 85, 0.36);
+            color: #fff;
+            background: linear-gradient(135deg, var(--red), #ff6b22);
+            box-shadow: 0 16px 34px rgba(254, 44, 85, 0.24);
+        }
+
+        .btn-cyan {
+            color: #00201f;
+            background: var(--cyan);
+            border-color: rgba(0, 106, 103, 0.12);
+            box-shadow: 0 14px 30px rgba(37, 244, 238, 0.22);
         }
 
         .hero {
-            padding: 74px 0 46px;
+            min-height: calc(100vh - 76px);
             display: grid;
-            gap: 24px;
-            grid-template-columns: 1.1fr .9fr;
+            grid-template-columns: minmax(0, 0.86fr) minmax(520px, 1.14fr);
+            gap: 28px;
             align-items: center;
+            padding: 42px 0 54px;
         }
 
-        .badge {
+        .eyebrow,
+        .live-chip,
+        .screen-pill,
+        .mini-label {
             display: inline-flex;
             align-items: center;
-            gap: 8px;
+            width: fit-content;
             border-radius: 999px;
-            border: 1px solid rgba(255, 255, 255, 0.16);
-            padding: 8px 14px;
-            color: #d7def3;
-            font-size: 13px;
-            background: rgba(255, 255, 255, 0.03);
+            font-size: 12px;
+            font-weight: 900;
+            letter-spacing: 0.03em;
+            text-transform: uppercase;
+        }
+
+        .eyebrow {
+            gap: 8px;
+            padding: 7px 12px;
+            color: var(--cyan-deep);
+            background: rgba(37, 244, 238, 0.16);
+            border: 1px solid rgba(0, 106, 103, 0.16);
         }
 
         .pulse-dot {
             width: 8px;
-            aspect-ratio: 1;
-            border-radius: 50%;
-            background: var(--good);
-            box-shadow: 0 0 0 0 rgba(51, 209, 122, 0.62);
+            height: 8px;
+            border-radius: 99px;
+            background: var(--cyan);
+            box-shadow: 0 0 0 0 rgba(37, 244, 238, 0.62);
             animation: pulse 1.8s infinite;
         }
 
         @keyframes pulse {
-            0% { box-shadow: 0 0 0 0 rgba(51, 209, 122, 0.62); }
-            72% { box-shadow: 0 0 0 12px rgba(51, 209, 122, 0); }
-            100% { box-shadow: 0 0 0 0 rgba(51, 209, 122, 0); }
+            0% { box-shadow: 0 0 0 0 rgba(37, 244, 238, 0.62); }
+            70% { box-shadow: 0 0 0 12px rgba(37, 244, 238, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(37, 244, 238, 0); }
+        }
+
+        h1,
+        h2,
+        h3,
+        .stat-value,
+        .dashboard-title {
+            font-variation-settings: "wght" 840;
+            letter-spacing: 0;
         }
 
         h1 {
-            margin: 14px 0 12px;
-            line-height: 1.02;
-            font-size: clamp(38px, 6.7vw, 72px);
-            letter-spacing: -1.5px;
+            margin: 18px 0 14px;
+            max-width: 780px;
+            font-size: clamp(42px, 6vw, 76px);
+            line-height: 0.98;
+            color: #151819;
         }
 
         .hero-sub {
-            max-width: 58ch;
+            margin: 0;
+            max-width: 61ch;
             color: var(--muted);
-            font-size: clamp(16px, 2vw, 19px);
+            font-size: clamp(16px, 1.8vw, 19px);
         }
 
         .hero-cta {
+            margin-top: 24px;
+            display: flex;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .proof-row {
             margin-top: 22px;
-            display: flex;
-            flex-wrap: wrap;
-            gap: 12px;
+            display: grid;
+            grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 10px;
+            max-width: 620px;
         }
 
-        .trust {
-            margin-top: 18px;
-            color: #d0daf5;
-            font-size: 13px;
-            display: flex;
-            gap: 12px;
-            flex-wrap: wrap;
-        }
-
-        .surface {
+        .proof {
             border: 1px solid var(--line);
-            border-radius: var(--radius);
-            background: linear-gradient(165deg, rgba(255, 255, 255, 0.065), rgba(255, 255, 255, 0.02));
-            box-shadow: var(--shadow);
-        }
-
-        .hero-board {
-            padding: 16px;
-            display: grid;
-            gap: 12px;
-        }
-
-        .metric-grid {
-            display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 12px;
-        }
-
-        .metric {
-            border-radius: 15px;
-            border: 1px solid rgba(255, 255, 255, 0.16);
-            padding: 12px;
-            background: rgba(255, 255, 255, 0.04);
-        }
-
-        .metric p {
-            margin: 0;
-            font-size: 12px;
-            color: #c0cbea;
-        }
-
-        .metric strong {
-            display: block;
-            margin-top: 5px;
-            font-size: 22px;
-            letter-spacing: -0.3px;
-        }
-
-        .ticker {
-            overflow: hidden;
             border-radius: 14px;
-            border: 1px solid rgba(255, 255, 255, 0.16);
-            background: rgba(0, 0, 0, 0.18);
+            padding: 11px;
+            background: rgba(255, 255, 255, 0.66);
         }
 
-        .ticker-track {
-            display: inline-flex;
-            min-width: 200%;
-            gap: 24px;
-            padding: 11px 0;
-            animation: ticker 22s linear infinite;
+        .proof strong {
+            display: block;
+            font-size: 18px;
+            line-height: 1.1;
+        }
+
+        .proof span {
+            display: block;
+            margin-top: 3px;
+            color: var(--muted);
+            font-size: 12px;
+            font-weight: 750;
+        }
+
+        .app-preview {
+            border: 1px solid rgba(25, 28, 29, 0.12);
+            border-radius: 28px;
+            padding: 14px;
+            background: linear-gradient(145deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.44));
+            box-shadow: var(--shadow), inset 0 1px 0 rgba(255, 255, 255, 0.86);
+            backdrop-filter: blur(24px);
+            transform: rotateX(0deg) rotateY(-3deg);
+        }
+
+        .app-frame {
+            min-height: 590px;
+            display: grid;
+            grid-template-columns: 168px minmax(0, 1fr);
+            overflow: hidden;
+            border-radius: 22px;
+            background:
+                radial-gradient(circle at 20% 6%, rgba(254, 44, 85, 0.14), transparent 28%),
+                radial-gradient(circle at 84% 18%, rgba(37, 244, 238, 0.18), transparent 24%),
+                #f3f4f5;
+            border: 1px solid rgba(25, 28, 29, 0.08);
+        }
+
+        .mock-sidebar {
+            padding: 16px;
+            background: rgba(255, 255, 255, 0.62);
+            border-right: 1px solid rgba(25, 28, 29, 0.08);
+            backdrop-filter: blur(18px);
+        }
+
+        .mock-logo {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            font-size: 12px;
+            font-weight: 900;
+        }
+
+        .mock-logo span {
+            width: 28px;
+            height: 28px;
+            display: grid;
+            place-items: center;
+            border-radius: 10px;
+            background: var(--red);
+            color: #fff;
+        }
+
+        .mock-nav {
+            margin-top: 24px;
+            display: grid;
+            gap: 8px;
+        }
+
+        .mock-nav div {
+            min-height: 36px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            border-radius: 12px;
+            padding: 0 10px;
+            color: #697485;
+            font-size: 12px;
+            font-weight: 850;
+        }
+
+        .mock-nav div::before {
+            content: "";
+            width: 8px;
+            height: 8px;
+            border-radius: 999px;
+            background: #c8d0db;
+        }
+
+        .mock-nav .active {
+            color: var(--red-deep);
+            background: rgba(254, 44, 85, 0.1);
+            box-shadow: inset 3px 0 0 var(--red);
+        }
+
+        .mock-nav .active::before { background: var(--red); }
+
+        .mock-main {
+            min-width: 0;
+            padding: 18px;
+        }
+
+        .mock-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .dashboard-title {
+            margin: 0;
+            font-size: 24px;
+            line-height: 1;
+        }
+
+        .live-chip {
+            gap: 7px;
+            padding: 7px 10px;
+            color: var(--cyan-deep);
+            background: rgba(37, 244, 238, 0.2);
+            border: 1px solid rgba(0, 106, 103, 0.14);
+            text-transform: none;
+        }
+
+        .mock-grid {
+            margin-top: 16px;
+            display: grid;
+            grid-template-columns: repeat(4, minmax(0, 1fr));
+            gap: 10px;
+        }
+
+        .mock-card {
+            min-height: 92px;
+            border: 1px solid rgba(25, 28, 29, 0.08);
+            border-radius: 16px;
+            padding: 12px;
+            background: rgba(255, 255, 255, 0.72);
+            box-shadow: 0 10px 22px rgba(25, 28, 29, 0.045);
+        }
+
+        .mock-card.wide {
+            grid-column: span 2;
+        }
+
+        .mock-card.tall {
+            grid-row: span 2;
+        }
+
+        .mini-label {
+            color: #7a8493;
+            font-size: 10px;
+            letter-spacing: 0.05em;
+        }
+
+        .stat-value {
+            display: block;
+            margin-top: 8px;
+            color: #151819;
+            font-size: 25px;
+            line-height: 1;
+        }
+
+        .bar-chart {
+            height: 132px;
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            align-items: end;
+            gap: 7px;
+            margin-top: 14px;
+            padding-top: 10px;
+        }
+
+        .bar-chart span {
+            border-radius: 8px 8px 3px 3px;
+            background: linear-gradient(180deg, var(--red), #ff8a8e);
+            min-height: 18px;
+        }
+
+        .comment-feed {
+            display: grid;
+            gap: 8px;
+            margin-top: 12px;
+        }
+
+        .comment-row {
+            display: grid;
+            grid-template-columns: 28px minmax(0, 1fr) auto;
+            align-items: center;
+            gap: 8px;
+            border-radius: 12px;
+            padding: 8px;
+            background: #fff;
+            border: 1px solid rgba(25, 28, 29, 0.06);
+        }
+
+        .avatar {
+            width: 28px;
+            height: 28px;
+            border-radius: 999px;
+            background: linear-gradient(135deg, #e2e8f0, #fff);
+            border: 1px solid var(--line);
+        }
+
+        .comment-line strong,
+        .comment-line span {
+            display: block;
+            overflow: hidden;
             white-space: nowrap;
-            font-size: 13px;
-            color: #d2dcf9;
+            text-overflow: ellipsis;
         }
 
-        @keyframes ticker {
-            from { transform: translateX(0); }
-            to { transform: translateX(-50%); }
+        .comment-line strong {
+            font-size: 11px;
+        }
+
+        .comment-line span {
+            color: #7a8493;
+            font-size: 10px;
+        }
+
+        .close-btn {
+            min-height: 32px;
+            border: 0;
+            border-radius: 10px;
+            padding: 0 10px;
+            color: #fff;
+            background: var(--red);
+            font-size: 11px;
+            font-weight: 950;
+        }
+
+        .screen-pill {
+            margin-top: 10px;
+            padding: 7px 10px;
+            color: #fff;
+            background: #151819;
+            text-transform: none;
         }
 
         section {
-            padding: 34px 0;
+            padding: 58px 0;
+        }
+
+        .section-head {
+            display: flex;
+            align-items: end;
+            justify-content: space-between;
+            gap: 24px;
+            margin-bottom: 20px;
         }
 
         h2 {
-            margin: 0 0 8px;
-            font-size: clamp(28px, 4vw, 46px);
-            line-height: 1.08;
-            letter-spacing: -0.7px;
+            margin: 0;
+            max-width: 760px;
+            font-size: clamp(30px, 4vw, 48px);
+            line-height: 1.06;
         }
 
         .section-sub {
-            margin: 0;
+            margin: 8px 0 0;
+            max-width: 64ch;
             color: var(--muted);
-            max-width: 66ch;
         }
 
         .feature-grid {
-            margin-top: 18px;
             display: grid;
-            gap: 12px;
             grid-template-columns: repeat(3, minmax(0, 1fr));
+            gap: 14px;
+        }
+
+        .feature-card,
+        .workflow-card,
+        .cta {
+            border: 1px solid var(--line);
+            border-radius: var(--radius-lg);
+            background: rgba(255, 255, 255, 0.68);
+            box-shadow: 0 16px 40px rgba(25, 28, 29, 0.06);
+            backdrop-filter: blur(18px);
         }
 
         .feature-card {
-            padding: 18px;
-            border-radius: 18px;
-            border: 1px solid rgba(255, 255, 255, 0.16);
-            background: linear-gradient(180deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02));
-            transition: transform .2s ease, border-color .2s ease;
-            min-height: 170px;
-        }
-
-        .feature-card:hover {
-            transform: translateY(-2px);
-            border-color: rgba(255, 255, 255, 0.32);
-        }
-
-        .feature-icon {
-            width: 38px;
-            height: 38px;
-            border-radius: 10px;
-            display: grid;
-            place-items: center;
-            border: 1px solid rgba(255, 255, 255, 0.2);
-            background: rgba(0, 0, 0, 0.2);
+            min-height: 210px;
+            padding: 20px;
         }
 
         .feature-card h3 {
-            margin: 12px 0 6px;
-            font-size: 19px;
-            letter-spacing: -0.3px;
+            margin: 16px 0 8px;
+            font-size: 20px;
+            line-height: 1.14;
         }
 
         .feature-card p {
             margin: 0;
-            color: #c3cfe9;
+            color: var(--muted);
             font-size: 14px;
         }
 
-        .stack {
+        .feature-icon {
+            width: 42px;
+            height: 42px;
             display: grid;
-            margin-top: 18px;
-            gap: 12px;
-            grid-template-columns: repeat(7, minmax(0, 1fr));
+            place-items: center;
+            border-radius: 14px;
+            color: var(--red-deep);
+            background: rgba(254, 44, 85, 0.1);
+            border: 1px solid rgba(254, 44, 85, 0.16);
         }
 
-        .stack-item {
-            text-align: center;
+        .workflow {
+            display: grid;
+            grid-template-columns: 0.78fr 1.22fr;
+            gap: 16px;
+            align-items: stretch;
+        }
+
+        .workflow-card {
+            padding: 22px;
+        }
+
+        .step-list {
+            display: grid;
+            gap: 10px;
+            margin-top: 18px;
+        }
+
+        .step {
+            display: grid;
+            grid-template-columns: 42px minmax(0, 1fr);
+            gap: 12px;
+            align-items: center;
+            padding: 12px;
+            border-radius: 16px;
+            background: #fff;
+            border: 1px solid rgba(25, 28, 29, 0.08);
+        }
+
+        .step span {
+            width: 42px;
+            height: 42px;
+            display: grid;
+            place-items: center;
             border-radius: 14px;
-            border: 1px solid rgba(255, 255, 255, 0.14);
-            padding: 12px 10px;
+            color: #fff;
+            background: #151819;
+            font-weight: 950;
+        }
+
+        .step strong {
+            display: block;
+            line-height: 1.15;
+        }
+
+        .step small {
+            display: block;
+            margin-top: 3px;
+            color: var(--muted);
             font-size: 12px;
-            color: #ced8f2;
-            background: rgba(255, 255, 255, 0.02);
+        }
+
+        .role-panel {
+            display: grid;
+            gap: 12px;
+        }
+
+        .role-card {
+            padding: 18px;
+            border-radius: 20px;
+            border: 1px solid var(--line);
+            background: #fff;
+        }
+
+        .role-card h3 {
+            margin: 0 0 8px;
+            font-size: 19px;
+        }
+
+        .role-card p {
+            margin: 0;
+            color: var(--muted);
+            font-size: 14px;
         }
 
         .cta {
-            margin: 24px 0 56px;
+            margin: 24px 0 62px;
             padding: 24px;
-            border-radius: 24px;
-            border: 1px solid rgba(255, 255, 255, 0.18);
-            background: linear-gradient(130deg, rgba(255, 42, 85, 0.26), rgba(255, 138, 0, 0.24), rgba(0, 212, 255, 0.22));
+            overflow: hidden;
+            background:
+                radial-gradient(circle at 12% 0%, rgba(254, 44, 85, 0.2), transparent 34%),
+                radial-gradient(circle at 90% 12%, rgba(37, 244, 238, 0.24), transparent 32%),
+                rgba(255, 255, 255, 0.76);
         }
 
         .cta-row {
             display: flex;
-            justify-content: space-between;
             align-items: center;
-            gap: 16px;
+            justify-content: space-between;
+            gap: 18px;
             flex-wrap: wrap;
         }
 
         .footer {
-            border-top: 1px solid rgba(255, 255, 255, 0.1);
-            color: #9aa8ca;
+            border-top: 1px solid var(--line);
+            color: #667085;
             font-size: 13px;
-            padding: 16px 0 26px;
+            padding: 18px 0 28px;
+        }
+
+        .footer a {
+            color: inherit;
+            font-weight: 800;
+            text-decoration: none;
         }
 
         .reveal {
             opacity: 0;
-            transform: translateY(12px) scale(.992);
-            transition: opacity .6s ease, transform .6s ease;
+            transform: translateY(12px);
+            transition: opacity .55s ease, transform .55s ease;
         }
 
         .reveal.in {
             opacity: 1;
-            transform: translateY(0) scale(1);
+            transform: translateY(0);
         }
 
-        @media (max-width: 1024px) {
-            .hero { grid-template-columns: 1fr; }
-            .feature-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-            .stack { grid-template-columns: repeat(4, minmax(0, 1fr)); }
-            .nav-links { display: none; }
+        @media (max-width: 1060px) {
+            .hero {
+                grid-template-columns: 1fr;
+                min-height: auto;
+            }
+
+            .app-preview {
+                transform: none;
+            }
+
+            .feature-grid,
+            .workflow {
+                grid-template-columns: 1fr;
+            }
+
+            .nav-links {
+                display: none;
+            }
         }
 
-        @media (max-width: 640px) {
-            .nav-actions .btn-line { display: none; }
-            .hero { padding-top: 48px; }
-            .feature-grid { grid-template-columns: 1fr; }
-            .stack { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-            .metric-grid { grid-template-columns: 1fr; }
-            .cta { margin-bottom: 40px; }
+        @media (max-width: 720px) {
+            .container {
+                width: min(100% - 24px, var(--maxw));
+            }
+
+            .nav-wrap {
+                min-height: 66px;
+            }
+
+            .nav-actions .btn-line {
+                display: none;
+            }
+
+            .hero {
+                padding: 30px 0 38px;
+            }
+
+            .proof-row,
+            .mock-grid {
+                grid-template-columns: 1fr;
+            }
+
+            .app-frame {
+                min-height: 0;
+                grid-template-columns: 1fr;
+            }
+
+            .mock-sidebar {
+                display: none;
+            }
+
+            .mock-main {
+                padding: 14px;
+            }
+
+            .mock-card.wide,
+            .mock-card.tall {
+                grid-column: auto;
+                grid-row: auto;
+            }
+
+            .section-head {
+                display: block;
+            }
+
+            section {
+                padding: 40px 0;
+            }
         }
 
         @media (prefers-reduced-motion: reduce) {
-            * { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
-            html { scroll-behavior: auto; }
+            *,
+            *::before,
+            *::after {
+                animation-duration: .01ms !important;
+                animation-iteration-count: 1 !important;
+                scroll-behavior: auto !important;
+                transition-duration: .01ms !important;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="noise" aria-hidden="true"></div>
-
     <header class="site-header">
         <div class="container nav-wrap">
-            <a class="brand" href="#top">
-                <span class="brand-mark" aria-hidden="true">
-                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M15.5 3v7.3a4.8 4.8 0 1 1-4.8-4.8" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
-                </span>
+            <a class="brand" href="#top" aria-label="TikTok Order Pro">
+                <span class="brand-mark">TO</span>
                 <span>TikTok Order Pro</span>
             </a>
 
             <nav class="nav-links" aria-label="Điều hướng nhanh">
                 <a href="#features">Tính năng</a>
                 <a href="#workflow">Quy trình</a>
-                <a href="#system">Hệ thống</a>
                 <a href="/pricing">Bảng giá</a>
                 <a href="/demo">Demo</a>
                 <a href="/contact">Liên hệ</a>
@@ -455,117 +804,224 @@
     <main id="top" class="container" tabindex="-1">
         <section class="hero">
             <div class="reveal in">
-                <span class="badge"><span class="pulse-dot" aria-hidden="true"></span>Realtime Comment to Order Engine</span>
-                <h1>Track bình luận, in đơn, quản lý khách trong một luồng cực nhanh.</h1>
-                <p class="hero-sub">Thiết kế cho team bán TikTok Live cần tốc độ chốt cao: nhìn rõ tín hiệu mua, tách đơn tức thì, in bill ngay và tổng hợp dữ liệu khách hàng/order không mất mạch làm việc.</p>
+                <span class="eyebrow"><span class="pulse-dot" aria-hidden="true"></span> TikTok Live Order Manager</span>
+                <h1>Chốt đơn TikTok Live nhanh như nhịp bình luận.</h1>
+                <p class="hero-sub">Một dashboard glass-SaaS cho đội bán live: bắt comment realtime, bấm CHỐT không nhầm, in bill ngay và gom khách hàng/đơn hàng vào cùng một luồng vận hành.</p>
                 <div class="hero-cta">
-                    <a class="btn btn-hot" href="/app">Bắt đầu làm việc</a>
-                    <a class="btn btn-line" href="#features">Xem demo tính năng</a>
+                    <a class="btn btn-hot" href="/app">Mở Dashboard</a>
+                    <a class="btn btn-cyan" href="/demo">Xem Demo</a>
+                    <a class="btn btn-line" href="/pricing">Xem bảng giá</a>
                 </div>
-                <div class="trust">
-                    <span>Socket.IO realtime</span>
-                    <span>Print thermal giữ luồng cũ</span>
-                    <span>Mobile và desktop tối ưu</span>
+
+                <div class="proof-row" aria-label="Điểm nổi bật">
+                    <div class="proof">
+                        <strong>Realtime</strong>
+                        <span>Comment stream trực tiếp</span>
+                    </div>
+                    <div class="proof">
+                        <strong>1 chạm</strong>
+                        <span>Chốt và in bill nhanh</span>
+                    </div>
+                    <div class="proof">
+                        <strong>Excel</strong>
+                        <span>Xuất đơn giao hàng</span>
+                    </div>
                 </div>
             </div>
 
-            <aside class="surface hero-board reveal" aria-label="Live performance panel">
-                <div class="metric-grid">
-                    <div class="metric"><p>Tốc độ phản hồi</p><strong>&lt;100ms</strong></div>
-                    <div class="metric"><p>Trạng thái luồng</p><strong>Realtime</strong></div>
-                    <div class="metric"><p>In đơn</p><strong>Tức thì</strong></div>
-                    <div class="metric"><p>Lưu dữ liệu</p><strong>An toàn</strong></div>
-                </div>
-                <div class="ticker" aria-hidden="true">
-                    <div class="ticker-track">
-                        <span>• Bình luận vào luồng xử lý •</span>
-                        <span>• Tạo đơn nhanh theo khách •</span>
-                        <span>• In bill nhiệt ngay khi chốt •</span>
-                        <span>• Quản lý khách hàng tập trung •</span>
-                        <span>• Export dữ liệu linh hoạt •</span>
-                        <span>• Bình luận vào luồng xử lý •</span>
-                        <span>• Tạo đơn nhanh theo khách •</span>
-                        <span>• In bill nhiệt ngay khi chốt •</span>
-                        <span>• Quản lý khách hàng tập trung •</span>
-                        <span>• Export dữ liệu linh hoạt •</span>
+            <aside class="app-preview reveal" aria-label="TikTok Order dashboard preview">
+                <div class="app-frame">
+                    <div class="mock-sidebar" aria-hidden="true">
+                        <div class="mock-logo"><span>TO</span> Order Pro</div>
+                        <div class="mock-nav">
+                            <div class="active">Dashboard</div>
+                            <div>Live</div>
+                            <div>Orders</div>
+                            <div>Customers</div>
+                            <div>Settings</div>
+                        </div>
+                    </div>
+
+                    <div class="mock-main">
+                        <div class="mock-top">
+                            <div>
+                                <p class="dashboard-title">Live Command</p>
+                                <span class="screen-pill">Phiên @shopbanhang đang chạy</span>
+                            </div>
+                            <span class="live-chip"><span class="pulse-dot" aria-hidden="true"></span> Online</span>
+                        </div>
+
+                        <div class="mock-grid">
+                            <div class="mock-card">
+                                <span class="mini-label">Đơn chốt</span>
+                                <strong class="stat-value">128</strong>
+                            </div>
+                            <div class="mock-card">
+                                <span class="mini-label">Doanh thu</span>
+                                <strong class="stat-value">42.8M</strong>
+                            </div>
+                            <div class="mock-card">
+                                <span class="mini-label">Bình luận</span>
+                                <strong class="stat-value">1,924</strong>
+                            </div>
+                            <div class="mock-card">
+                                <span class="mini-label">Tỷ lệ chốt</span>
+                                <strong class="stat-value">18%</strong>
+                            </div>
+
+                            <div class="mock-card wide">
+                                <span class="mini-label">Xu hướng doanh thu</span>
+                                <div class="bar-chart" aria-hidden="true">
+                                    <span style="height:42%"></span>
+                                    <span style="height:58%"></span>
+                                    <span style="height:46%"></span>
+                                    <span style="height:78%"></span>
+                                    <span style="height:68%"></span>
+                                    <span style="height:90%"></span>
+                                    <span style="height:74%"></span>
+                                </div>
+                            </div>
+
+                            <div class="mock-card wide tall">
+                                <span class="mini-label">Luồng bình luận</span>
+                                <div class="comment-feed">
+                                    <div class="comment-row">
+                                        <span class="avatar"></span>
+                                        <span class="comment-line"><strong>@linh_live</strong><span>chốt set A size M</span></span>
+                                        <button class="close-btn">CHỐT</button>
+                                    </div>
+                                    <div class="comment-row">
+                                        <span class="avatar"></span>
+                                        <span class="comment-line"><strong>@anhthu</strong><span>2 áo đỏ, gửi HCM</span></span>
+                                        <button class="close-btn">CHỐT</button>
+                                    </div>
+                                    <div class="comment-row">
+                                        <span class="avatar"></span>
+                                        <span class="comment-line"><strong>@minshop</strong><span>lấy combo 399k</span></span>
+                                        <button class="close-btn">CHỐT</button>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div class="mock-card wide">
+                                <span class="mini-label">Đơn mới nhất</span>
+                                <strong class="stat-value">24 đơn cần xử lý</strong>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </aside>
         </section>
 
         <section id="features" class="reveal">
-            <h2>Bộ màn hình nên dùng cho phase 1</h2>
-            <p class="section-sub">Đây là cấu hình tốt nhất để vừa nhanh triển khai vừa hiệu quả vận hành cho mô hình TikTok Live hiện tại của bạn.</p>
+            <div class="section-head">
+                <div>
+                    <h2>Thiết kế cho người vận hành live cần tốc độ và độ chắc.</h2>
+                    <p class="section-sub">Bám design system Stitch: năng lượng cao, dữ liệu dày vừa đủ, trạng thái rõ và các thao tác quan trọng luôn nổi bật.</p>
+                </div>
+            </div>
 
             <div class="feature-grid">
                 <article class="feature-card">
-                    <div class="feature-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M3 13h8V3H3zm10 8h8V11h-8zM3 21h8v-6H3zm10-10h8V3h-8z" stroke="currentColor" stroke-width="1.8"/></svg></div>
-                    <h3>Overview Command Center</h3>
-                    <p>KPI chốt đơn, doanh thu, tỷ lệ chốt, xu hướng theo ngày và đơn mới nhất để bạn nắm nhịp ngay khi vào app.</p>
+                    <div class="feature-icon" aria-hidden="true">01</div>
+                    <h3>Live Command Center</h3>
+                    <p>Kết nối TikTok ID, xem trạng thái online, bình luận realtime và nút CHỐT đỏ đúng trọng tâm thao tác.</p>
                 </article>
                 <article class="feature-card">
-                    <div class="feature-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M5 12h14M12 5v14" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
-                    <h3>Live + Comment Stream</h3>
-                    <p>Kết nối TikTok ID, nhận bình luận realtime, bóc tách tín hiệu mua hàng và giữ lịch sử phiên live để đối soát dễ.</p>
-                </article>
-                <article class="feature-card">
-                    <div class="feature-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 7h16v10H4z" stroke="currentColor" stroke-width="1.8"/><path d="M8 11h8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
+                    <div class="feature-icon" aria-hidden="true">02</div>
                     <h3>Orders + Print Flow</h3>
-                    <p>Danh sách đơn có filter/search mạnh, in bill giữ chuẩn hiện tại, hỗ trợ xuất file đi đơn cho đơn vị vận chuyển.</p>
+                    <p>Đơn trong phiên được gom theo khách, có tổng tiền, sửa giá, xóa món, in lại bill và xuất dữ liệu.</p>
                 </article>
                 <article class="feature-card">
-                    <div class="feature-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" stroke="currentColor" stroke-width="1.8"/><path d="M4 20a8 8 0 0 1 16 0" stroke="currentColor" stroke-width="1.8"/></svg></div>
-                    <h3>Customer Tracking Hub</h3>
-                    <p>Quản lý hồ sơ khách, địa chỉ/sđt, import từ lịch sử chốt để giảm nhập tay và tăng tốc chốt đơn lặp lại.</p>
+                    <div class="feature-icon" aria-hidden="true">03</div>
+                    <h3>Customer Tracking</h3>
+                    <p>Lưu số điện thoại, địa chỉ, mã khách và import từ lịch sử chốt để giảm nhập tay sau live.</p>
                 </article>
                 <article class="feature-card">
-                    <div class="feature-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 20V10m6 10V4m6 16v-7m6 7V7" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
-                    <h3>Reports + Export Layer</h3>
-                    <p>Báo cáo theo khoảng thời gian, top khách chốt, và xuất JSON/CSV/Excel để chia sẻ cho kế toán/vận hành.</p>
+                    <div class="feature-icon" aria-hidden="true">04</div>
+                    <h3>Dashboard Overview</h3>
+                    <p>Theo dõi doanh thu, số đơn, tỷ lệ chốt, đơn mới nhất và top khách theo từng khoảng ngày.</p>
                 </article>
                 <article class="feature-card">
-                    <div class="feature-icon" aria-hidden="true"><svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M12 3v3m0 12v3m9-9h-3M6 12H3m14.36 6.36-2.12-2.12M8.76 8.76 6.64 6.64m10.72 0-2.12 2.12M8.76 15.24l-2.12 2.12" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></div>
-                    <h3>Settings + Admin</h3>
-                    <p>Phase 1 chỉ cần 2 role: user/admin. User tập trung vận hành, admin quản lý user/quyền và cấu hình hệ thống.</p>
+                    <div class="feature-icon" aria-hidden="true">05</div>
+                    <h3>Reports & Export</h3>
+                    <p>Xuất Excel, CSV, JSON cho vận hành, kế toán hoặc đơn vị giao hàng mà không phá dữ liệu gốc.</p>
+                </article>
+                <article class="feature-card">
+                    <div class="feature-icon" aria-hidden="true">06</div>
+                    <h3>Admin Ready</h3>
+                    <p>Tách user/admin, quản lý quyền truy cập và cấu hình hệ thống cho đội bán hàng nhiều tài khoản.</p>
                 </article>
             </div>
         </section>
 
-        <section id="workflow" class="reveal">
-            <h2>Luồng bán hàng được tối ưu theo tốc độ chốt</h2>
-            <p class="section-sub">Từ bình luận đến in đơn là một hành trình liên tục, không đứt gãy thao tác.</p>
-            <div class="stack">
-                <div class="stack-item">01 Kết nối live</div>
-                <div class="stack-item">02 Bắt bình luận</div>
-                <div class="stack-item">03 Chuẩn hóa đơn</div>
-                <div class="stack-item">04 In bill</div>
-                <div class="stack-item">05 Lưu session</div>
-                <div class="stack-item">06 Theo dõi khách</div>
-                <div class="stack-item">07 Xuất báo cáo</div>
+        <section id="workflow" class="workflow reveal">
+            <div class="workflow-card">
+                <span class="eyebrow"><span class="pulse-dot" aria-hidden="true"></span> Workflow</span>
+                <h2 style="margin-top:14px">Từ comment tới đơn giao hàng trong một mạch.</h2>
+                <p class="section-sub">Không cần nhảy qua nhiều tab khi live đông. Người vận hành chỉ tập trung đọc comment, chốt đơn và lưu phiên.</p>
+            </div>
+
+            <div class="role-panel">
+                <div class="step">
+                    <span>1</span>
+                    <div><strong>Kết nối live</strong><small>Nhập TikTok ID, nhận trạng thái online và buffer bình luận.</small></div>
+                </div>
+                <div class="step">
+                    <span>2</span>
+                    <div><strong>Bấm CHỐT</strong><small>Gợi ý giá hiện dưới comment, đơn được gom theo từng khách.</small></div>
+                </div>
+                <div class="step">
+                    <span>3</span>
+                    <div><strong>In bill và lưu phiên</strong><small>In nhiệt tức thì, lưu lịch sử live để merge hoặc xuất Excel sau đó.</small></div>
+                </div>
+                <div class="step">
+                    <span>4</span>
+                    <div><strong>Theo dõi sau live</strong><small>Bổ sung địa chỉ khách, lọc trạng thái đơn và xuất file vận hành.</small></div>
+                </div>
             </div>
         </section>
 
-        <section id="system" class="reveal">
-            <h2>Nâng cấp kiến trúc mà không phá lõi hiện tại</h2>
-            <p class="section-sub">Giữ nguyên API, dữ liệu và cơ chế in hiện có; tách lớp marketing và dashboard để tải nhanh hơn, bảo trì dễ hơn, trải nghiệm cao cấp hơn.</p>
+        <section class="reveal" aria-label="Vai trò sử dụng">
+            <div class="section-head">
+                <div>
+                    <h2>Đủ gọn cho team nhỏ, đủ rõ cho shop đang scale.</h2>
+                    <p class="section-sub">Landing này giữ đúng các đường dẫn hiện có để người dùng đi thẳng vào app, login, bảng giá, demo hoặc liên hệ.</p>
+                </div>
+            </div>
+            <div class="feature-grid">
+                <div class="role-card">
+                    <h3>Người chốt đơn</h3>
+                    <p>Nhìn comment, bấm CHỐT, kiểm tra đơn trong phiên và in lại khi cần.</p>
+                </div>
+                <div class="role-card">
+                    <h3>Vận hành sau live</h3>
+                    <p>Lấy lịch sử phiên, merge đơn, cập nhật khách hàng và xuất file giao hàng.</p>
+                </div>
+                <div class="role-card">
+                    <h3>Admin shop</h3>
+                    <p>Quản lý người dùng, quyền truy cập, cấu hình tích hợp và dữ liệu xuất.</p>
+                </div>
+            </div>
         </section>
 
         <section class="cta reveal">
             <div class="cta-row">
                 <div>
-                    <h2 style="margin-bottom:6px">Sẵn sàng vào dashboard?</h2>
-                    <p class="section-sub" style="margin:0">Bạn đã có đầy đủ nền tảng để chạy TikTok Live theo chuẩn vận hành chuyên nghiệp.</p>
+                    <h2>Sẵn sàng chạy phiên live tiếp theo?</h2>
+                    <p class="section-sub">Mở dashboard để bắt bình luận, chốt đơn và in bill theo đúng luồng vận hành mới.</p>
                 </div>
                 <div class="hero-cta" style="margin-top:0">
-                    <a class="btn btn-hot" href="/app">Mở Dashboard</a>
+                    <a class="btn btn-hot" href="/app">Vào Dashboard</a>
                     <a class="btn btn-line" href="/login">Đăng nhập</a>
+                    <a class="btn btn-line" href="/contact">Liên hệ</a>
                 </div>
             </div>
         </section>
     </main>
 
     <footer class="footer">
-        <div class="container">TikTok Order Pro • Comment Tracking • Order Operations • Print Automation • <a href="/pricing" style="color:inherit">Bảng giá</a> • <a href="/demo" style="color:inherit">Demo</a> • <a href="/contact" style="color:inherit">Liên hệ</a></div>
+        <div class="container">TikTok Order Pro - Live commerce operations - <a href="/pricing">Bảng giá</a> - <a href="/demo">Demo</a> - <a href="/contact">Liên hệ</a></div>
     </footer>
 
     <script>

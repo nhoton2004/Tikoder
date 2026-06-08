@@ -204,18 +204,116 @@ function isAdminOrSuperAdmin(user) {
     return role === 'admin' || role === 'super_admin';
 }
 
+function buildScopedLiveSessionId(ownerUserId, sessionId) {
+    return `user:${encodeURIComponent(ownerUserId)}:${sessionId}`;
+}
+
+function parseScopedLiveSessionId(sessionId) {
+    const match = String(sessionId || '').match(/^user:([^:]+):(.+)$/);
+    if (!match) return null;
+    return {
+        ownerUserId: decodeURIComponent(match[1]),
+        sessionId: match[2]
+    };
+}
+
+function readAllStoredLiveSessions() {
+    if (!fs.existsSync(LIVE_SESSIONS_DIR)) return [];
+    return fs.readdirSync(LIVE_SESSIONS_DIR)
+        .filter(fileName => fileName.endsWith('.json'))
+        .flatMap(fileName => {
+            const ownerUserId = fileName.replace(/\.json$/i, '');
+            const fullPath = path.join(LIVE_SESSIONS_DIR, fileName);
+            try {
+                const parsed = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
+                const sessions = Array.isArray(parsed?.sessions) ? parsed.sessions : [];
+                return sessions.map(session => ({
+                    ...session,
+                    ownerUserId: session.userId || ownerUserId,
+                    rawSessionId: session.id
+                }));
+            } catch (error) {
+                console.error(`Lỗi đọc file live session ${fileName}:`, error.message);
+                return [];
+            }
+        });
+}
+
+function formatVisibleLiveSession(session, currentUser, includeOwnerScope = false) {
+    const ownerUserId = session.ownerUserId || session.userId || currentUser.uid;
+    const rawSessionId = session.rawSessionId || session.id;
+    const scopedId = includeOwnerScope ? buildScopedLiveSessionId(ownerUserId, rawSessionId) : rawSessionId;
+    return {
+        ...session,
+        id: scopedId,
+        rawSessionId,
+        ownerUserId,
+        isAdminVisible: ownerUserId !== currentUser.uid,
+        source: session.type === 'merged_session' ? 'merged_session' : 'live_session'
+    };
+}
+
+function readVisibleStoredLiveSessions(currentUser) {
+    const includeAllUsers = isAdminOrSuperAdmin(currentUser);
+    const sessions = includeAllUsers
+        ? readAllStoredLiveSessions()
+        : liveSessionStore.readUserSessions(currentUser.uid).map(session => ({
+            ...session,
+            ownerUserId: currentUser.uid,
+            rawSessionId: session.id
+        }));
+    return sessions.map(session => formatVisibleLiveSession(session, currentUser, includeAllUsers));
+}
+
+function getVisibleStoredLiveSession(currentUser, sessionId) {
+    const scopedRef = parseScopedLiveSessionId(sessionId);
+    if (scopedRef) {
+        if (scopedRef.ownerUserId !== currentUser.uid && !isAdminOrSuperAdmin(currentUser)) {
+            return null;
+        }
+        const session = liveSessionStore.getLiveSessionById(scopedRef.ownerUserId, scopedRef.sessionId);
+        return session ? formatVisibleLiveSession({
+            ...session,
+            ownerUserId: scopedRef.ownerUserId,
+            rawSessionId: session.id
+        }, currentUser, isAdminOrSuperAdmin(currentUser)) : null;
+    }
+
+    const ownSession = liveSessionStore.getLiveSessionById(currentUser.uid, sessionId);
+    if (ownSession) {
+        return formatVisibleLiveSession({
+            ...ownSession,
+            ownerUserId: currentUser.uid,
+            rawSessionId: ownSession.id
+        }, currentUser, isAdminOrSuperAdmin(currentUser));
+    }
+
+    if (!isAdminOrSuperAdmin(currentUser)) return null;
+    const matched = readAllStoredLiveSessions().find(session => session.rawSessionId === sessionId || session.id === sessionId);
+    return matched ? formatVisibleLiveSession(matched, currentUser, true) : null;
+}
+
+function deleteVisibleStoredLiveSession(currentUser, sessionId) {
+    const session = getVisibleStoredLiveSession(currentUser, sessionId);
+    if (!session) return false;
+    return liveSessionStore.deleteLiveSession(session.ownerUserId, session.rawSessionId || session.id);
+}
+
 // GET /api/live-sessions — Lấy danh sách phiên live của user
 app.get('/api/live-sessions', requireApiAuth, (req, res) => {
     try {
         const user = req.session.user;
         const userId = user.uid;
         const includeSharedLegacy = isAdminOrSuperAdmin(user);
-        const sessions = liveSessionStore.readUserSessions(userId);
+        const sessions = readVisibleStoredLiveSessions(user);
         // Trả về danh sách không kèm orders chi tiết (nhẹ hơn)
         const list = sessions.map(s => ({
             id: s.id,
-            source: s.type === 'merged_session' ? 'merged_session' : 'live_session',
+            rawSessionId: s.rawSessionId || s.id,
+            source: s.source || (s.type === 'merged_session' ? 'merged_session' : 'live_session'),
             type: s.type || 'live_session',
+            ownerUserId: s.ownerUserId || userId,
+            isAdminVisible: Boolean(s.isAdminVisible),
             liveName: s.liveName,
             tiktokUsername: s.tiktokUsername,
             startedAt: s.startedAt,
@@ -223,7 +321,11 @@ app.get('/api/live-sessions', requireApiAuth, (req, res) => {
             createdAt: s.createdAt,
             summary: s.summary
         }));
-        const legacyList = readLegacyHistorySessions(userId, { includeSharedLegacy });
+        const legacyList = readLegacyHistorySessions(userId, {
+            includeSharedLegacy,
+            includeAllUserLegacy: isAdminOrSuperAdmin(user),
+            includeOwnerScope: isAdminOrSuperAdmin(user)
+        });
         const combinedList = [...list, ...legacyList].sort((a, b) => {
             const left = Date.parse(a.createdAt || a.startedAt || 0) || 0;
             const right = Date.parse(b.createdAt || b.startedAt || 0) || 0;
@@ -240,22 +342,22 @@ app.get('/api/live-sessions', requireApiAuth, (req, res) => {
 app.post('/api/live-sessions/merged', requireApiAuth, (req, res) => {
     try {
         const user = req.session.user;
-        const userId = user.uid;
         const includeSharedLegacy = isAdminOrSuperAdmin(user);
+        const includeAllUserLegacy = isAdminOrSuperAdmin(user);
         const { sessionIds } = req.body;
 
         if (!sessionIds || !Array.isArray(sessionIds) || sessionIds.length === 0) {
             return res.status(400).json({ error: 'Vui lòng chọn ít nhất 1 phiên' });
         }
 
-        const result = mergeLiveSessionsWithLegacy(userId, sessionIds, { includeSharedLegacy });
+        const result = mergeVisibleLiveSessionsWithLegacy(user, sessionIds, { includeSharedLegacy, includeAllUserLegacy });
         if (!result) {
             return res.status(404).json({ error: 'Không tìm thấy phiên live nào' });
         }
 
         const now = new Date();
         const liveName = `Phiên gộp ${now.toLocaleDateString('vi-VN')} ${now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`;
-        const newSession = liveSessionStore.createLiveSession(userId, {
+        const newSession = liveSessionStore.createLiveSession(user.uid, {
             type: 'merged_session',
             liveName,
             tiktokUsername: '',
@@ -266,7 +368,7 @@ app.post('/api/live-sessions/merged', requireApiAuth, (req, res) => {
             summary: result.summary
         });
 
-        console.log(`>>> Đã lưu phiên gộp "${newSession.liveName}" cho user ${userId} (${newSession.summary.totalOrders} đơn)`);
+        console.log(`>>> Đã lưu phiên gộp "${newSession.liveName}" cho user ${user.uid} (${newSession.summary.totalOrders} đơn)`);
         res.json({ success: true, session: newSession });
     } catch (error) {
         console.error('Lỗi lưu phiên gộp:', error);
@@ -307,15 +409,16 @@ app.get('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
         const user = req.session.user;
         const userId = user.uid;
         const includeSharedLegacy = isAdminOrSuperAdmin(user);
+        const includeAllUserLegacy = isAdminOrSuperAdmin(user);
         if (String(req.params.sessionId || '').startsWith('legacy:')) {
-                const session = getLegacyHistorySession(userId, req.params.sessionId, { includeSharedLegacy });
+            const session = getLegacyHistorySession(userId, req.params.sessionId, { includeSharedLegacy, includeAllUserLegacy });
             if (!session) {
                 return res.status(404).json({ error: 'Không tìm thấy phiên live' });
             }
             return res.json({ session });
         }
 
-        const session = liveSessionStore.getLiveSessionById(userId, req.params.sessionId);
+        const session = getVisibleStoredLiveSession(user, req.params.sessionId);
         if (!session) {
             return res.status(404).json({ error: 'Không tìm thấy phiên live' });
         }
@@ -332,8 +435,9 @@ app.delete('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
         const user = req.session.user;
         const userId = user.uid;
         const includeSharedLegacy = isAdminOrSuperAdmin(user);
+        const includeAllUserLegacy = isAdminOrSuperAdmin(user);
         if (String(req.params.sessionId || '').startsWith('legacy:')) {
-            const deleted = deleteLegacyHistorySession(userId, req.params.sessionId, { includeSharedLegacy });
+            const deleted = deleteLegacyHistorySession(userId, req.params.sessionId, { includeSharedLegacy, includeAllUserLegacy });
             if (!deleted) {
                 return res.status(404).json({ error: 'Không tìm thấy phiên live' });
             }
@@ -341,11 +445,11 @@ app.delete('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
             return res.json({ success: true });
         }
 
-        const deleted = liveSessionStore.deleteLiveSession(userId, req.params.sessionId);
+        const deleted = deleteVisibleStoredLiveSession(user, req.params.sessionId);
         if (!deleted) {
             return res.status(404).json({ error: 'Không tìm thấy phiên live' });
         }
-        console.log(`>>> Đã xóa phiên live ${req.params.sessionId} của user ${userId}`);
+        console.log(`>>> Đã xóa phiên live ${req.params.sessionId} bởi user ${userId}`);
         res.json({ success: true });
     } catch (error) {
         console.error('Lỗi xóa phiên live:', error);
@@ -357,15 +461,15 @@ app.delete('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
 app.post('/api/live-sessions/merge-summary', requireApiAuth, (req, res) => {
     try {
         const user = req.session.user;
-        const userId = user.uid;
         const includeSharedLegacy = isAdminOrSuperAdmin(user);
+        const includeAllUserLegacy = isAdminOrSuperAdmin(user);
         const { sessionIds } = req.body;
 
         if (!sessionIds || !Array.isArray(sessionIds) || sessionIds.length === 0) {
             return res.status(400).json({ error: 'Vui lòng chọn ít nhất 1 phiên' });
         }
 
-        const result = mergeLiveSessionsWithLegacy(userId, sessionIds, { includeSharedLegacy });
+        const result = mergeVisibleLiveSessionsWithLegacy(user, sessionIds, { includeSharedLegacy, includeAllUserLegacy });
         if (!result) {
             return res.status(404).json({ error: 'Không tìm thấy phiên live nào' });
         }
@@ -575,13 +679,14 @@ app.delete('/api/customers/:id', requireApiAuth, (req, res) => {
 // ============================================================
 app.post('/api/orders/export-delivery-excel', requireApiAuth, async (req, res) => {
     try {
-        const userId = req.session.user.uid;
+        const user = req.session.user;
+        const userId = user.uid;
         const sessionIds = Array.isArray(req.body?.sessionIds) ? req.body.sessionIds : [];
         const submittedOrders = Array.isArray(req.body?.orders) ? req.body.orders : [];
         const orders = [];
 
         sessionIds.forEach(sessionId => {
-            const session = liveSessionStore.getLiveSessionById(userId, sessionId);
+            const session = getVisibleStoredLiveSession(user, sessionId);
             if (!session) {
                 console.warn(`Không tìm thấy phiên ${sessionId} khi export Excel cho user ${userId}`);
                 return;
@@ -1161,6 +1266,14 @@ function parseLegacySessionRef(sessionId) {
     const raw = String(sessionId || '');
     const sharedMatch = raw.match(/^legacy:shared:(.+)$/);
     if (sharedMatch) return { scope: 'shared', fileName: sharedMatch[1] };
+    const scopedUserMatch = raw.match(/^legacy:user:([^:]+):(.+)$/);
+    if (scopedUserMatch) {
+        return {
+            scope: 'user',
+            ownerUserId: decodeURIComponent(scopedUserMatch[1]),
+            fileName: scopedUserMatch[2]
+        };
+    }
     const userMatch = raw.match(/^legacy:user:(.+)$/);
     if (userMatch) return { scope: 'user', fileName: userMatch[1] };
     const classicMatch = raw.match(/^legacy:(.+)$/);
@@ -1168,8 +1281,9 @@ function parseLegacySessionRef(sessionId) {
     return { scope: 'user', fileName: raw };
 }
 
-function buildLegacySessionId(scope, fileName) {
-    return scope === 'shared' ? `legacy:shared:${fileName}` : `legacy:user:${fileName}`;
+function buildLegacySessionId(scope, fileName, ownerUserId = '') {
+    if (scope === 'shared') return `legacy:shared:${fileName}`;
+    return ownerUserId ? `legacy:user:${encodeURIComponent(ownerUserId)}:${fileName}` : `legacy:user:${fileName}`;
 }
 
 function readAllUserHistoryRows() {
@@ -1261,10 +1375,12 @@ function readLegacyHistorySession(userId, fileName, options = {}) {
     const scope = options.scope === 'shared' ? 'shared' : 'user';
     const safeFileName = safeLegacyHistoryFileName(fileName);
     if (!safeFileName) return null;
+    const targetUserId = scope === 'shared' ? 'shared-admin-legacy' : (options.ownerUserId || userId);
+    const includeOwnerScope = Boolean(options.includeOwnerScope);
 
     const filePath = scope === 'shared'
         ? path.join(HISTORY_ROOT_DIR, safeFileName)
-        : path.join(getUserHistoryDir(userId), safeFileName);
+        : path.join(getUserHistoryDir(targetUserId), safeFileName);
     if (!fs.existsSync(filePath)) return null;
 
     try {
@@ -1277,9 +1393,10 @@ function readLegacyHistorySession(userId, fileName, options = {}) {
         const createdAt = new Date(sessionDate || stats.mtime.getTime()).toISOString();
 
         return {
-            id: buildLegacySessionId(scope, safeFileName),
+            id: buildLegacySessionId(scope, safeFileName, includeOwnerScope && scope === 'user' ? targetUserId : ''),
             source: 'legacy_history',
-            userId: scope === 'shared' ? 'shared-admin-legacy' : userId,
+            userId: targetUserId,
+            ownerUserId: scope === 'user' ? targetUserId : '',
             fileName: scope === 'shared' ? `shared:${safeFileName}` : safeFileName,
             liveName: safeFileName.replace(/\.json$/i, ''),
             tiktokUsername: meta.shop || '',
@@ -1298,11 +1415,15 @@ function readLegacyHistorySession(userId, fileName, options = {}) {
 
 function readLegacyHistorySessions(userId, options = {}) {
     const includeSharedLegacy = Boolean(options.includeSharedLegacy);
+    const includeAllUserLegacy = Boolean(options.includeAllUserLegacy);
+    const includeOwnerScope = Boolean(options.includeOwnerScope);
     const historyDir = getUserHistoryDir(userId);
-    const userSessions = fs.existsSync(historyDir)
+    const userSessions = includeAllUserLegacy
+        ? readAllUserLegacyHistorySessions(userId)
+        : fs.existsSync(historyDir)
         ? fs.readdirSync(historyDir)
         .filter(f => f.endsWith('.json'))
-        .map(fileName => readLegacyHistorySession(userId, fileName, { scope: 'user' }))
+        .map(fileName => readLegacyHistorySession(userId, fileName, { scope: 'user', includeOwnerScope }))
         .filter(Boolean)
         : [];
 
@@ -1317,21 +1438,48 @@ function readLegacyHistorySessions(userId, options = {}) {
     return [...userSessions, ...sharedSessions];
 }
 
+function readAllUserLegacyHistorySessions(currentUserId) {
+    if (!fs.existsSync(HISTORY_ROOT_DIR)) return [];
+    return fs.readdirSync(HISTORY_ROOT_DIR, { withFileTypes: true })
+        .filter(entry => entry.isDirectory())
+        .flatMap(entry => {
+            const ownerUserId = entry.name;
+            const historyDir = path.join(HISTORY_ROOT_DIR, ownerUserId);
+            return fs.readdirSync(historyDir)
+                .filter(fileName => fileName.endsWith('.json'))
+                .map(fileName => readLegacyHistorySession(currentUserId, fileName, {
+                    scope: 'user',
+                    ownerUserId,
+                    includeOwnerScope: true
+                }))
+                .filter(Boolean);
+        });
+}
+
 function getLegacyHistorySession(userId, sessionId, options = {}) {
     const includeSharedLegacy = Boolean(options.includeSharedLegacy);
+    const includeAllUserLegacy = Boolean(options.includeAllUserLegacy);
     const ref = parseLegacySessionRef(sessionId);
     if (ref.scope === 'shared' && !includeSharedLegacy) return null;
-    return readLegacyHistorySession(userId, ref.fileName, { scope: ref.scope });
+    if (ref.ownerUserId && ref.ownerUserId !== userId && !includeAllUserLegacy) return null;
+    return readLegacyHistorySession(userId, ref.fileName, {
+        scope: ref.scope,
+        ownerUserId: ref.ownerUserId,
+        includeOwnerScope: Boolean(ref.ownerUserId)
+    });
 }
 
 function deleteLegacyHistorySession(userId, sessionId, options = {}) {
     const includeSharedLegacy = Boolean(options.includeSharedLegacy);
+    const includeAllUserLegacy = Boolean(options.includeAllUserLegacy);
     const ref = parseLegacySessionRef(sessionId);
     if (ref.scope === 'shared' && !includeSharedLegacy) return false;
+    if (ref.ownerUserId && ref.ownerUserId !== userId && !includeAllUserLegacy) return false;
     const safeFileName = safeLegacyHistoryFileName(ref.fileName);
     if (!safeFileName) return false;
+    const targetUserId = ref.ownerUserId || userId;
 
-    const historyDir = ref.scope === 'shared' ? HISTORY_ROOT_DIR : getUserHistoryDir(userId);
+    const historyDir = ref.scope === 'shared' ? HISTORY_ROOT_DIR : getUserHistoryDir(targetUserId);
     const filePath = path.join(historyDir, safeFileName);
     const resolvedHistoryDir = path.resolve(historyDir);
     const resolvedFilePath = path.resolve(filePath);
@@ -1342,14 +1490,17 @@ function deleteLegacyHistorySession(userId, sessionId, options = {}) {
     return true;
 }
 
-function mergeLiveSessionsWithLegacy(userId, sessionIds, options = {}) {
+function mergeVisibleLiveSessionsWithLegacy(currentUser, sessionIds, options = {}) {
     const includeSharedLegacy = Boolean(options.includeSharedLegacy);
+    const includeAllUserLegacy = Boolean(options.includeAllUserLegacy);
     const selectedIds = Array.isArray(sessionIds) ? sessionIds : [];
-    const userSessions = liveSessionStore.readUserSessions(userId)
-        .filter(s => selectedIds.includes(s.id));
+    const userSessions = selectedIds
+        .filter(id => !String(id).startsWith('legacy:'))
+        .map(id => getVisibleStoredLiveSession(currentUser, id))
+        .filter(Boolean);
     const legacySessions = selectedIds
         .filter(id => String(id).startsWith('legacy:'))
-        .map(id => getLegacyHistorySession(userId, id, { includeSharedLegacy }))
+        .map(id => getLegacyHistorySession(currentUser.uid, id, { includeSharedLegacy, includeAllUserLegacy }))
         .filter(Boolean);
     const selected = [...userSessions, ...legacySessions];
 
@@ -1389,6 +1540,8 @@ function mergeLiveSessionsWithLegacy(userId, sessionIds, options = {}) {
     return {
         selectedSessions: selected.map(s => ({
             id: s.id,
+            rawSessionId: s.rawSessionId || s.id,
+            ownerUserId: s.ownerUserId || s.userId || currentUser.uid,
             liveName: s.liveName,
             tiktokUsername: s.tiktokUsername,
             startedAt: s.startedAt,
