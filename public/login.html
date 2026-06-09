@@ -440,6 +440,12 @@
                         <label class="field-label" for="login-password">Mật khẩu</label>
                         <input type="password" id="login-password" class="field-input" placeholder="••••••••" autocomplete="current-password">
                     </div>
+                    <div class="field-group" style="margin-bottom: 10px;">
+                        <label style="display: flex; align-items: center; cursor: pointer; font-size: 13px; font-weight: 600; color: #374151;">
+                            <input type="checkbox" id="remember-me" style="margin-right: 8px; width: 16px; height: 16px; cursor: pointer;">
+                            Nhớ đăng nhập (30 ngày)
+                        </label>
+                    </div>
                     <button id="btn-login" class="btn-primary">Đăng nhập</button>
                 </div>
 
@@ -577,10 +583,11 @@
         // --- Send token to backend ---
         async function sendTokenToServer(user) {
             const idToken = await user.getIdToken(true);
+            const rememberMe = document.getElementById('remember-me')?.checked || false;
             const res = await fetch('/sessionLogin', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ idToken })
+                body: JSON.stringify({ idToken, rememberMe })
             });
             const result = await res.json();
             if (res.ok && result.success) {

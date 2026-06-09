@@ -64,7 +64,8 @@ const sessionMiddleware = session({
     cookie: { 
         secure: process.env.NODE_ENV === 'production', // HTTPS in production
         httpOnly: true,
-        sameSite: 'strict'
+        sameSite: 'strict',
+        maxAge: null // Will be set dynamically based on rememberMe
     }
 });
 app.use(sessionMiddleware);
@@ -115,6 +116,7 @@ function isEmailAllowed(email) {
 
 app.post('/sessionLogin', async (req, res) => {
     const idToken = req.body.idToken;
+    const rememberMe = req.body.rememberMe === true; // Get rememberMe flag
     console.log(">>> Nhận yêu cầu đăng nhập, đang xác thực token...");
     try {
         const decodedToken = await admin.auth().verifyIdToken(idToken);
@@ -147,6 +149,16 @@ app.post('/sessionLogin', async (req, res) => {
             role: decodedToken.role || 'user',
             permissions: decodedToken.permissions || []
         };
+        
+        // Set cookie maxAge based on rememberMe
+        if (rememberMe) {
+            req.session.cookie.maxAge = 30 * 24 * 60 * 60 * 1000; // 30 days
+            console.log(">>> Remember Me: Session will last 30 days");
+        } else {
+            req.session.cookie.maxAge = null; // Session cookie (expires on browser close)
+            console.log(">>> Remember Me: Session cookie (browser close)");
+        }
+        
         console.log(">>> Đăng nhập thành công! Role:", req.session.user.role);
         res.json({ success: true });
     } catch (error) {
