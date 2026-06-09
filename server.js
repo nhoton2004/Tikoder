@@ -315,7 +315,7 @@ function deleteVisibleStoredLiveSession(currentUser, sessionId) {
     return liveSessionStore.deleteLiveSession(session.ownerUserId, session.rawSessionId || session.id);
 }
 
-// GET /api/live-sessions — Lấy danh sách phiên live của user
+// GET /api/live-sessions — Lấy danh sách phiên live của user (cả merged + live)
 app.get('/api/live-sessions', requireApiAuth, (req, res) => {
     try {
         const user = req.session.user;
@@ -323,6 +323,7 @@ app.get('/api/live-sessions', requireApiAuth, (req, res) => {
         const includeSharedLegacy = isAdminOrSuperAdmin(user);
         const sessions = readVisibleStoredLiveSessions(user);
         // Trả về danh sách không kèm orders chi tiết (nhẹ hơn)
+        // ⭐ KHÔNG FILTER - trả về tất cả sessions (cả merged_session + live_session)
         const list = sessions.map(s => ({
             id: s.id,
             rawSessionId: s.rawSessionId || s.id,
@@ -426,19 +427,25 @@ app.get('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
         const userId = user.uid;
         const includeSharedLegacy = isAdminOrSuperAdmin(user);
         const includeAllUserLegacy = isAdminOrSuperAdmin(user);
+
+        let session, orders;
+
         if (String(req.params.sessionId || '').startsWith('legacy:')) {
-            const session = getLegacyHistorySession(userId, req.params.sessionId, { includeSharedLegacy, includeAllUserLegacy });
+            session = getLegacyHistorySession(userId, req.params.sessionId, { includeSharedLegacy, includeAllUserLegacy });
             if (!session) {
                 return res.status(404).json({ error: 'Không tìm thấy phiên live' });
             }
-            return res.json({ session });
+            orders = session.orders || [];
+        } else {
+            session = getVisibleStoredLiveSession(user, req.params.sessionId);
+            if (!session) {
+                return res.status(404).json({ error: 'Không tìm thấy phiên live' });
+            }
+            // Orders are already stored in session.orders
+            orders = session.orders || [];
         }
 
-        const session = getVisibleStoredLiveSession(user, req.params.sessionId);
-        if (!session) {
-            return res.status(404).json({ error: 'Không tìm thấy phiên live' });
-        }
-        res.json({ session });
+        res.json({ session, orders, comments: [] }); // comments: [] - chưa lưu chi tiết
     } catch (error) {
         console.error('Lỗi lấy chi tiết phiên live:', error);
         res.status(500).json({ error: 'Lỗi server' });
@@ -2161,6 +2168,16 @@ io.on('connection', (socket) => {
         printBill(newItem, runtime.confirmedOrders[username], userId);
     });
 
+    socket.on('replace-confirmed-orders', (payload = {}) => {
+        runtime.confirmedOrders = sanitizeConfirmedOrders(payload.orders || {});
+        const broadcasterId = customerStore.normalizeTikTokUsername(payload.broadcasterId || '');
+        if (broadcasterId) {
+            runtime.currentBroadcasterId = broadcasterId;
+            saveSessionDataForUser(userId);
+        }
+        emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
+    });
+
     socket.on('delete-customer', (username) => {
         const normalizedUsername = customerStore.normalizeTikTokUsername(username);
         if (runtime.confirmedOrders[normalizedUsername]) {
@@ -2178,6 +2195,21 @@ io.on('connection', (socket) => {
                 runtime.confirmedOrders[normalizedUsername].total -= runtime.confirmedOrders[normalizedUsername].items[index].price;
                 runtime.confirmedOrders[normalizedUsername].items.splice(index, 1);
                 if (runtime.confirmedOrders[normalizedUsername].items.length === 0) delete runtime.confirmedOrders[normalizedUsername];
+                saveSessionDataForUser(userId);
+                emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
+            }
+        }
+    });
+
+    socket.on('edit-item', ({ username, itemId, text, price }) => {
+        const normalizedUsername = customerStore.normalizeTikTokUsername(username);
+        if (runtime.confirmedOrders[normalizedUsername]) {
+            const item = runtime.confirmedOrders[normalizedUsername].items.find(i => i.id === itemId);
+            if (item) {
+                const newPrice = Number(price);
+                runtime.confirmedOrders[normalizedUsername].total = runtime.confirmedOrders[normalizedUsername].total - Number(item.price || 0) + (Number.isFinite(newPrice) ? newPrice : Number(item.price || 0));
+                item.text = normalizeDisplayText(text || item.text || '');
+                if (Number.isFinite(newPrice)) item.price = newPrice;
                 saveSessionDataForUser(userId);
                 emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
             }

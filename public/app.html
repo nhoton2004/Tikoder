@@ -241,17 +241,6 @@
                             </div>
                             <div id="chat-feed" class="live-feed"></div>
                         </section>
-
-                        <section id="section-current-orders" class="live-panel live-orders-panel">
-                            <div class="live-panel-head">
-                                <h3 data-i18n="orders.current"><span class="material-symbols-outlined">local_mall</span> Đơn hàng hiện tại (Phiên này)</h3>
-                                <span id="live-orders-count" class="live-count-pill">0 đơn - 0đ</span>
-                            </div>
-                            <div id="current-orders-empty" class="live-orders-empty">
-                                Chưa có đơn nào. Khi bấm CHỐT từ bình luận, thông tin khách hàng và đơn sẽ xuất hiện ở đây.
-                            </div>
-                            <div id="current-orders-grid" class="live-orders-grid"></div>
-                        </section>
                     </div>
 
                     <section id="section-comments-legacy" class="dashboard-section panel overflow-hidden" hidden>
@@ -279,6 +268,24 @@
                             </div>
                         </div>
                         <div class="p-3 space-y-3">
+                            <section id="section-current-orders" class="live-panel live-orders-panel orders-current-panel">
+                                <div class="live-panel-head">
+                                    <h3 data-i18n="orders.current"><span class="material-symbols-outlined">local_mall</span> Đơn đang chốt</h3>
+                                    <span id="live-orders-count" class="live-count-pill">0 đơn - 0đ</span>
+                                </div>
+                                <div id="current-orders-empty" class="live-orders-empty">
+                                    Chưa có đơn đang chốt. Khi bấm CHỐT từ bình luận hoặc Load đơn từ lịch sử, đơn sẽ xuất hiện ở đây.
+                                </div>
+                                <div id="current-orders-grid" class="live-orders-grid"></div>
+                            </section>
+
+                            <div class="orders-saved-head">
+                                <div>
+                                    <h4>Danh sách đơn đã lưu</h4>
+                                    <p>Lọc, xem và xuất các đơn đã ghi nhận trong hệ thống.</p>
+                                </div>
+                            </div>
+
                             <div class="orders-filter-grid">
                                 <input id="orders-search" type="search" class="border border-gray-300 rounded-xl px-3 py-2 text-sm" placeholder="Tìm mã đơn / khách hàng / số điện thoại">
                                 <select id="orders-status-filter" class="border border-gray-300 rounded-xl px-3 py-2 text-sm">

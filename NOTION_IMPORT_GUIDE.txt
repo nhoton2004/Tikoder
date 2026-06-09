@@ -1,0 +1,62 @@
+# 📖 Hướng Dẫn Import LEARNING_GUIDE.md vào Notion
+
+## **Cách 1: Copy-Paste trực tiếp (Nhanh nhất)**
+
+1. **Mở Notion** → Tạo page mới
+2. **Mở file `LEARNING_GUIDE.md`** (em đã tạo tại `/home/nho/TikTokOrderApp/LEARNING_GUIDE.md`)
+3. **Copy toàn bộ nội dung**
+4. **Paste vào Notion** → Notion sẽ tự động format markdown
+
+---
+
+## **Cách 2: Dùng Notion Importer (Format tốt hơn)**
+
+1. **Notion → Import** (3 dots menu)
+2. **Chọn "Markdown"**
+3. **Upload file `LEARNING_GUIDE.md`**
+4. Notion sẽ import đầy đủ structure, headings, code blocks
+
+---
+
+## **Cách 3: Dùng Web Clipper**
+
+Nếu đại ca muốn em tạo HTML version:
+
+```bash
+# Dùng pandoc convert markdown → HTML
+pandoc LEARNING_GUIDE.md -o LEARNING_GUIDE.html
+```
+
+Rồi use Notion Web Clipper để clip HTML.
+
+---
+
+## **Content Overview**
+
+File `LEARNING_GUIDE.md` có:
+
+✅ **4 CRITICAL Issues** — Chi tiết code, why dangerous, how fixed
+✅ **2 HIGH Priority Issues** — Cookie security, config management
+✅ **Implementation Steps** — Từ problem analysis → deployment
+✅ **Tools & Techniques** — Code review, validation, error handling
+✅ **Learning Resources** — OWASP, Node.js, Express best practices
+✅ **Key Takeaways** — Security, code quality, team practices
+✅ **Deployment Checklist** — Step-by-step guide
+✅ **Quiz** — 5 questions để test hiểu biết
+
+---
+
+## **📊 Structure trong Notion**
+
+Khi import, Notion sẽ tự động tạo:
+- **H1 headings** → Database title
+- **H2 headings** → Main sections (collapsible)
+- **H3 headings** → Sub-sections
+- **Code blocks** → Syntax-highlighted
+- **Tables** → Formatted tables
+
+---
+
+**Total:** 13,928 bytes, ~220 lines, comprehensive learning guide
+
+Đại ca import vào Notion rồi em giúp organize thêm! 🚀

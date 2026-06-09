@@ -1251,6 +1251,28 @@
             color: #0f172a;
         }
 
+        .orders-saved-head {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            padding-top: 2px;
+        }
+
+        .orders-saved-head h4 {
+            margin: 0;
+            color: #0f172a;
+            font-size: 15px;
+            font-weight: 950;
+        }
+
+        .orders-saved-head p {
+            margin-top: 2px;
+            color: #64748b;
+            font-size: 11px;
+            font-weight: 700;
+        }
+
         .orders-table {
             min-width: 1080px;
             table-layout: fixed;
@@ -1554,30 +1576,78 @@
             text-align: center;
         }
 
+        .live-orders-empty[hidden] {
+            display: none !important;
+        }
+
+        .orders-current-panel {
+            min-width: 0;
+            display: flex;
+            flex-direction: column;
+            overflow: hidden;
+            border: 1px solid var(--line);
+            border-radius: 14px;
+            background: #fff;
+        }
+
+        .orders-current-panel .live-panel-head {
+            min-height: 42px;
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 12px;
+            border-bottom: 1px solid var(--line);
+            padding: 0 12px;
+            background: #fff;
+        }
+
+        .orders-current-panel .live-panel-head h3 {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            margin: 0;
+            color: #0f172a;
+            font-size: 14px;
+            line-height: 1;
+            font-weight: 950;
+        }
+
+        .orders-current-panel .live-panel-head h3 span {
+            color: #E8002D;
+            font-size: 20px;
+        }
+
         .live-orders-grid {
             display: grid;
-            grid-template-columns: repeat(2, minmax(0, 1fr));
-            gap: 12px;
-            padding: 14px;
+            grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+            gap: 10px;
+            padding: 12px;
+        }
+
+        .orders-current-panel .live-orders-grid {
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
         }
 
         .live-order-card {
             min-width: 0;
+            display: flex;
+            flex-direction: column;
+            max-height: 360px;
             overflow: hidden;
         }
 
         .live-order-card-head {
             display: grid;
-            grid-template-columns: 42px minmax(0, 1fr) auto;
-            gap: 10px;
+            grid-template-columns: 32px minmax(0, 1fr) auto;
+            gap: 7px;
             align-items: center;
-            padding: 12px;
+            padding: 8px 9px;
             border-bottom: 1px solid rgba(226, 232, 240, 0.82);
         }
 
         .live-order-card-head img {
-            width: 42px;
-            height: 42px;
+            width: 32px;
+            height: 32px;
             border-radius: 999px;
             object-fit: cover;
             border: 1px solid var(--line);
@@ -1588,50 +1658,93 @@
             text-overflow: ellipsis;
             white-space: nowrap;
             color: #0f172a;
-            font-size: 14px;
+            font-size: 12px;
             font-weight: 900;
         }
 
         .live-order-card-head p {
             margin-top: 2px;
             color: #64748b;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 800;
+        }
+
+        .live-order-card-actions {
+            display: inline-flex;
+            gap: 6px;
+        }
+
+        .live-order-card-stats {
+            display: grid;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 0;
+            padding: 7px 9px;
+            border-bottom: 1px solid rgba(226, 232, 240, 0.82);
+            background: #fff7f8;
+        }
+
+        .live-order-card-stats div,
+        .live-order-card-foot div {
+            min-width: 0;
+        }
+
+        .live-order-card-stats span,
+        .live-order-card-foot span {
+            display: block;
+            color: #94a3b8;
+            font-size: 9px;
+            font-weight: 900;
+            line-height: 1.2;
+            text-transform: uppercase;
+        }
+
+        .live-order-card-stats strong {
+            display: block;
+            overflow: hidden;
+            margin-top: 3px;
+            color: #0f172a;
+            font-size: 11px;
+            font-weight: 900;
+            text-overflow: ellipsis;
+            white-space: nowrap;
         }
 
         .live-order-card button,
         .live-order-item-actions button {
-            min-height: 30px;
-            border-radius: 10px;
-            padding: 0 10px;
+            min-height: 28px;
+            border-radius: 7px;
+            padding: 0 7px;
             background: #f8fafc;
             color: #334155;
             border: 1px solid #e2e8f0;
-            font-size: 11px;
+            font-size: 10px;
             font-weight: 900;
         }
 
         .live-order-items {
             display: grid;
-            gap: 8px;
-            padding: 10px 12px;
+            gap: 0;
+            padding: 0;
+            overflow-y: auto;
+            min-height: 72px;
         }
 
         .live-order-item {
             display: grid;
-            grid-template-columns: minmax(0, 1fr) auto;
-            gap: 10px;
+            grid-template-columns: minmax(0, 1fr) auto auto;
+            gap: 8px;
             align-items: center;
-            border-radius: 12px;
-            background: #f8fafc;
-            padding: 10px;
+            border-radius: 0;
+            border-bottom: 1px solid rgba(226, 232, 240, 0.72);
+            background: #fff;
+            padding: 7px 9px;
         }
 
         .live-order-item strong {
             display: block;
             color: #0f172a;
-            font-size: 12px;
-            line-height: 16px;
+            font-size: 11px;
+            line-height: 15px;
             font-weight: 900;
         }
 
@@ -1639,21 +1752,50 @@
             display: block;
             margin-top: 2px;
             color: #94a3b8;
-            font-size: 10px;
+            font-size: 9px;
             font-weight: 800;
+        }
+
+        .live-order-comment-main {
+            min-width: 0;
+        }
+
+        .live-order-comment-price {
+            color: #E8002D;
+            font-size: 11px;
+            font-weight: 900;
+            white-space: nowrap;
         }
 
         .live-order-item-actions {
             display: flex;
             flex-wrap: wrap;
             justify-content: flex-end;
-            gap: 6px;
+            gap: 4px;
         }
 
-        .live-order-item-actions button:first-child {
+        .live-order-item-actions button:first-child,
+        .live-order-card-actions .add {
             color: #E8002D;
             background: #fff1f2;
             border-color: #fecdd3;
+        }
+
+        .live-order-card .icon-btn {
+            width: 26px;
+            min-width: 26px;
+            padding: 0;
+        }
+
+        .live-order-card .icon-btn .material-symbols-outlined {
+            font-size: 14px;
+            line-height: 1;
+        }
+
+        .live-order-card .icon-btn.danger {
+            color: #64748b;
+            background: #f8fafc;
+            border-color: #e2e8f0;
         }
 
         .live-order-card-foot {
@@ -1661,13 +1803,14 @@
             align-items: center;
             justify-content: space-between;
             gap: 10px;
-            padding: 12px;
+            padding: 8px 9px;
             border-top: 1px solid rgba(226, 232, 240, 0.82);
+            background: #fff7f8;
         }
 
         .live-order-card-foot strong {
             color: #E8002D;
-            font-size: 18px;
+            font-size: 14px;
             font-weight: 900;
         }
 

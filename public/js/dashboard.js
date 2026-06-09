@@ -94,7 +94,7 @@
                 'kpi.revenue': 'Doanh thu',
                 'kpi.liveStatus': 'Trạng thái',
                 'comments.title': 'Luồng bình luận',
-                'orders.current': 'Đơn hàng hiện tại',
+                'orders.current': 'Đơn đang chốt',
                 'orders.title': 'Đơn hàng',
                 'orders.subtitle': 'Quản lý toàn bộ đơn hàng theo tài khoản, shop và thời gian.',
                 'customers.title': 'Khách hàng',
@@ -189,7 +189,7 @@
                 'kpi.revenue': 'Revenue',
                 'kpi.liveStatus': 'Status',
                 'comments.title': 'Comment Stream',
-                'orders.current': 'Current Orders',
+                'orders.current': 'Active Orders',
                 'orders.title': 'Orders',
                 'orders.subtitle': 'Manage all orders by account, shop and date range.',
                 'customers.title': 'Customers',
@@ -451,13 +451,18 @@
             customerForm.addEventListener('submit', saveCustomerForm);
         }
 
-        function calculateKpis() {
+        function getCurrentOrdersTotals() {
             let totalOrders = 0;
             let totalRevenue = 0;
             Object.values(ordersData).forEach(o => {
                 totalOrders += Array.isArray(o.items) ? o.items.length : 0;
                 totalRevenue += Number(o.total || 0);
             });
+            return { totalOrders, totalRevenue };
+        }
+
+        function calculateKpis() {
+            const { totalOrders, totalRevenue } = getCurrentOrdersTotals();
             const kpiOrdersEl = document.getElementById('kpi-orders');
             const kpiCommentsEl = document.getElementById('kpi-comments');
             const kpiRevenueEl = document.getElementById('kpi-revenue');
@@ -491,30 +496,41 @@
 
             if (orders.length === 0) {
                 grid.innerHTML = '';
-                if (empty) empty.classList.remove('hidden');
+                if (empty) {
+                    empty.hidden = false;
+                    empty.classList.remove('hidden');
+                }
                 return;
             }
 
-            if (empty) empty.classList.add('hidden');
+            if (empty) {
+                empty.hidden = true;
+                empty.classList.add('hidden');
+            }
             grid.innerHTML = orders.map(order => {
                 const items = Array.isArray(order.items) ? order.items : [];
                 const username = normalizeTikTokUsername(order.username || order.customerUsername || '');
                 const usernameArg = escapeHtml(JSON.stringify(username));
+                const customerName = getDisplayName(order.nickname || order.displayName || '', username);
                 const customerLabel = buildCustomerLabel(order.nickname || order.displayName || '', username);
+                const handle = formatTikTokUsername(username);
                 const total = Number(order.total || items.reduce((sum, item) => sum + Number(item.price || 0), 0));
                 const avatarSrc = isAvatarUrl(order.profilePictureUrl) ? order.profilePictureUrl : buildInitialAvatarDataUri(customerLabel);
                 const itemRows = items.map(item => {
                     const itemIdArg = escapeHtml(JSON.stringify(item.id ?? null));
+                    const itemTextArg = escapeHtml(JSON.stringify(normalizeDisplayText(item.text || item.productName || '')));
                     const price = Number(item.price || 0);
                     return `
-                        <div class="live-order-item">
-                            <div>
+                        <div class="live-order-item live-order-comment-row">
+                            <div class="live-order-comment-main">
                                 <strong>${escapeHtml(normalizeDisplayText(item.text || item.productName || 'Sản phẩm'))}</strong>
                                 <span>${escapeHtml(normalizeDisplayText(item.time || 'Vừa chốt'))}</span>
                             </div>
+                            <strong class="live-order-comment-price">${formatMoney(price)}</strong>
                             <div class="live-order-item-actions">
-                                <button type="button" onclick="editItem(${usernameArg}, ${itemIdArg}, ${price})">${formatMoney(price)}</button>
-                                <button type="button" onclick="deleteItem(${usernameArg}, ${itemIdArg})">Xóa</button>
+                                <button type="button" class="icon-btn" title="In lại dòng này" onclick="reprintItem(${usernameArg}, ${itemIdArg})"><span class="material-symbols-outlined">print</span></button>
+                                <button type="button" class="icon-btn" title="Sửa bình luận" onclick="editItem(${usernameArg}, ${itemIdArg}, ${itemTextArg}, ${price})"><span class="material-symbols-outlined">edit</span></button>
+                                <button type="button" class="icon-btn danger" title="Xóa bình luận" onclick="deleteItem(${usernameArg}, ${itemIdArg})"><span class="material-symbols-outlined">delete</span></button>
                             </div>
                         </div>
                     `;
@@ -525,15 +541,22 @@
                         <div class="live-order-card-head">
                             <img src="${escapeHtml(avatarSrc)}" alt="">
                             <div>
-                                <h4>${escapeHtml(customerLabel)}</h4>
-                                <p>${items.length} món · ${formatMoney(total)}</p>
+                                <h4>${escapeHtml(customerName)}</h4>
+                                <p>${escapeHtml(handle || username)}</p>
                             </div>
-                            <button type="button" onclick="reprintTotal(${usernameArg})">In</button>
+                            <div class="live-order-card-actions">
+                                <button type="button" class="icon-btn add" title="Thêm bình luận" onclick="addOrderItem(${usernameArg})"><span class="material-symbols-outlined">add</span></button>
+                                <button type="button" class="icon-btn danger" title="Xóa khách" onclick="deleteCustomer(${usernameArg})"><span class="material-symbols-outlined">close</span></button>
+                            </div>
+                        </div>
+                        <div class="live-order-card-stats">
+                            <div><span>Số đơn</span><strong>${items.length} đơn</strong></div>
+                            <div><span>Số tiền</span><strong>${formatMoney(total)}</strong></div>
                         </div>
                         <div class="live-order-items">${itemRows}</div>
                         <div class="live-order-card-foot">
-                            <strong>${formatMoney(total)}</strong>
-                            <button type="button" onclick="deleteCustomer(${usernameArg})">Xóa khách</button>
+                            <div><span>Tổng đơn</span><strong>${formatMoney(total)}</strong></div>
+                            <button type="button" onclick="reprintTotal(${usernameArg})">In lại tổng</button>
                         </div>
                     </article>
                 `;
@@ -1046,7 +1069,11 @@
             }
         };
         const OrdersPage = {
-            refresh: () => OrderTable.refresh()
+            refresh: () => {
+                const { totalOrders, totalRevenue } = getCurrentOrdersTotals();
+                renderCurrentOrders(totalOrders, totalRevenue);
+                OrderTable.refresh();
+            }
         };
 
         window.toggleSettings = () => switchView('settings');
@@ -1063,6 +1090,61 @@
         };
         window.showHistory = () => { historyModal.classList.remove('hidden'); socket.emit('get-history-list'); };
         window.closeHistory = () => historyModal.classList.add('hidden');
+
+        // Load session orders to current view (để có thể chỉnh sửa)
+        window.loadSessionOrdersToCurrentView = async (sessionId) => {
+            try {
+                console.log(`🔍 Loading session: ${sessionId}`);
+                const res = await fetch('/api/live-sessions/' + encodeURIComponent(sessionId));
+                console.log(`📡 Response status: ${res.status}`);
+
+                if (!res.ok) {
+                    const errData = await res.json();
+                    alert(`❌ Load error (${res.status}): ${errData.error}`);
+                    return;
+                }
+
+                const data = await res.json();
+                console.log('📦 Data:', data);
+
+                if (!data.session) {
+                    alert('Không tìm thấy phiên');
+                    return;
+                }
+
+                const orders = data.orders || [];
+                console.log(`✅ Loaded ${orders.length} orders`);
+
+                ordersData = normalizeSessionOrdersArray(orders);
+                socket.emit('replace-confirmed-orders', {
+                    orders: ordersData,
+                    broadcasterId: data.session.tiktokUsername || data.session.liveName || ''
+                });
+                calculateKpis();
+                refreshCommentUserTooltips();
+                const totalOrders = Object.values(ordersData).reduce((sum, order) => {
+                    return sum + (Array.isArray(order.items) ? order.items.length : 0);
+                }, 0);
+
+                switchView('orders');
+                if (sectionCurrentOrders) {
+                    sectionCurrentOrders.scrollIntoView({ block: 'start' });
+                }
+                const currentOrdersGrid = document.getElementById('current-orders-grid');
+                if (currentOrdersGrid) currentOrdersGrid.scrollTop = 0;
+
+                // Close history modal
+                closeLiveSessions();
+
+                // Show success notification
+                console.log(`✅ Loaded ${totalOrders} orders from session: ${data.session.liveName}`);
+                alert(`✅ Loaded ${totalOrders} orders từ: ${data.session.liveName}`);
+
+            } catch (e) {
+                console.error('Load session orders error:', e);
+                alert('Lỗi load orders: ' + e.message);
+            }
+        };
 
         socket.on('history-list', (list) => {
             historyListContent.innerHTML = list.map(f => `
@@ -1129,6 +1211,44 @@
                         }))
                         : []
                 };
+                return result;
+            }, {});
+        }
+
+        function normalizeSessionOrdersArray(orders) {
+            return (Array.isArray(orders) ? orders : []).reduce((result, order, index) => {
+                const username = normalizeTikTokUsername(order.customerUsername || order.username || order.tiktokUsername || order.customer || '');
+                if (!username) return result;
+
+                const customerName = cleanDisplayText(order.customerName || order.nickname || order.displayName || order.customer || '');
+                const productName = normalizeDisplayText(order.productName || order.product || order.text || '');
+                const price = Number(order.price || order.total || 0);
+                const createdAt = order.createdAt ? new Date(order.createdAt) : null;
+                const fallbackTime = createdAt && !Number.isNaN(createdAt.getTime())
+                    ? createdAt.toLocaleTimeString('vi-VN')
+                    : '';
+
+                if (!result[username]) {
+                    result[username] = {
+                        username,
+                        customerUsername: username,
+                        nickname: customerName,
+                        displayName: customerName,
+                        profilePictureUrl: order.profilePictureUrl || '',
+                        items: [],
+                        total: 0
+                    };
+                }
+
+                result[username].items.push({
+                    id: order.id || `${username}_${index}`,
+                    text: productName,
+                    productName,
+                    price,
+                    time: normalizeDisplayText(order.time || fallbackTime)
+                });
+                result[username].total += price;
+
                 return result;
             }, {});
         }
@@ -1720,11 +1840,32 @@
             const msg = currentLang === 'en' ? 'Delete this item?' : 'Xóa món hàng này?';
             if (confirm(msg)) socket.emit('delete-item', { username: normalizeTikTokUsername(username), itemId });
         };
-        window.editItem = (username, itemId, oldPrice) => {
-            const promptText = currentLang === 'en' ? 'Enter new price:' : 'Nhập giá mới:';
-            const newPrice = parseFloat(prompt(promptText, oldPrice));
-            if (!isNaN(newPrice) && newPrice !== oldPrice) {
-                socket.emit('edit-item-price', { username: normalizeTikTokUsername(username), itemId, newPrice });
+        window.addOrderItem = (username) => {
+            const normalizedUsername = normalizeTikTokUsername(username);
+            const customer = ordersData[normalizedUsername];
+            if (!customer) return;
+            const commentPrompt = currentLang === 'en' ? 'Enter comment/product:' : 'Nhập bình luận/sản phẩm:';
+            const comment = normalizeDisplayText(prompt(commentPrompt, '') || '');
+            if (!comment) return;
+            const pricePrompt = currentLang === 'en' ? 'Enter price:' : 'Nhập giá:';
+            const price = parseFloat(prompt(pricePrompt, ''));
+            if (Number.isNaN(price) || price <= 0) return;
+            socket.emit('confirm-item', {
+                uniqueId: normalizedUsername,
+                nickname: customer.nickname || customer.displayName || normalizedUsername,
+                profilePictureUrl: customer.profilePictureUrl || '',
+                comment,
+                price
+            });
+        };
+        window.editItem = (username, itemId, oldText, oldPrice) => {
+            const textPrompt = currentLang === 'en' ? 'Edit comment/product:' : 'Sửa bình luận/sản phẩm:';
+            const text = normalizeDisplayText(prompt(textPrompt, oldText || '') || '');
+            if (!text) return;
+            const pricePrompt = currentLang === 'en' ? 'Enter new price:' : 'Nhập giá mới:';
+            const price = parseFloat(prompt(pricePrompt, oldPrice));
+            if (!Number.isNaN(price) && price > 0) {
+                socket.emit('edit-item', { username: normalizeTikTokUsername(username), itemId, text, price });
             }
         };
 
@@ -1923,14 +2064,20 @@
                 const orders = s.summary ? s.summary.totalOrders : 0;
                 const qty = s.summary ? s.summary.totalQuantity : 0;
                 const isLegacy = s.source === 'legacy_history';
-                const ownerLabel = s.ownerUserId
+                const ownerDisplay = s.ownerUserId
                     ? (s.ownerUserId === currentUserUid
                         ? (currentLang === 'en' ? 'Mine' : 'Của tôi')
-                        : `User: ${s.ownerUserId}`)
+                        : s.ownerUserId)
+                    : '';
+                const ownerLabel = s.ownerUserId
+                    ? (s.ownerUserId === currentUserUid
+                        ? ownerDisplay
+                        : `User: ${ownerDisplay}`)
                     : '';
                 const ownerBadge = ownerLabel
                     ? `<span class="inline-block mt-1 max-w-[220px] truncate rounded bg-slate-100 px-2 py-0.5 text-[9px] font-bold text-slate-500 align-middle" title="${escapeHtml(ownerLabel)}">${escapeHtml(ownerLabel)}</span>`
                     : '';
+                const userLabel = s.tiktokUsername ? `@${s.tiktokUsername}` : (ownerDisplay || s.liveName || '');
                 const openLabel = currentLang === 'en' ? 'OPEN' : 'MỞ';
                 const safeSessionId = escapeJsString(s.id);
                 const safeSessionName = escapeJsString(s.liveName);
@@ -1939,13 +2086,14 @@
                 const actionButtons = isLegacy
                     ? canOpenLegacy ? `
                         <button onclick="openLegacyHistorySession('${safeFileName}')" class="text-blue-600 px-2 py-1 bg-blue-50 rounded text-xs font-bold">${openLabel}</button>
+                        <button onclick="loadSessionOrdersToCurrentView('${safeSessionId}')" class="text-white px-3 py-1 bg-red-500 rounded text-xs font-bold">Load đơn</button>
                         <button onclick="deleteSession('${safeSessionId}', '${safeSessionName}')" class="text-red-600 px-2 py-1 bg-red-50 rounded text-xs font-bold">XOA</button>
                     ` : `
-                        <button onclick="viewSessionDetail('${safeSessionId}')" class="text-slate-700 px-2 py-1 bg-slate-100 rounded text-xs font-bold">XEM</button>
+                        <button onclick="loadSessionOrdersToCurrentView('${safeSessionId}')" class="text-white px-3 py-1 bg-red-500 rounded text-xs font-bold">Load đơn</button>
                         <button onclick="deleteSession('${safeSessionId}', '${safeSessionName}')" class="text-red-600 px-2 py-1 bg-red-50 rounded text-xs font-bold">XOA</button>
                     `
                     : `
-                        <button onclick="viewSessionDetail('${safeSessionId}')" class="text-slate-700 px-2 py-1 bg-slate-100 rounded text-xs font-bold">XEM</button>
+                        <button onclick="loadSessionOrdersToCurrentView('${safeSessionId}')" class="text-white px-3 py-1 bg-red-500 rounded text-xs font-bold">Load đơn</button>
                         <button onclick="deleteSession('${safeSessionId}', '${safeSessionName}')" class="text-red-600 px-2 py-1 bg-red-50 rounded text-xs font-bold">XOA</button>
                     `;
                 return `
@@ -1956,6 +2104,11 @@
                             <div>
                                 <p class="font-bold text-gray-800 text-sm">${escapeHtml(s.liveName)}</p>
                                 <p class="text-[10px] text-gray-400">${date}${s.tiktokUsername ? ' • @' + escapeHtml(s.tiktokUsername) : ''}</p>
+                                <div class="mt-2 flex flex-wrap gap-1 text-[10px]">
+                                    <span class="rounded bg-slate-100 px-2 py-0.5 font-bold text-slate-600">User: ${escapeHtml(userLabel)}</span>
+                                    <span class="rounded bg-blue-50 px-2 py-0.5 font-bold text-blue-600">${orders} đơn</span>
+                                    <span class="rounded bg-red-50 px-2 py-0.5 font-bold text-red-600">Tổng: ${revenue}</span>
+                                </div>
                                 ${ownerBadge}
                             </div>
                             <div class="text-right">
@@ -1964,7 +2117,7 @@
                             </div>
                         </div>
                     </div>
-                    <div class="flex gap-1 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition">
+                    <div class="flex flex-wrap justify-end gap-1 opacity-100 transition">
                         ${actionButtons}
                     </div>
                 </div>`;
