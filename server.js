@@ -16,8 +16,14 @@ const { cleanDisplayText, normalizeDisplayName, normalizeDisplayText } = require
 const adminRoutes = require('./routes/admin');
 
 // DEV ONLY: Bật để bỏ qua đăng nhập Firebase trong môi trường local/dev.
-// Cần đặt VITE_DEV_SKIP_AUTH=false khi phát hành production.
-const DEV_SKIP_AUTH = String(process.env.VITE_DEV_SKIP_AUTH || 'false').toLowerCase() === 'true';
+// SECURITY: NEVER enable in production. Must be explicitly set AND in development environment.
+const DEV_SKIP_AUTH = process.env.NODE_ENV === 'development' 
+    && String(process.env.VITE_DEV_SKIP_AUTH || 'false').toLowerCase() === 'true';
+
+if (DEV_SKIP_AUTH) {
+    console.warn('⚠️  WARNING: DEV_SKIP_AUTH is ENABLED. This bypasses Firebase authentication.');
+    console.warn('⚠️  This should NEVER be enabled in production.');
+}
 const DEV_USER = {
     uid: 'dev-user',
     email: 'dev@local.test',
@@ -45,11 +51,21 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
+// SECURITY: SESSION_SECRET is required in .env
+if (!process.env.SESSION_SECRET) {
+    console.error('❌ FATAL: SESSION_SECRET must be set in .env file');
+    process.exit(1);
+}
+
 const sessionMiddleware = session({
-    secret: process.env.SESSION_SECRET || 'fallback_secret',
+    secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
-    cookie: { secure: false } // Set secure: true if using HTTPS
+    cookie: { 
+        secure: process.env.NODE_ENV === 'production', // HTTPS in production
+        httpOnly: true,
+        sameSite: 'strict'
+    }
 });
 app.use(sessionMiddleware);
 

@@ -34,7 +34,18 @@ function ensureDir() {
 }
 
 function safeUserId(userId) {
-    return String(userId || '').replace(/[^a-zA-Z0-9_.-]/g, '_');
+    // SECURITY: Prevent path traversal and injection attacks
+    const sanitized = String(userId || '')
+        .trim()
+        .replace(/[^a-zA-Z0-9_.-]/g, '_')
+        .replace(/\.{2,}/g, '_')  // Block ".." sequences
+        .replace(/^\.+/, '_');     // Block leading dots
+    
+    // Reject empty or suspicious patterns
+    if (!sanitized || sanitized === '.' || sanitized === '..' || sanitized.length > 255) {
+        throw new Error(`Invalid userId: "${userId}"`);
+    }
+    return sanitized;
 }
 
 function normalizeTikTokUsername(username) {

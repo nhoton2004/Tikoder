@@ -33,30 +33,42 @@ function toNumber(value, fallback = 0) {
 }
 
 function normalizeOrders(input) {
+    // SECURITY & ROBUSTNESS: Comprehensive input validation
+    if (!input) return [];
     if (Array.isArray(input)) return input;
-    if (!input || typeof input !== 'object') return [];
+    if (typeof input !== 'object') return [];
 
-    const orders = [];
-    Object.values(input).forEach(customer => {
-        const items = Array.isArray(customer?.items) ? customer.items : [];
-        const customerUsername = customerStore.normalizeTikTokUsername(customer.username || customer.tiktokUsername || '');
-        const customerName = normalizeDisplayName(customer.nickname || customer.displayName || '', customerUsername ? `@${customerUsername}` : undefined);
-        items.forEach(item => {
-            orders.push({
-                id: item.id || '',
-                customerName,
-                customerUsername,
-                profilePictureUrl: customer.profilePictureUrl || '',
-                productName: normalizeDisplayText(item.productName || item.text || ''),
-                quantity: toNumber(item.quantity, 1) || 1,
-                price: toNumber(item.price, 0),
-                total: toNumber(item.total || item.price, 0),
-                time: item.time || '',
-                createdAt: item.createdAt || ''
+    try {
+        const orders = [];
+        Object.values(input).forEach(customer => {
+            if (!customer || typeof customer !== 'object') return;
+            
+            const items = Array.isArray(customer?.items) ? customer.items : [];
+            const customerUsername = customerStore.normalizeTikTokUsername(customer.username || customer.tiktokUsername || '');
+            const customerName = normalizeDisplayName(customer.nickname || customer.displayName || '', customerUsername ? `@${customerUsername}` : undefined);
+            
+            items.forEach(item => {
+                if (!item || typeof item !== 'object') return;
+                
+                orders.push({
+                    id: item.id || '',
+                    customerName,
+                    customerUsername,
+                    profilePictureUrl: customer.profilePictureUrl || '',
+                    productName: normalizeDisplayText(item.productName || item.text || ''),
+                    quantity: toNumber(item.quantity, 1) || 1,
+                    price: toNumber(item.price, 0),
+                    total: toNumber(item.total || item.price, 0),
+                    time: item.time || '',
+                    createdAt: item.createdAt || ''
+                });
             });
         });
-    });
-    return orders;
+        return orders;
+    } catch (error) {
+        console.error('Error normalizing orders:', error.message);
+        return [];
+    }
 }
 
 function groupOrdersByCustomer(orders) {
