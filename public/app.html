@@ -241,6 +241,22 @@
                             </div>
                             <div id="chat-feed" class="live-feed"></div>
                         </section>
+                        <section id="live-current-orders-panel" class="live-panel live-orders-panel live-current-orders-panel" data-current-orders-panel>
+                            <div class="live-panel-head">
+                                <h3 data-i18n="orders.current"><span class="material-symbols-outlined">local_mall</span> Đơn đang chốt</h3>
+                                <div class="live-panel-actions">
+                                    <span class="live-count-pill" data-current-orders-count>0 đơn - 0đ</span>
+                                    <button type="button" class="live-orders-toggle" data-live-orders-toggle aria-expanded="true" onclick="toggleLiveOrdersPanel()">
+                                        <span class="material-symbols-outlined">keyboard_double_arrow_right</span>
+                                        <span data-live-orders-toggle-label>Thu gọn</span>
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="live-orders-empty" data-current-orders-empty>
+                                Chưa có đơn đang chốt. Khi bấm CHỐT từ bình luận hoặc Load đơn từ lịch sử, đơn sẽ xuất hiện ở đây.
+                            </div>
+                            <div class="live-orders-grid" data-current-orders-grid></div>
+                        </section>
                     </div>
 
                     <section id="section-comments-legacy" class="dashboard-section panel overflow-hidden" hidden>
@@ -268,62 +284,16 @@
                             </div>
                         </div>
                         <div class="p-3 space-y-3">
-                            <section id="section-current-orders" class="live-panel live-orders-panel orders-current-panel">
+                            <section id="section-current-orders" class="live-panel live-orders-panel orders-current-panel" data-current-orders-panel>
                                 <div class="live-panel-head">
                                     <h3 data-i18n="orders.current"><span class="material-symbols-outlined">local_mall</span> Đơn đang chốt</h3>
-                                    <span id="live-orders-count" class="live-count-pill">0 đơn - 0đ</span>
+                                    <span id="live-orders-count" class="live-count-pill" data-current-orders-count>0 đơn - 0đ</span>
                                 </div>
-                                <div id="current-orders-empty" class="live-orders-empty">
+                                <div id="current-orders-empty" class="live-orders-empty" data-current-orders-empty>
                                     Chưa có đơn đang chốt. Khi bấm CHỐT từ bình luận hoặc Load đơn từ lịch sử, đơn sẽ xuất hiện ở đây.
                                 </div>
-                                <div id="current-orders-grid" class="live-orders-grid"></div>
+                                <div id="current-orders-grid" class="live-orders-grid" data-current-orders-grid></div>
                             </section>
-
-                            <div class="orders-saved-head">
-                                <div>
-                                    <h4>Danh sách đơn đã lưu</h4>
-                                    <p>Lọc, xem và xuất các đơn đã ghi nhận trong hệ thống.</p>
-                                </div>
-                            </div>
-
-                            <div class="orders-filter-grid">
-                                <input id="orders-search" type="search" class="border border-gray-300 rounded-xl px-3 py-2 text-sm" placeholder="Tìm mã đơn / khách hàng / số điện thoại">
-                                <select id="orders-status-filter" class="border border-gray-300 rounded-xl px-3 py-2 text-sm">
-                                    <option value="all">Tất cả trạng thái</option>
-                                    <option value="done">Thành công</option>
-                                    <option value="failed">Hoàn / Thất bại</option>
-                                </select>
-                                <input id="orders-start-date" type="date" class="border border-gray-300 rounded-xl px-3 py-2 text-sm">
-                                <input id="orders-end-date" type="date" class="border border-gray-300 rounded-xl px-3 py-2 text-sm">
-                                <select id="orders-shop-filter" class="border border-gray-300 rounded-xl px-3 py-2 text-sm">
-                                    <option value="">Tất cả shop</option>
-                                </select>
-                            </div>
-
-                            <div class="orders-summary-grid">
-                                <div class="orders-summary-card"><p>Tổng đơn</p><strong id="orders-total-count">0</strong></div>
-                                <div class="orders-summary-card"><p>Tổng COD</p><strong id="orders-total-cod">0đ</strong></div>
-                                <div class="orders-summary-card"><p>Đơn thành công</p><strong id="orders-success-count">0</strong></div>
-                                <div class="orders-summary-card"><p>Đơn hoàn/thất bại</p><strong id="orders-failed-count">0</strong></div>
-                            </div>
-
-                            <div class="overflow-x-auto">
-                                <table class="orders-table w-full text-sm">
-                                    <thead class="bg-white border-b text-xs text-gray-500">
-                                        <tr>
-                                            <th class="p-3 text-left">Mã đơn</th>
-                                            <th class="p-3 text-left">Khách hàng</th>
-                                            <th class="p-3 text-left">SĐT</th>
-                                            <th class="p-3 text-left">Shop</th>
-                                            <th class="p-3 text-left">Sản phẩm</th>
-                                            <th class="p-3 text-left">Ngày</th>
-                                            <th class="p-3 text-right">COD</th>
-                                            <th class="p-3 text-left">Trạng thái</th>
-                                        </tr>
-                                    </thead>
-                                    <tbody id="orders-table-body"></tbody>
-                                </table>
-                            </div>
                         </div>
                     </section>
 

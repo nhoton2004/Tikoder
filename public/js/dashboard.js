@@ -35,12 +35,6 @@
         const sidebarBackdrop = document.getElementById('sidebar-backdrop');
         const themeButtons = document.querySelectorAll('[data-theme-option]');
         const themeStatusLabel = document.getElementById('theme-status-label');
-        const ordersSearchInput = document.getElementById('orders-search');
-        const ordersStatusFilter = document.getElementById('orders-status-filter');
-        const ordersStartDate = document.getElementById('orders-start-date');
-        const ordersEndDate = document.getElementById('orders-end-date');
-        const ordersShopFilter = document.getElementById('orders-shop-filter');
-        const ordersTableBody = document.getElementById('orders-table-body');
         const userMenu = document.getElementById('user-menu');
         const userMenuTrigger = document.getElementById('user-bar');
         const userMenuDropdown = document.getElementById('user-menu-dropdown');
@@ -65,9 +59,6 @@
         let currentUserUid = '';
         let currentUserRole = 'user';
         let currentView = 'overview';
-        let ordersFilterTimer = null;
-        let ordersRefreshTimer = null;
-        let ordersPageData = [];
         const seenChatMsgIds = new Set();
         let mobilePopoverEl = null;
         let mobilePopoverHideTimer = null;
@@ -284,9 +275,6 @@
             if (userMenuRole) {
                 userMenuRole.textContent = currentUserRole ? `${currentLang === 'en' ? 'Role' : 'Vai trò'}: ${currentUserRole}` : '';
             }
-            if (currentView === 'orders') {
-                renderOrdersTable(ordersPageData);
-            }
             if (overviewData) {
                 renderOverview(overviewData, overviewComparison);
             }
@@ -392,28 +380,13 @@
             });
         }
 
-        function initOrdersPageFilters() {
-            const controls = [ordersSearchInput, ordersStatusFilter, ordersStartDate, ordersEndDate, ordersShopFilter].filter(Boolean);
-            controls.forEach(control => {
-                const eventName = control.tagName === 'SELECT' || control.type === 'date' ? 'change' : 'input';
-                control.addEventListener(eventName, () => {
-                    if (ordersFilterTimer) clearTimeout(ordersFilterTimer);
-                    ordersFilterTimer = setTimeout(() => {
-                        loadOrdersPageData();
-                    }, 220);
-                });
-            });
-        }
-
         const Sidebar = { init: initSidebar };
         const Topbar = { init: initUserAvatarMenu };
         const UserAvatarMenu = { close: () => setUserMenuOpen(false) };
-        const OrderTable = { refresh: () => loadOrdersPageData() };
 
         Sidebar.init();
         initTheme();
         Topbar.init();
-        initOrdersPageFilters();
 
         menuItems.forEach(btn => {
             btn.addEventListener('click', () => {
@@ -474,15 +447,42 @@
             if (chatCountEl) chatCountEl.textContent = `${commentCount} items`;
             renderCurrentOrders(totalOrders, totalRevenue);
             scheduleOverviewRefresh();
-            scheduleOrdersPageRefresh();
         }
 
-        function renderCurrentOrders(totalOrders = 0, totalRevenue = 0) {
-            const grid = document.getElementById('current-orders-grid');
-            const empty = document.getElementById('current-orders-empty');
-            const count = document.getElementById('live-orders-count');
-            if (!grid) return;
+        function updateLiveOrdersToggleLabel() {
+            const panel = document.getElementById('live-current-orders-panel');
+            const toggle = panel?.querySelector('[data-live-orders-toggle]');
+            const label = panel?.querySelector('[data-live-orders-toggle-label]');
+            const icon = toggle?.querySelector('.material-symbols-outlined');
+            if (!panel || !toggle) return;
+            const isCollapsed = panel.classList.contains('is-collapsed');
+            toggle.setAttribute('aria-expanded', isCollapsed ? 'false' : 'true');
+            toggle.setAttribute('title', isCollapsed
+                ? (currentLang === 'en' ? 'Show current orders' : 'Mở đơn đang chốt')
+                : (currentLang === 'en' ? 'Collapse current orders' : 'Thu gọn đơn đang chốt'));
+            if (label) {
+                label.textContent = isCollapsed
+                    ? (currentLang === 'en' ? 'Show' : 'Mở đơn')
+                    : (currentLang === 'en' ? 'Collapse' : 'Thu gọn');
+            }
+            if (icon) {
+                icon.textContent = isCollapsed ? 'keyboard_double_arrow_left' : 'keyboard_double_arrow_right';
+            }
+        }
 
+        window.toggleLiveOrdersPanel = () => {
+            const panel = document.getElementById('live-current-orders-panel');
+            const workspace = document.getElementById('section-live-workspace');
+            if (!panel) return;
+            const isCollapsed = panel.classList.toggle('is-collapsed');
+            if (workspace) {
+                workspace.classList.toggle('is-orders-collapsed', isCollapsed);
+            }
+            updateLiveOrdersToggleLabel();
+        };
+
+        function renderCurrentOrders(totalOrders = 0, totalRevenue = 0) {
+            const panels = Array.from(document.querySelectorAll('[data-current-orders-panel]'));
             const orders = Object.values(ordersData || {})
                 .map(order => ({
                     ...order,
@@ -490,24 +490,7 @@
                 }))
                 .filter(order => order.username);
 
-            if (count) {
-                count.textContent = `${totalOrders} đơn · ${formatMoney(totalRevenue)}`;
-            }
-
-            if (orders.length === 0) {
-                grid.innerHTML = '';
-                if (empty) {
-                    empty.hidden = false;
-                    empty.classList.remove('hidden');
-                }
-                return;
-            }
-
-            if (empty) {
-                empty.hidden = true;
-                empty.classList.add('hidden');
-            }
-            grid.innerHTML = orders.map(order => {
+            const ordersHtml = orders.map(order => {
                 const items = Array.isArray(order.items) ? order.items : [];
                 const username = normalizeTikTokUsername(order.username || order.customerUsername || '');
                 const usernameArg = escapeHtml(JSON.stringify(username));
@@ -561,6 +544,32 @@
                     </article>
                 `;
             }).join('');
+
+            panels.forEach(panel => {
+                const grid = panel.querySelector('[data-current-orders-grid]');
+                const empty = panel.querySelector('[data-current-orders-empty]');
+                const count = panel.querySelector('[data-current-orders-count]');
+                if (count) {
+                    count.textContent = `${totalOrders} đơn · ${formatMoney(totalRevenue)}`;
+                }
+                if (!grid) return;
+
+                if (orders.length === 0) {
+                    grid.innerHTML = '';
+                    if (empty) {
+                        empty.hidden = false;
+                        empty.classList.remove('hidden');
+                    }
+                    return;
+                }
+
+                if (empty) {
+                    empty.hidden = true;
+                    empty.classList.add('hidden');
+                }
+                grid.innerHTML = ordersHtml;
+            });
+            updateLiveOrdersToggleLabel();
         }
 
         function renderEmptyCommentState() {
@@ -704,12 +713,6 @@
             if (!parseDisplayDate(overviewStartInput.value) || !parseDisplayDate(overviewEndInput.value)) return;
             if (overviewRefreshTimer) clearTimeout(overviewRefreshTimer);
             overviewRefreshTimer = setTimeout(() => refreshOverviewData(false), 800);
-        }
-
-        function scheduleOrdersPageRefresh() {
-            if (currentView !== 'orders') return;
-            if (ordersRefreshTimer) clearTimeout(ordersRefreshTimer);
-            ordersRefreshTimer = setTimeout(() => loadOrdersPageData(false), 500);
         }
 
         function toLocalDate(value) {
@@ -1064,6 +1067,8 @@
 
         const LivePage = {
             refresh: () => {
+                const { totalOrders, totalRevenue } = getCurrentOrdersTotals();
+                renderCurrentOrders(totalOrders, totalRevenue);
                 refreshCommentUserTooltips();
                 renderEmptyCommentState();
             }
@@ -1072,7 +1077,6 @@
             refresh: () => {
                 const { totalOrders, totalRevenue } = getCurrentOrdersTotals();
                 renderCurrentOrders(totalOrders, totalRevenue);
-                OrderTable.refresh();
             }
         };
 
@@ -1524,7 +1528,6 @@
             activeBroadcasterId = '';
             if (chatFeed) chatFeed.textContent = '';
             if (customersTableBody) customersTableBody.textContent = '';
-            if (ordersTableBody) ordersTableBody.textContent = '';
             calculateKpis();
             renderEmptyCommentState();
             refreshCommentUserTooltips();
@@ -1715,119 +1718,6 @@
                 alert('Lỗi lấy khách từ lịch sử: ' + error.message);
             }
         };
-
-        function formatOrderStatus(status) {
-            if (status === 'done') {
-                return {
-                    label: currentLang === 'en' ? 'Done' : 'Thành công',
-                    className: 'bg-emerald-100 text-emerald-700'
-                };
-            }
-            if (status === 'failed') {
-                return {
-                    label: currentLang === 'en' ? 'Failed' : 'Hoàn/Thất bại',
-                    className: 'bg-rose-100 text-rose-700'
-                };
-            }
-            return {
-                label: currentLang === 'en' ? 'Pending' : 'Chờ xử lý',
-                className: 'bg-amber-100 text-amber-700'
-            };
-        }
-
-        function renderOrdersSummary(summary) {
-            const totalCountEl = document.getElementById('orders-total-count');
-            const totalCodEl = document.getElementById('orders-total-cod');
-            const successEl = document.getElementById('orders-success-count');
-            const failedEl = document.getElementById('orders-failed-count');
-            if (totalCountEl) totalCountEl.textContent = Number(summary?.totalOrders || 0);
-            if (totalCodEl) totalCodEl.textContent = formatMoney(Number(summary?.totalCod || 0));
-            if (successEl) successEl.textContent = Number(summary?.successOrders || 0);
-            if (failedEl) failedEl.textContent = Number(summary?.failedOrders || 0);
-        }
-
-        function renderOrdersShopOptions(shops = []) {
-            if (!ordersShopFilter) return;
-            const previous = ordersShopFilter.value || '';
-            ordersShopFilter.innerHTML = `<option value="">Tất cả shop</option>`;
-            shops.forEach(shop => {
-                const normalized = normalizeTikTokUsername(shop);
-                if (!normalized) return;
-                const option = document.createElement('option');
-                option.value = normalized;
-                option.textContent = `@${normalized}`;
-                ordersShopFilter.appendChild(option);
-            });
-            const hasPrevious = Array.from(ordersShopFilter.options).some(option => option.value === previous);
-            if (hasPrevious) {
-                ordersShopFilter.value = previous;
-            }
-        }
-
-        function renderOrdersTable(orders) {
-            if (!ordersTableBody) return;
-            ordersTableBody.textContent = '';
-            if (!Array.isArray(orders) || orders.length === 0) {
-                ordersTableBody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-gray-400">${currentLang === 'en' ? 'No orders found' : 'Không có đơn hàng phù hợp'}</td></tr>`;
-                return;
-            }
-
-            orders.forEach(order => {
-                const row = document.createElement('tr');
-                row.className = 'border-b';
-                const status = formatOrderStatus(order.status);
-                const customerLabel = buildCustomerLabel(order.customerName || '', order.customerUsername || '');
-                const createdAt = order.createdAt
-                    ? new Date(order.createdAt).toLocaleString('vi-VN', {
-                        year: 'numeric',
-                        month: '2-digit',
-                        day: '2-digit',
-                        hour: '2-digit',
-                        minute: '2-digit'
-                    })
-                    : '—';
-
-                row.innerHTML = `
-                    <td class="p-3 text-xs font-bold text-gray-700">${escapeHtml(order.orderId || '—')}</td>
-                    <td class="p-3">
-                        <p class="font-bold text-sm customer-display-name" title="${escapeHtml(customerLabel)}">${escapeHtml(customerLabel || '—')}</p>
-                    </td>
-                    <td class="p-3 text-xs">${escapeHtml(order.phone || '—')}</td>
-                    <td class="p-3 text-xs">${escapeHtml(order.shop ? `@${order.shop}` : '—')}</td>
-                    <td class="p-3 text-xs truncate max-w-[220px]" title="${escapeHtml(order.productName || '')}">${escapeHtml(order.productName || '—')}</td>
-                    <td class="p-3 text-xs">${escapeHtml(createdAt)}</td>
-                    <td class="p-3 text-sm text-right font-black text-red-600">${formatMoney(Number(order.total || 0))}</td>
-                    <td class="p-3 text-xs"><span class="px-2 py-1 rounded font-bold ${status.className}">${escapeHtml(status.label)}</span></td>
-                `;
-                ordersTableBody.appendChild(row);
-            });
-        }
-
-        async function loadOrdersPageData(showLoading = true) {
-            if (!ordersTableBody) return;
-            const params = new URLSearchParams({
-                q: ordersSearchInput?.value?.trim() || '',
-                status: ordersStatusFilter?.value || 'all',
-                shop: ordersShopFilter?.value || '',
-                start: ordersStartDate?.value || '',
-                end: ordersEndDate?.value || ''
-            });
-            if (showLoading) {
-                ordersTableBody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-gray-400">${currentLang === 'en' ? 'Loading...' : 'Đang tải...'}</td></tr>`;
-            }
-            try {
-                const res = await fetch(`/api/orders?${params.toString()}`);
-                const data = await res.json();
-                if (!res.ok) throw new Error(data.error || 'Load orders error');
-                ordersPageData = Array.isArray(data.orders) ? data.orders : [];
-                renderOrdersSummary(data.summary || {});
-                renderOrdersShopOptions(data.options?.shops || []);
-                renderOrdersTable(ordersPageData);
-            } catch (error) {
-                ordersTableBody.innerHTML = `<tr><td colspan="8" class="p-6 text-center text-red-500">${escapeHtml(error.message)}</td></tr>`;
-                renderOrdersSummary({});
-            }
-        }
 
         window.reprintItem = (username, itemId) => socket.emit('reprint-item', { username: normalizeTikTokUsername(username), itemId });
         window.reprintTotal = (username) => socket.emit('reprint-total', normalizeTikTokUsername(username));

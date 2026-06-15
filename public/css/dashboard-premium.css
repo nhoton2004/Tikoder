@@ -43,7 +43,6 @@ textarea {
 
 .panel,
 .kpi-card,
-.orders-summary-card,
 .settings-card,
 .settings-side-card,
 .customer-card,
@@ -168,7 +167,6 @@ button.bg-purple-600,
 
 .panel,
 .kpi-card,
-.orders-summary-card,
 .report-card,
 .customer-card,
 .settings-card,
@@ -183,9 +181,7 @@ button.bg-purple-600,
 .panel strong,
 .kpi-card p,
 .kpi-card .text-4xl,
-.kpi-card .text-2xl,
-.orders-summary-card strong,
-.orders-summary-card p {
+.kpi-card .text-2xl {
     color: #f5f8ff !important;
 }
 
@@ -193,9 +189,6 @@ button.bg-purple-600,
 .panel .text-gray-400,
 .panel .text-slate-500,
 .panel .text-xs,
-.orders-table thead,
-.orders-table td,
-.orders-table th,
 .customers-table thead,
 .customers-table td,
 .customers-table th {
@@ -203,9 +196,7 @@ button.bg-purple-600,
 }
 
 .panel .text-red-600,
-.panel .text-red-500,
-.orders-table .text-red-600,
-.orders-table .text-red-500 {
+.panel .text-red-500 {
     color: #ff9ab0 !important;
 }
 
@@ -237,8 +228,6 @@ textarea::placeholder {
     color: #b4c0de !important;
 }
 
-.orders-filter-grid input,
-.orders-filter-grid select,
 #customer-form input,
 #customer-form textarea {
     min-height: 42px;
@@ -273,22 +262,18 @@ textarea:disabled {
 /* =========================
    Data Tables
    ========================= */
-.orders-table thead,
 .customers-table thead {
     background: rgba(255, 255, 255, 0.06) !important;
 }
 
-.orders-table tr,
 .customers-table tr {
     border-color: rgba(255, 255, 255, 0.12) !important;
 }
 
-.orders-table tbody tr:hover,
 .customers-table tbody tr:hover {
     background: rgba(255, 255, 255, 0.05) !important;
 }
 
-.orders-table td:nth-child(5),
 .customers-table td:nth-child(4) {
     white-space: normal;
     word-break: break-word;
@@ -493,7 +478,6 @@ textarea:disabled {
 @media (prefers-reduced-motion: no-preference) {
     .panel,
     .kpi-card,
-    .orders-summary-card,
     .menu-item,
     .topbar,
     .sidebar {
@@ -549,14 +533,9 @@ textarea:disabled {
 
     .panel,
     .kpi-card,
-    .orders-summary-card,
     .settings-card,
     .settings-side-card {
         border-radius: 16px !important;
-    }
-
-    .orders-filter-grid {
-        grid-template-columns: 1fr !important;
     }
 }
 
@@ -575,7 +554,6 @@ textarea:disabled {
 @media (prefers-reduced-motion: reduce) {
     .panel,
     .kpi-card,
-    .orders-summary-card,
     .menu-item,
     .topbar,
     .sidebar {
@@ -653,7 +631,6 @@ textarea:disabled {
 
 [data-theme="light"] .panel,
 [data-theme="light"] .kpi-card,
-[data-theme="light"] .orders-summary-card,
 [data-theme="light"] .report-card,
 [data-theme="light"] .customer-card,
 [data-theme="light"] .settings-card,
@@ -668,9 +645,7 @@ textarea:disabled {
 [data-theme="light"] .panel strong,
 [data-theme="light"] .kpi-card p,
 [data-theme="light"] .kpi-card .text-4xl,
-[data-theme="light"] .kpi-card .text-2xl,
-[data-theme="light"] .orders-summary-card strong,
-[data-theme="light"] .orders-summary-card p {
+[data-theme="light"] .kpi-card .text-2xl {
     color: #0f172a !important;
 }
 
@@ -678,9 +653,6 @@ textarea:disabled {
 [data-theme="light"] .panel .text-gray-400,
 [data-theme="light"] .panel .text-slate-500,
 [data-theme="light"] .panel .text-xs,
-[data-theme="light"] .orders-table thead,
-[data-theme="light"] .orders-table td,
-[data-theme="light"] .orders-table th,
 [data-theme="light"] .customers-table thead,
 [data-theme="light"] .customers-table td,
 [data-theme="light"] .customers-table th {
@@ -688,23 +660,18 @@ textarea:disabled {
 }
 
 [data-theme="light"] .panel .text-red-600,
-[data-theme="light"] .panel .text-red-500,
-[data-theme="light"] .orders-table .text-red-600,
-[data-theme="light"] .orders-table .text-red-500 {
+[data-theme="light"] .panel .text-red-500 {
     color: #dc2626 !important;
 }
 
-[data-theme="light"] .orders-table thead,
 [data-theme="light"] .customers-table thead {
     background: rgba(255, 255, 255, 0.85) !important;
 }
 
-[data-theme="light"] .orders-table tr,
 [data-theme="light"] .customers-table tr {
     border-color: rgba(15, 23, 42, 0.1) !important;
 }
 
-[data-theme="light"] .orders-table tbody tr:hover,
 [data-theme="light"] .customers-table tbody tr:hover {
     background: rgba(15, 23, 42, 0.03) !important;
 }
@@ -2137,7 +2104,6 @@ body[data-view="live"] .content-area {
 .kpi-card,
 [data-theme="light"] .kpi-card,
 [data-theme="dark"] .kpi-card,
-.orders-summary-card,
 .settings-card,
 .settings-side-card,
 .customer-card,
@@ -2157,8 +2123,6 @@ body[data-view="live"] .content-area {
 .kpi-card p,
 .kpi-card .text-4xl,
 .kpi-card .text-2xl,
-.orders-summary-card strong,
-.orders-summary-card p,
 [data-theme="dark"] .panel h2,
 [data-theme="dark"] .panel h3,
 [data-theme="dark"] .panel strong,
@@ -2172,9 +2136,6 @@ body[data-view="live"] .content-area {
 .panel .text-gray-400,
 .panel .text-slate-500,
 .panel .text-xs,
-.orders-table thead,
-.orders-table td,
-.orders-table th,
 .customers-table thead,
 .customers-table td,
 .customers-table th,
@@ -2306,7 +2267,6 @@ button.bg-red-500,
 }
 
 .overview-latest-cards,
-.orders-table,
 .customers-table {
     color: #344054 !important;
 }
@@ -2473,5 +2433,128 @@ body[data-view="live"] .live-stat span {
     .overview-insight-grid,
     .overview-mini-metrics {
         grid-template-columns: 1fr !important;
+    }
+}
+
+body[data-view="live"] .live-workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(320px, 0.42fr) !important;
+    align-items: start;
+}
+
+body[data-view="live"] .live-workspace.is-orders-collapsed {
+    grid-template-columns: minmax(0, 1fr) minmax(190px, 220px) !important;
+}
+
+.live-panel-actions {
+    display: inline-flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    min-width: 0;
+}
+
+.live-orders-toggle {
+    min-height: 26px;
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border: 0;
+    border-radius: 7px;
+    background: #f3f4f6;
+    color: #28313c;
+    padding: 0 9px;
+    font-size: 11px;
+    font-weight: 950;
+    white-space: nowrap;
+    cursor: pointer;
+}
+
+.live-orders-toggle .material-symbols-outlined {
+    font-size: 16px;
+}
+
+body[data-view="live"] .live-current-orders-panel.is-collapsed {
+    height: auto !important;
+    min-height: 42px !important;
+}
+
+body[data-view="live"] .live-current-orders-panel.is-collapsed .live-orders-empty,
+body[data-view="live"] .live-current-orders-panel.is-collapsed .live-orders-grid {
+    display: none !important;
+}
+
+body[data-view="live"] .live-current-orders-panel.is-collapsed .live-panel-head {
+    border-bottom: 0;
+}
+
+body[data-view="live"] .live-current-orders-panel.is-collapsed .live-panel-head h3 {
+    max-width: 0;
+    overflow: hidden;
+    opacity: 0;
+}
+
+body[data-view="live"] .live-current-orders-panel.is-collapsed .live-panel-actions {
+    width: 100%;
+}
+
+body[data-view="live"] .live-current-orders-panel.is-collapsed .live-count-pill {
+    flex: 1 1 auto;
+    justify-content: center;
+    text-align: center;
+}
+
+body[data-view="live"] .live-current-orders-panel.is-collapsed .live-orders-toggle {
+    flex: 0 0 auto;
+}
+
+body[data-view="live"] .live-current-orders-panel .live-orders-toggle {
+    background: #f3f4f6 !important;
+    color: #28313c !important;
+}
+
+body[data-view="live"] .live-current-orders-panel .live-orders-grid {
+    flex: 1 1 auto;
+    min-height: 0;
+}
+
+body[data-view="live"] .live-current-orders-panel .live-count-pill {
+    display: inline-flex;
+    align-items: center;
+}
+
+@media (max-width: 1180px) {
+    body[data-view="live"] .live-workspace,
+    body[data-view="live"] .live-workspace.is-orders-collapsed {
+        grid-template-columns: 1fr !important;
+    }
+
+    body[data-view="live"] .live-current-orders-panel {
+        min-height: 260px;
+    }
+
+    body[data-view="live"] .live-current-orders-panel.is-collapsed .live-panel-head h3 {
+        max-width: none;
+        opacity: 1;
+    }
+}
+
+@media (max-width: 620px) {
+    .live-panel-actions {
+        flex-wrap: wrap;
+    }
+
+    body[data-view="live"] .live-current-orders-panel {
+        min-height: 220px;
+    }
+
+    body[data-view="live"] .live-current-orders-panel .live-panel-head {
+        align-items: flex-start;
+        flex-direction: column;
+        padding: 10px 12px;
+    }
+
+    body[data-view="live"] .live-current-orders-panel.is-collapsed .live-panel-head {
+        align-items: center;
+        flex-direction: row;
     }
 }
