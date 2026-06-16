@@ -1,0 +1,113 @@
+/**
+ * Responsive Layout — Tối ưu cho Mobile & Tablet
+ */
+
+/* Mobile Navigation - Gọn gàng hơn */
+@media (max-width: 767px) {
+    /* Mobile Header (hamburger) */
+    .mobile-header { display: flex; }
+    
+    .mobile-bottom-nav {
+        padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
+        gap: 2px;
+    }
+    
+    .mobile-nav-item {
+        min-height: 44px;
+        font-size: 9px;
+        border-radius: 8px;
+    }
+    
+    .mobile-nav-item span:first-child {
+        font-size: 15px;
+        line-height: 16px;
+    }
+    
+    /* Mobile Sidebar - Drawer */
+    #app-sidebar {
+        position: fixed !important;
+        left: -280px;
+        top: 0;
+        bottom: 0;
+        width: 280px;
+        transition: left 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+        z-index: 100;
+        box-shadow: 10px 0 30px rgba(0,0,0,0.1);
+        background: white !important;
+    }
+    
+    #app-sidebar.open {
+        left: 0;
+    }
+
+    /* Ép App Shell full width mobile */
+    .app-shell {
+        display: block !important;
+        padding: 0 !important;
+    }
+
+    .main-wrap, .app-shell-main {
+        margin-left: 0 !important;
+        padding: 0 !important;
+    }
+    
+    .dashboard-section {
+        padding: 12px !important;
+        width: 100% !important;
+    }
+
+    /* Touch-friendly buttons */
+    button, .menu-item, .order-action-btn {
+        min-height: 44px;
+        min-width: 44px;
+    }
+    
+    .chat-row {
+        padding: 16px;
+    }
+    
+    .order-item-actions {
+        display: flex;
+        gap: 8px;
+        padding-top: 8px;
+    }
+    
+    .order-item-actions button {
+        flex: 1;
+        justify-content: center;
+        background: #f3f4f6;
+        border-radius: 8px;
+    }
+}
+
+/* Tablet: Sidebar thu gọn (Mini Mode) */
+@media (min-width: 768px) and (max-width: 1023px) {
+    #app-sidebar:not(.open) {
+        width: 72px;
+    }
+    #app-sidebar:not(.open) .sidebar-text {
+        display: none;
+    }
+    #app-sidebar:not(.open) .sidebar-item {
+        justify-content: center;
+        padding: 12px 0;
+    }
+    #app-sidebar:not(.open) .logo-container {
+        justify-content: center;
+    }
+}
+
+/* Desktop: Đảm bảo sidebar hiển thị bình thường */
+@media (min-width: 1024px) {
+    .mobile-header { display: none !important; }
+}
+
+/* Shared Styles */
+.mobile-header {
+    display: none;
+    height: 56px;
+    align-items: center;
+    padding: 0 16px;
+    background: var(--bg-main);
+    border-bottom: 1px solid var(--border-base);
+}

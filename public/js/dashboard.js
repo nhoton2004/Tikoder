@@ -313,8 +313,13 @@
         }
 
         function setSidebarDrawerOpen(open) {
-            document.body.classList.toggle('sidebar-drawer-open', Boolean(open));
-            if (sidebarBackdrop) sidebarBackdrop.hidden = !open;
+            const sidebar = document.getElementById('app-sidebar');
+            const backdrop = document.getElementById('sidebar-backdrop');
+            if (sidebar) sidebar.classList.toggle('open', Boolean(open));
+            if (backdrop) {
+                backdrop.classList.toggle('active', Boolean(open));
+                backdrop.hidden = !open;
+            }
             if (sidebarMobileToggle) sidebarMobileToggle.setAttribute('aria-expanded', open ? 'true' : 'false');
         }
 
@@ -328,8 +333,20 @@
                 }
                 setSidebarCollapsed(localStorage.getItem('sidebarCollapsed') !== 'true');
             });
-            sidebarMobileToggle?.addEventListener('click', () => setSidebarDrawerOpen(!document.body.classList.contains('sidebar-drawer-open')));
+            sidebarMobileToggle?.addEventListener('click', () => {
+                const sidebar = document.getElementById('app-sidebar');
+                setSidebarDrawerOpen(!sidebar.classList.contains('open'));
+            });
             sidebarBackdrop?.addEventListener('click', () => setSidebarDrawerOpen(false));
+            
+            // Mobile header menu toggle
+            const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
+            if (mobileMenuToggle) {
+                mobileMenuToggle.addEventListener('click', () => {
+                    setSidebarDrawerOpen(true);
+                });
+            }
+            
             window.addEventListener('resize', () => {
                 if (!isMobileLayout()) setSidebarDrawerOpen(false);
             });
@@ -835,8 +852,7 @@
             renderOverviewInlineEmpty(!hasData);
             topShopStats = Array.isArray(data.topShops) ? data.topShops : [];
             renderOverviewChart('overview-trend-chart', data.daily || [], totalRevenue > 0 ? 'revenue' : 'orders');
-            renderOverviewChart('overview-orders-chart', data.daily || [], 'orders');
-            renderOverviewChart('overview-revenue-chart', data.daily || [], 'revenue');
+            renderOverviewChart('overview-hourly-chart', data.hourly || [], 'revenue');
             renderOverviewTopShops();
             renderOverviewLatestOrders();
         }
@@ -893,25 +909,54 @@
             }
         }
 
-        function renderOverviewChart(containerId, daily, metric) {
+        function renderOverviewChart(containerId, data, metric) {
             const container = document.getElementById(containerId);
             if (!container) return;
-            const values = daily.map(d => Number(d[metric] || 0));
+            
+            const values = data.map(d => Number(d[metric] || 0));
             const maxValue = Math.max(...values, 0);
-            if (!daily.length || maxValue === 0) {
+            
+            if (!data.length || maxValue === 0) {
                 container.innerHTML = `<div class="h-full flex items-center justify-center text-sm text-gray-400">${currentLang === 'en' ? 'No data in this range' : 'Không có dữ liệu trong khoảng này'}</div>`;
                 return;
             }
+
+            container.innerHTML = `
+                <div class="overview-bars">
+                    ${data.map(d => {
+                        const value = Number(d[metric] || 0);
+                        const height = Math.max(6, Math.round((value / maxValue) * 100));
+                        const label = (metric === 'revenue' || d.hour !== undefined) ? formatMoney(value) : value;
+                        const dateLabel = d.hour !== undefined ? `${d.hour}h` : d.date.slice(5);
+                        return `
+                            <div class="overview-bar" title="${d.hour !== undefined ? d.hour + 'h' : d.date}: ${label}">
+                                <div class="overview-bar-value" style="height:${height}%"></div>
+                                <span class="text-[9px]">${dateLabel}</span>
+                            </div>
+                        `;
+                    }).join('')}
+                </div>
+            `;
+        }
+
+        function renderOverviewConversionChart(containerId, daily) {
+            const container = document.getElementById(containerId);
+            if (!container) return;
+
+            if (!daily || daily.length === 0) {
+                container.innerHTML = `<div class="h-full flex items-center justify-center text-sm text-gray-400">${currentLang === 'en' ? 'No data' : 'Chưa có dữ liệu'}</div>`;
+                return;
+            }
+
             container.innerHTML = `
                 <div class="overview-bars">
                     ${daily.map(d => {
-                        const value = Number(d[metric] || 0);
-                        const height = Math.max(6, Math.round((value / maxValue) * 100));
-                        const label = metric === 'revenue' ? formatMoney(value) : value;
+                        const convRate = d.comments > 0 ? (d.orders / d.comments) * 100 : 0;
+                        const height = Math.max(6, Math.min(100, Math.round(convRate)));
                         return `
-                            <div class="overview-bar" title="${d.date}: ${label}">
-                                <div class="overview-bar-value" style="height:${height}%"></div>
-                                <span>${d.date.slice(5)}</span>
+                            <div class="overview-bar" title="${d.date}: ${convRate.toFixed(1)}%">
+                                <div class="overview-bar-value bg-rose-500" style="height:${height}%"></div>
+                                <span class="text-[9px]">${d.date.slice(5)}</span>
                             </div>
                         `;
                     }).join('')}
@@ -1377,6 +1422,28 @@
         socket.on('raw-chat', (data) => {
             if (activeBroadcasterId && data.broadcasterId && data.broadcasterId !== activeBroadcasterId) return;
             renderChatRow(data);
+        });
+
+        socket.on('debt-alert', (data) => {
+            const existing = document.getElementById('debt-toast-container');
+            if (existing) existing.remove();
+
+            const toast = document.createElement('div');
+            toast.id = 'debt-toast-container';
+            toast.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:9999;';
+            toast.innerHTML = `
+                <div class="debt-toast">
+                    <span style="font-size:16px;">💸</span>
+                    <span style="font-weight:600;">${data.message}</span>
+                    <button onclick="this.closest('#debt-toast-container').remove()" style="background:none;border:none;color:rgba(255,255,255,0.6);cursor:pointer;font-size:16px;padding:0 4px;">✕</button>
+                </div>`;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                const el = document.getElementById('debt-toast-container');
+                if (el) el.style.opacity = '0';
+                if (el) el.style.transform = 'translateX(-50%) translateY(-10px)';
+                setTimeout(() => el?.remove(), 300);
+            }, 6000);
         });
 
         socket.on('chat-buffer', (payload) => {

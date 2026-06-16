@@ -16,10 +16,25 @@
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/css/dashboard.css">
     <link rel="stylesheet" href="/css/dashboard-premium.css">
+    <link rel="stylesheet" href="/css/dashboard-pro.css">
+    <link rel="stylesheet" href="/css/responsive-layout.css">
 </head>
 <body>
     <div id="sidebar-backdrop" class="sidebar-backdrop no-print" hidden></div>
-    <div class="app-shell">
+
+<!-- Mobile Header -->
+<div class="mobile-header md:hidden">
+    <button id="mobile-menu-toggle" class="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+    <div class="font-bold text-lg ml-3">TikTok Order</div>
+    <div class="flex-1"></div>
+    <button id="mobile-connect-btn" class="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 hidden">
+        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
+    </button>
+</div>
+
+<div class="app-shell">
         <aside id="app-sidebar" class="sidebar no-print" aria-label="Điều hướng chính">
             <div class="brand-lockup">
                 <div class="brand-mark">TO</div>
@@ -110,7 +125,7 @@
                                     <p id="overview-insight-text" class="overview-insight-text">Đang tổng hợp dữ liệu...</p>
                                     <p id="overview-insight-delta" class="overview-insight-delta">—</p>
 
-                                    <div id="overview-mini-metrics" class="overview-mini-metrics">
+                                    <div id="overview-mini-metrics" class="overview-mini-metrics grid grid-cols-2 md:grid-cols-3 gap-3">
                                         <div class="overview-mini-card">
                                             <p class="overview-mini-label" data-i18n="ov.orders">Đơn đã chốt</p>
                                             <p class="overview-mini-value" id="ov-orders">0</p>
@@ -156,12 +171,8 @@
 
                         <div class="overview-split-grid overview-chart-grid grid grid-cols-1 xl:grid-cols-2 gap-3">
                             <div class="panel p-4 bento-chart bento-chart-orders">
-                                <h3 class="font-black text-2xl mb-2" data-i18n="ov.orders7d">Đơn hàng 7 ngày gần đây</h3>
-                                <div id="overview-orders-chart" class="overview-chart h-[220px]"></div>
-                            </div>
-                            <div class="panel p-4 bento-chart bento-chart-revenue">
-                                <h3 class="font-black text-2xl mb-2" data-i18n="ov.revenue7d">Doanh thu 7 ngày gần đây</h3>
-                                <div id="overview-revenue-chart" class="overview-chart h-[220px]"></div>
+                                <h3 class="font-black text-2xl mb-2">Doanh thu theo giờ</h3>
+                                <div id="overview-hourly-chart" class="overview-chart h-[220px]"></div>
                             </div>
                         </div>
 
@@ -574,6 +585,7 @@
         </div>
     </div>
 
+    <script src="/js/mobile-gestures.js"></script>
     <script src="/js/dashboard.js"></script>
 </body>
 </html>

@@ -9,11 +9,15 @@ const fs = require('fs');
 const { ThermalPrinter, PrinterTypes, CharacterSet } = require("node-thermal-printer");
 const admin = require('firebase-admin');
 const session = require('express-session');
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+
 const liveSessionStore = require('./utils/liveSessionStore');
 const customerStore = require('./utils/customerStore');
 const orderExcelExporter = require('./utils/orderExcelExporter');
 const { cleanDisplayText, normalizeDisplayName, normalizeDisplayText } = require('./utils/displayName');
 const adminRoutes = require('./routes/admin');
+const debtRoutes = require('./routes/debts');
 
 // DEV ONLY: Bật để bỏ qua đăng nhập Firebase trong môi trường local/dev.
 // SECURITY: NEVER enable in production. Must be explicitly set AND in development environment.
@@ -47,6 +51,20 @@ try {
 }
 
 const app = express();
+
+// SECURITY: Helmet helps secure Express apps by setting various HTTP headers
+app.use(helmet({
+    contentSecurityPolicy: false, // Tắt CSP nếu bro có dùng nhiều inline scripts hoặc external resources linh tinh
+}));
+
+// SECURITY: Rate Limiting
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 200, // limit each IP to 200 requests per windowMs
+    message: { error: 'Quá nhiều yêu cầu từ IP này, vui lòng thử lại sau 15 phút' }
+});
+app.use('/api/', limiter);
+
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
@@ -819,6 +837,7 @@ app.get('/admin', (req, res) => {
 });
 
 app.use('/api/admin', adminRoutes);
+app.use('/api/debts', debtRoutes);
 app.get('/app', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'app.html'));
 });
@@ -1115,17 +1134,28 @@ async function printDetailedBill(order, userId) {
 }
 
 function parsePrice(text) {
-    const regexWithUnit = /(\d+(?:\.\d+)?)\s*(k|ngàn|n|đ|vnd|vnđ)/gi;
-    let match = regexWithUnit.exec(text);
+    if (!text) return 0;
+    // Chuẩn hóa: xóa dấu chấm phân cách hàng ngàn phổ biến ở VN (ví dụ: 100.000 -> 100000)
+    // Nhưng cẩn thận với số thập phân, thường trong chốt đơn ít dùng thập phân.
+    let cleanText = text.replace(/(\d+)\.(\d{3})\b/g, '$1$2'); 
+    
+    const regexWithUnit = /(\d+(?:[.,]\d+)?)\s*(k|ngàn|n|đ|vnd|vnđ)/gi;
+    let match = regexWithUnit.exec(cleanText);
     if (match) {
-        let value = parseFloat(match[1].replace(/,/g, ''));
+        let value = parseFloat(match[1].replace(/,/g, '.')); // Chuyển dấu phẩy thành chấm nếu có
         let unit = match[2].toLowerCase();
         if (['k', 'n', 'ngàn'].includes(unit)) value *= 1000;
         return value;
     }
+
+    // Nếu không có đơn vị, tìm số cuối cùng (thường là giá)
     const regexPureNumber = /\b(\d+)\b/g;
-    let pureMatch; let lastNumber = 0;
-    while ((pureMatch = regexPureNumber.exec(text)) !== null) { lastNumber = parseFloat(pureMatch[1]); }
+    let pureMatch; 
+    let lastNumber = 0;
+    while ((pureMatch = regexPureNumber.exec(cleanText)) !== null) { 
+        lastNumber = parseFloat(pureMatch[1]); 
+    }
+    
     if (lastNumber > 0 && lastNumber < 1000) return lastNumber * 1000;
     if (lastNumber >= 1000) return lastNumber;
     return 0;
@@ -1830,7 +1860,10 @@ function buildOverviewDataset(currentUser, range) {
     const closeRate = comments > 0 ? Math.min(99.9, (currentLiveOrderCount / comments) * 100) : 0;
 
     const topCustomerMap = {};
+    const hourlyMap = {};
+    
     rows.forEach(row => {
+        // Top customers
         const customerKey = row.customerUsername || row.customer || 'unknown';
         if (!topCustomerMap[customerKey]) {
             topCustomerMap[customerKey] = {
@@ -1842,7 +1875,43 @@ function buildOverviewDataset(currentUser, range) {
         }
         topCustomerMap[customerKey].orders += 1;
         topCustomerMap[customerKey].revenue += Number(row.value || 0);
+
+        // Hourly stats
+        let hour = null;
+        if (row.timestamp) {
+            const d = new Date(row.timestamp);
+            if (!isNaN(d.getTime())) {
+                // row.timestamp là epoch ms (UTC+7)
+                // d.getUTCHours() sẽ trả về UTC. +7 để ra VN
+                hour = d.getUTCHours() + 7;
+                if (hour >= 24) hour -= 24;
+            }
+        } else if (row.time) {
+            const match = row.time.match(/^(\d{1,2}):/);
+            if (match) hour = parseInt(match[1], 10);
+        }
+
+        if (hour !== null) {
+            if (!hourlyMap[hour]) {
+                hourlyMap[hour] = { hour, revenue: 0, orders: 0 };
+            }
+            hourlyMap[hour].revenue += Number(row.value || 0);
+            hourlyMap[hour].orders += 1;
+        }
     });
+
+    // Build hourly array (24h)
+    const hourly = [];
+    for (let h = 0; h < 24; h++) {
+        if (hourlyMap[h]) {
+            hourly.push(hourlyMap[h]);
+        }
+    }
+
+    // Build top products array
+    const topProducts = Object.values(productMap)
+        .sort((a, b) => b.qty - a.qty)
+        .slice(0, 5);
 
     return {
         summary: {
@@ -1855,6 +1924,7 @@ function buildOverviewDataset(currentUser, range) {
             closeRate
         },
         daily: buildDailyOverview(rows, range),
+        hourly,
         topShops: Object.values(topCustomerMap)
             .sort((a, b) => b.revenue - a.revenue)
             .slice(0, 5),
@@ -2043,260 +2113,37 @@ function toExcelXml(rows) {
 </Workbook>`;
 }
 
-io.on('connection', (socket) => {
-    const sessionUser = socket.request.session?.user;
-    const userId = sessionUser?.uid;
-    const includeSharedLegacy = isAdminOrSuperAdmin(sessionUser);
-    if (!userId) {
-        socket.disconnect(true);
-        return;
-    }
+const { getDb, migrateFromJson } = require('./utils/db');
+const { setupLiveHandler } = require('./sockets/liveHandler');
 
-    const userRoom = getUserRoom(userId);
-    const runtime = getLiveRuntime(userId);
-    runtime.sockets.add(socket.id);
-    socket.join(userRoom);
-
-    socket.emit('system-config', { printerInterface, tiktokSignApiKey });
-
-    socket.on('disconnect', () => {
-        runtime.sockets.delete(socket.id);
-        if (runtime.sockets.size === 0 && runtime.tiktokConnection) {
-            try { runtime.tiktokConnection.disconnect(); } catch (e) {}
-            runtime.tiktokConnection = null;
-        }
-    });
-
-    socket.on('update-settings', (data) => {
-        if (data.printerInterface !== undefined) {
-            initPrinter(data.printerInterface);
-        }
-        if (data.tiktokSignApiKey !== undefined) {
-            tiktokSignApiKey = data.tiktokSignApiKey;
-            SignConfig.apiKey = tiktokSignApiKey;
-            saveConfig();
-        }
-        socket.emit('system-status', "Đã cập nhật cấu hình hệ thống!");
-    });
-
-    socket.on('get-chat-buffer', ({ broadcasterId } = {}) => {
-        const id = customerStore.normalizeTikTokUsername(broadcasterId);
-        if (!id) return socket.emit('chat-buffer', { broadcasterId: '', comments: [] });
-        const comments = runtime.chatBufferByBroadcaster.get(id) || [];
-        socket.emit('chat-buffer', { broadcasterId: id, comments });
-    });
-
-    socket.on('start-live', (uniqueId) => {
-        const broadcasterId = customerStore.normalizeTikTokUsername(uniqueId);
-        if (!broadcasterId) {
-            return socket.emit('status', { connected: false, error: 'TikTok ID không hợp lệ', broadcasterId: '' });
-        }
-
-        if (runtime.tiktokConnection) {
-            try { runtime.tiktokConnection.disconnect(); } catch (e) {}
-            runtime.tiktokConnection = null;
-        }
-
-        runtime.currentBroadcasterId = broadcasterId;
-        runtime.processedMsgIds.clear();
-
-        const fileName = getSessionFileName(userId, broadcasterId);
-        if (fs.existsSync(fileName)) {
-            runtime.confirmedOrders = sanitizeConfirmedOrders(JSON.parse(fs.readFileSync(fileName)));
-        } else {
-            runtime.confirmedOrders = {};
-        }
-        emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
-
-        const userConnection = new WebcastPushConnection(broadcasterId);
-        runtime.tiktokConnection = userConnection;
-
-        userConnection.connect().then(state => {
-            if (runtime.tiktokConnection !== userConnection) return;
-            emitToUser(userId, 'status', { connected: true, roomId: state.roomId, broadcasterId });
-        }).catch(err => {
-            if (runtime.tiktokConnection !== userConnection) return;
-            console.error(`TikTok Connection Error [${userId}]:`, err);
-            let errorMessage = "Lỗi không xác định";
-
-            if (err && (err.name === 'SignatureRateLimitError' || (err.message && err.message.includes('rate_limit')))) {
-                errorMessage = "Đại ca ơi, TikTok nó chặn rồi (Rate Limit)! Đợi xíu tầm 1-2 phút rồi thử lại nhé. Hoặc Đại ca nạp API Key của EulerStream vào phần cài đặt cho nó mượt!";
-            } else if (err && err.message && err.message.includes('Unexpected server response: 200')) {
-                errorMessage = "Kết nối bị từ chối (200). Đại ca thử lại phát nữa xem, hoặc kiểm tra xem ID TikTok đúng chưa nhé!";
-            } else {
-                errorMessage = (err && err.message) ? err.message : (err ? err.toString() : "Lỗi kết nối TikTok");
-            }
-
-            emitToUser(userId, 'status', { connected: false, error: errorMessage, broadcasterId });
-        });
-
-        userConnection.on('chat', (data) => {
-            if (runtime.tiktokConnection !== userConnection) return;
-            if (runtime.processedMsgIds.has(data.msgId)) return;
-            runtime.processedMsgIds.add(data.msgId);
-            setTimeout(() => runtime.processedMsgIds.delete(data.msgId), 120000);
-
-            const commenterUsername = customerStore.normalizeTikTokUsername(data.uniqueId || data.username || '');
-            const nickname = cleanDisplayText(data.nickname || data.displayName || '');
-            const commentText = normalizeDisplayText(data.comment || '');
-            const chatPayload = {
-                ...data,
-                broadcasterId,
-                uniqueId: commenterUsername || normalizeDisplayText(data.uniqueId || data.username || ''),
-                username: commenterUsername || normalizeDisplayText(data.username || data.uniqueId || ''),
-                nickname,
-                comment: commentText,
-                msgId: data.msgId || `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                suggestedPrice: parsePrice(commentText),
-                timestamp: Date.now()
-            };
-
-            const currentBuffer = runtime.chatBufferByBroadcaster.get(broadcasterId) || [];
-            currentBuffer.push(chatPayload);
-            if (currentBuffer.length > CHAT_BUFFER_LIMIT) {
-                currentBuffer.splice(0, currentBuffer.length - CHAT_BUFFER_LIMIT);
-            }
-            runtime.chatBufferByBroadcaster.set(broadcasterId, currentBuffer);
-
-            emitToUser(userId, 'raw-chat', chatPayload);
-        });
-    });
-
-    socket.on('confirm-item', (data) => {
-        const username = customerStore.normalizeTikTokUsername(data.uniqueId || data.username || '');
-        if (!username) return;
-        const nickname = cleanDisplayText(data.nickname || data.displayName || '') || displayFallbackFromUsername(username) || username;
-        const profilePictureUrl = normalizeDisplayText(data.profilePictureUrl || '');
-        const comment = normalizeDisplayText(data.comment || '');
-        const price = Number(data.price || 0);
-        if (!runtime.confirmedOrders[username]) {
-            runtime.confirmedOrders[username] = { username, nickname, profilePictureUrl, items: [], total: 0 };
-        }
-        const newItem = { id: Date.now() + Math.random(), text: comment, price, time: new Date().toLocaleTimeString('vi-VN') };
-        runtime.confirmedOrders[username].items.push(newItem);
-        runtime.confirmedOrders[username].total += price;
-        saveSessionDataForUser(userId);
-        emitToUser(userId, 'order-confirmed', runtime.confirmedOrders[username]);
-        printBill(newItem, runtime.confirmedOrders[username], userId);
-    });
-
-    socket.on('replace-confirmed-orders', (payload = {}) => {
-        runtime.confirmedOrders = sanitizeConfirmedOrders(payload.orders || {});
-        const broadcasterId = customerStore.normalizeTikTokUsername(payload.broadcasterId || '');
-        if (broadcasterId) {
-            runtime.currentBroadcasterId = broadcasterId;
-            saveSessionDataForUser(userId);
-        }
-        emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
-    });
-
-    socket.on('delete-customer', (username) => {
-        const normalizedUsername = customerStore.normalizeTikTokUsername(username);
-        if (runtime.confirmedOrders[normalizedUsername]) {
-            delete runtime.confirmedOrders[normalizedUsername];
-            saveSessionDataForUser(userId);
-            emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
-        }
-    });
-
-    socket.on('delete-item', ({ username, itemId }) => {
-        const normalizedUsername = customerStore.normalizeTikTokUsername(username);
-        if (runtime.confirmedOrders[normalizedUsername]) {
-            const index = runtime.confirmedOrders[normalizedUsername].items.findIndex(i => i.id === itemId);
-            if (index > -1) {
-                runtime.confirmedOrders[normalizedUsername].total -= runtime.confirmedOrders[normalizedUsername].items[index].price;
-                runtime.confirmedOrders[normalizedUsername].items.splice(index, 1);
-                if (runtime.confirmedOrders[normalizedUsername].items.length === 0) delete runtime.confirmedOrders[normalizedUsername];
-                saveSessionDataForUser(userId);
-                emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
-            }
-        }
-    });
-
-    socket.on('edit-item', ({ username, itemId, text, price }) => {
-        const normalizedUsername = customerStore.normalizeTikTokUsername(username);
-        if (runtime.confirmedOrders[normalizedUsername]) {
-            const item = runtime.confirmedOrders[normalizedUsername].items.find(i => i.id === itemId);
-            if (item) {
-                const newPrice = Number(price);
-                runtime.confirmedOrders[normalizedUsername].total = runtime.confirmedOrders[normalizedUsername].total - Number(item.price || 0) + (Number.isFinite(newPrice) ? newPrice : Number(item.price || 0));
-                item.text = normalizeDisplayText(text || item.text || '');
-                if (Number.isFinite(newPrice)) item.price = newPrice;
-                saveSessionDataForUser(userId);
-                emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
-            }
-        }
-    });
-
-    socket.on('edit-item-price', ({ username, itemId, newPrice }) => {
-        const normalizedUsername = customerStore.normalizeTikTokUsername(username);
-        if (runtime.confirmedOrders[normalizedUsername]) {
-            const item = runtime.confirmedOrders[normalizedUsername].items.find(i => i.id === itemId);
-            if (item) {
-                runtime.confirmedOrders[normalizedUsername].total = runtime.confirmedOrders[normalizedUsername].total - item.price + newPrice;
-                item.price = newPrice;
-                saveSessionDataForUser(userId);
-                emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
-            }
-        }
-    });
-
-    socket.on('reprint-item', ({ username, itemId }) => {
-        const normalizedUsername = customerStore.normalizeTikTokUsername(username);
-        if (runtime.confirmedOrders[normalizedUsername]) {
-            const item = runtime.confirmedOrders[normalizedUsername].items.find(i => i.id === itemId);
-            if (item) printBill(item, runtime.confirmedOrders[normalizedUsername], userId);
-        }
-    });
-
-    socket.on('reprint-total', (username) => {
-        const normalizedUsername = customerStore.normalizeTikTokUsername(username);
-        if (runtime.confirmedOrders[normalizedUsername]) {
-            printDetailedBill(runtime.confirmedOrders[normalizedUsername], userId);
-        }
-    });
-
-    socket.on('get-history-list', () => {
-        const historyDir = getUserHistoryDir(userId);
-        const userFiles = fs.existsSync(historyDir) ? fs.readdirSync(historyDir).filter(f => f.endsWith('.json')) : [];
-        const sharedFiles = includeSharedLegacy && fs.existsSync(HISTORY_ROOT_DIR)
-            ? fs.readdirSync(HISTORY_ROOT_DIR).filter(f => f.endsWith('.json')).filter(f => safeLegacyHistoryFileName(f))
-            : [];
-
-        const historyList = userFiles.map(f => {
-            const stats = fs.statSync(path.join(historyDir, f));
-            return { fileName: f, mtime: stats.mtime };
-        });
-
-        sharedFiles.forEach(f => {
-            const stats = fs.statSync(path.join(HISTORY_ROOT_DIR, f));
-            historyList.push({ fileName: `shared:${f}`, mtime: stats.mtime });
-        });
-
-        historyList.sort((a, b) => b.mtime - a.mtime);
-        socket.emit('history-list', historyList);
-    });
-
-    socket.on('load-history-file', (fileName) => {
-        const rawFileName = String(fileName || '');
-        const isSharedFile = rawFileName.startsWith('shared:');
-        if (isSharedFile && !includeSharedLegacy) return;
-        const targetName = isSharedFile ? rawFileName.replace(/^shared:/, '') : rawFileName;
-        const safeFileName = safeLegacyHistoryFileName(targetName);
-        if (!safeFileName) return;
-        const historyDir = isSharedFile ? HISTORY_ROOT_DIR : getUserHistoryDir(userId);
-        const filePath = path.join(historyDir, safeFileName);
-        if (!fs.existsSync(filePath)) return;
-        runtime.confirmedOrders = sanitizeConfirmedOrders(JSON.parse(fs.readFileSync(filePath)));
-        const match = safeFileName.match(/^\d{4}-\d{2}-\d{2}_(.+)\.json$/);
-        if (match) {
-            runtime.currentBroadcasterId = customerStore.normalizeTikTokUsername(match[1]);
-        }
-        socket.emit('history-data', { fileName: isSharedFile ? `shared:${safeFileName}` : safeFileName, data: runtime.confirmedOrders });
-    });
-});
+// Initialize DB and Migrate
+getDb();
+migrateFromJson();
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running at http://0.0.0.0:${PORT}`);
+    console.log(`Database initialized and data migrated.`);
 });
+
+// Setup Live Handler (Socket.io)
+const liveContext = {
+    printBill,
+    printDetailedBill,
+    emitToUser,
+    getUserRoom,
+    saveSessionDataForUser,
+    sanitizeConfirmedOrders,
+    parsePrice,
+    displayFallbackFromUsername,
+    customerStore,
+    initPrinter,
+    saveConfig,
+    getSessionFileName,
+    safeStorageId,
+    safeLegacyHistoryFileName,
+    HISTORY_ROOT_DIR,
+    printerInterface,
+    tiktokSignApiKey
+};
+setupLiveHandler(io, liveContext);
