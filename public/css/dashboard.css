@@ -870,26 +870,29 @@
 
         #section-overview .overview-chart-grid,
         #section-overview .overview-list-grid {
-            display: contents !important;
+            grid-column: 1 / -1;
+            display: grid !important;
+            grid-template-columns: repeat(2, minmax(0, 1fr));
+            gap: 16px;
         }
 
         #section-overview .bento-chart-orders {
-            grid-column: 1 / span 5;
+            grid-column: 1;
             min-height: 294px;
         }
 
         #section-overview .bento-chart-revenue {
-            grid-column: 6 / -1;
+            grid-column: 2;
             min-height: 294px;
         }
 
         #section-overview .bento-list-top {
-            grid-column: 1 / span 4;
+            grid-column: 1;
             min-height: 320px;
         }
 
         #section-overview .bento-list-latest {
-            grid-column: 5 / -1;
+            grid-column: 2;
             min-height: 320px;
         }
 
@@ -1260,11 +1263,11 @@
             display: inline-flex;
             align-items: center;
             gap: 8px;
-            border: 1px solid rgba(37, 244, 238, 0.48);
+            border: 1px solid rgba(248, 113, 113, 0.48);
             border-radius: 999px;
             padding: 6px 10px;
-            background: rgba(37, 244, 238, 0.12);
-            color: #036b68;
+            background: rgba(248, 113, 113, 0.12);
+            color: #991b1b;
             font-size: 11px;
             font-weight: 900;
             letter-spacing: 0.04em;
@@ -2863,7 +2866,7 @@
             #section-overview .overview-list-grid {
                 display: grid !important;
                 grid-template-columns: 1fr;
-                gap: 10px;
+                gap: 12px;
             }
 
             #section-overview .overview-hero,
@@ -2875,6 +2878,13 @@
             #section-overview .bento-list-top,
             #section-overview .bento-list-latest {
                 grid-column: 1 / -1;
+            }
+
+            #section-overview .bento-chart-orders,
+            #section-overview .bento-chart-revenue,
+            #section-overview .bento-list-top,
+            #section-overview .bento-list-latest {
+                grid-column: span 1;
             }
 
             #section-overview .overview-kpi-grid {

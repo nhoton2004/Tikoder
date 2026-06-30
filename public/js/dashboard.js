@@ -93,6 +93,11 @@
                 'customers.new': 'Thêm khách',
                 'customers.importHistory': 'Lấy từ lịch sử chốt',
                 'actions.saveSession': 'Lưu phiên',
+                'settings.defaultTiktokId': 'TikTok ID mặc định',
+                'settings.defaultTiktokIdDesc': 'ID TikTok chủ live sẽ tự động kết nối mỗi khi đăng nhập.',
+                'settings.autoConnect': 'Tự động kết nối khi đăng nhập',
+                'live.autoSaved': 'Phiên live đã được tự động lưu',
+                'live.liveEnded': 'Khách đã xuống live. Đang lưu phiên...',
                 'actions.printSummary': 'In tổng kết',
                 'settings.title': 'Cấu hình hệ thống',
                 'settings.subtitle': 'Quản lý tùy chọn kết nối, hiển thị và dữ liệu của bạn.',
@@ -152,6 +157,7 @@
                 'ov.orders7d': 'Đơn hàng 7 ngày gần đây',
                 'ov.revenue7d': 'Doanh thu 7 ngày gần đây',
                 'ov.topShop': 'Top khách chốt đơn',
+                'ov.topProducts': 'Top sản phẩm',
                 'ov.latestOrders': 'Đơn mới nhất',
                 'ov.viewAll': 'Xem tất cả',
                 'tb.customer': 'Khách',
@@ -188,6 +194,11 @@
                 'customers.new': 'New customer',
                 'customers.importHistory': 'Import from history',
                 'actions.saveSession': 'Save Session',
+                'settings.defaultTiktokId': 'Default TikTok ID',
+                'settings.defaultTiktokIdDesc': 'TikTok Live ID to auto-connect on login.',
+                'settings.autoConnect': 'Auto-connect on login',
+                'live.autoSaved': 'Live session was auto-saved',
+                'live.liveEnded': 'Host ended the live. Saving session...',
                 'actions.printSummary': 'Print Summary',
                 'settings.title': 'System Settings',
                 'settings.subtitle': 'Manage your connection, display and data preferences.',
@@ -247,6 +258,7 @@
                 'ov.orders7d': 'Orders in last 7 days',
                 'ov.revenue7d': 'Revenue in last 7 days',
                 'ov.topShop': 'Top closing customers',
+                'ov.topProducts': 'Top products',
                 'ov.latestOrders': 'Latest orders',
                 'ov.viewAll': 'View all',
                 'tb.customer': 'Customer',
@@ -813,6 +825,11 @@
                 ? (currentLang === 'en' ? 'Need follow-up' : 'Cần xử lý thêm')
                 : (currentLang === 'en' ? 'No pending orders' : 'Không có đơn treo'));
 
+            setText(document.getElementById('ov-orders-meta'), totalOrders);
+            setText(document.getElementById('ov-pending-meta'), pendingOrders);
+            setText(document.getElementById('ov-revenue-meta'), formatMoney(totalRevenue));
+            setText(document.getElementById('ov-comments-meta'), comments);
+
             const insightText = hasData
                 ? (currentLang === 'en'
                     ? `Period ${rangeText}: ${totalOrders} orders, ${formatMoney(totalRevenue)} revenue.`
@@ -863,6 +880,8 @@
             if (!startDate || !endDate) return;
             if (showLoading) {
                 document.getElementById('overview-top-shop-list').innerHTML = `<p class="text-gray-400 text-sm">${currentLang === 'en' ? 'Loading...' : 'Đang tải...'}</p>`;
+                const overviewTopProductsList = document.getElementById('overview-top-products-list');
+                if (overviewTopProductsList) overviewTopProductsList.innerHTML = `<p class="text-gray-400 text-sm">${currentLang === 'en' ? 'Loading...' : 'Đang tải...'}</p>`;
             }
             try {
                 const startObj = toLocalDate(startDate);
@@ -1040,6 +1059,10 @@
             }).join('');
         }
 
+        function renderOverviewTopProducts() {
+            // Đã xóa phần top sản phẩm theo yêu cầu
+        }
+
         function setSectionVisibility(sectionEl, visible) {
             if (!sectionEl) return;
             const prefersReducedMotion = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -1107,6 +1130,10 @@
             if (view === 'orders') {
                 OrdersPage.refresh();
             }
+            if (view === 'settings') {
+                // Đợi DOM hiển thị xong rồi load settings UI
+                setTimeout(() => loadSettingsUI(), 50);
+            }
         }
         window.switchView = switchView;
 
@@ -1127,11 +1154,127 @@
 
         window.toggleSettings = () => switchView('settings');
         window.saveSettings = () => {
+            const defaultTikTokIdInput = document.getElementById('default-tiktok-id');
+            const autoConnectCheckbox = document.getElementById('auto-connect-enabled');
+            const defaultTikTokId = (defaultTikTokIdInput?.value || '').trim().replace('@', '');
+            const autoConnectEnabled = autoConnectCheckbox?.checked || false;
+
             socket.emit('update-settings', {
                 printerInterface: printerIpInput.value.trim(),
                 tiktokSignApiKey: tiktokApiKeyInput.value.trim()
             });
+
+            // Lưu default TikTok ID và auto-connect flag vào localStorage (per-user)
+            const scopedDefaultKey = getScopedStorageKey('defaultTikTokId');
+            const scopedAutoKey = getScopedStorageKey('autoConnectEnabled');
+            if (scopedDefaultKey) {
+                if (defaultTikTokId) {
+                    localStorage.setItem(scopedDefaultKey, defaultTikTokId);
+                } else {
+                    localStorage.removeItem(scopedDefaultKey);
+                }
+            }
+            if (scopedAutoKey) {
+                localStorage.setItem(scopedAutoKey, autoConnectEnabled ? 'true' : 'false');
+            }
+
+            // Sync toggle UI
+            syncAutoConnectToggleUI(autoConnectEnabled);
+
+            const msg = document.getElementById('system-status-msg');
+            if (msg) {
+                msg.textContent = currentLang === 'en' ? '✅ Settings saved!' : '✅ Đã lưu cài đặt!';
+                msg.style.color = '#16a34a';
+                setTimeout(() => { msg.textContent = ''; }, 3000);
+            }
         };
+
+        window.testConnectionFromSettings = () => {
+            const defaultTikTokIdInput = document.getElementById('default-tiktok-id');
+            const defaultTikTokId = (defaultTikTokIdInput?.value || '').trim().replace('@', '');
+            if (!defaultTikTokId) {
+                alert(currentLang === 'en' ? 'Please enter TikTok ID first!' : 'Vui lòng nhập ID TikTok trước!');
+                return;
+            }
+            
+            // Tự lưu cài đặt trước khi kết nối
+            saveSettings();
+            
+            // Thiết lập trạng thái và phát sự kiện kết nối
+            resetChatFeed();
+            activeBroadcasterId = defaultTikTokId;
+            socket.emit('start-live', {
+                uniqueId: defaultTikTokId,
+                sessionId: null // Buộc tạo session mới khi chủ động kết nối từ Settings
+            });
+            
+            // Chuyển ngay sang màn hình Live
+            switchView('live');
+        };
+
+        function syncAutoConnectToggleUI(enabled) {
+            const track = document.getElementById('auto-connect-track');
+            const checkbox = document.getElementById('auto-connect-enabled');
+            if (track) {
+                track.style.cssText = `
+                    display: inline-block;
+                    width: 38px;
+                    height: 22px;
+                    border-radius: 11px;
+                    background: ${enabled ? '#ef4444' : '#d1d5db'};
+                    position: relative;
+                    transition: background 0.2s;
+                    cursor: pointer;
+                `;
+                // Nút tròn bên trong toggle
+                let knob = track.querySelector('.toggle-knob');
+                if (!knob) {
+                    knob = document.createElement('span');
+                    knob.className = 'toggle-knob';
+                    track.appendChild(knob);
+                }
+                knob.style.cssText = `
+                    display: block;
+                    width: 16px;
+                    height: 16px;
+                    border-radius: 50%;
+                    background: #fff;
+                    position: absolute;
+                    top: 3px;
+                    left: ${enabled ? '19px' : '3px'};
+                    transition: left 0.2s;
+                    box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+                `;
+            }
+            if (checkbox) checkbox.checked = enabled;
+        }
+
+        function loadSettingsUI() {
+            const scopedDefaultKey = getScopedStorageKey('defaultTikTokId');
+            const scopedAutoKey = getScopedStorageKey('autoConnectEnabled');
+            const defaultTikTokId = scopedDefaultKey ? (localStorage.getItem(scopedDefaultKey) || '') : '';
+            const autoConnectEnabled = scopedAutoKey ? localStorage.getItem(scopedAutoKey) === 'true' : false;
+
+            const defaultTikTokIdInput = document.getElementById('default-tiktok-id');
+            if (defaultTikTokIdInput) defaultTikTokIdInput.value = defaultTikTokId;
+
+            const track = document.getElementById('auto-connect-track');
+            if (track && !track.querySelector('.toggle-knob')) {
+                // Khởi tạo lần đầu
+            }
+            syncAutoConnectToggleUI(autoConnectEnabled);
+
+            // Gắn event click cho toggle track
+            const autoTrack = document.getElementById('auto-connect-track');
+            if (autoTrack && !autoTrack.dataset.listenerAttached) {
+                autoTrack.dataset.listenerAttached = 'true';
+                autoTrack.addEventListener('click', () => {
+                    const cb = document.getElementById('auto-connect-enabled');
+                    const newVal = !(cb?.checked || false);
+                    syncAutoConnectToggleUI(newVal);
+                });
+            }
+        }
         window.downloadBackup = (format) => {
             const scope = document.getElementById('backup-scope').value;
             const url = `/api/export-data?format=${encodeURIComponent(format)}&scope=${encodeURIComponent(scope)}`;
@@ -1386,12 +1529,17 @@
             calculateKpis();
         }
 
-        btnConnect.addEventListener('click', () => {
-            const id = tiktokIdInput.value.trim().replace('@', '');
-            if (!id) return alert(currentLang === 'en' ? 'Please input TikTok ID' : 'Nhập ID');
-            resetChatFeed();
-            socket.emit('start-live', id);
-        });
+        if (btnConnect) {
+            btnConnect.addEventListener('click', () => {
+                const id = tiktokIdInput ? tiktokIdInput.value.trim().replace('@', '') : '';
+                if (!id) return alert(currentLang === 'en' ? 'Please input TikTok ID' : 'Nhập ID');
+                resetChatFeed();
+                // Xóa ordersData tạm thời của phiên cũ để bắt đầu phiên hoàn toàn mới khi người dùng đổi account thủ công
+                ordersData = {}; 
+                calculateKpis();
+                socket.emit('start-live', id);
+            });
+        }
 
         socket.on('status', (data) => {
             const connectedText = currentLang === 'en' ? `Connected: ${data.roomId}` : `Kết nối: ${data.roomId}`;
@@ -1565,9 +1713,11 @@
 
         function buildInitialAvatarDataUri(seedText) {
             const cleaned = normalizeDisplayText(seedText);
-            const initial = (cleaned.charAt(0) || 'U').toUpperCase();
-            const safeInitial = escapeHtml(initial);
-            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#e5e7eb"/><text x="50%" y="54%" text-anchor="middle" font-family="Arial,sans-serif" font-size="28" font-weight="700" fill="#4b5563">${safeInitial}</text></svg>`;
+            const first = (cleaned.charAt(0) || 'U').toUpperCase();
+            const second = (cleaned.charAt(1) || '').toUpperCase();
+            const chars = second ? `${first}${second}` : first;
+            const fontSize = chars.length > 1 ? '24' : '32';
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64"><rect width="64" height="64" fill="#e5e7eb"/><text x="50%" y="54%" text-anchor="middle" font-family="Arial,sans-serif" font-size="${fontSize}" font-weight="700" fill="#4b5563">${escapeHtml(chars)}</text></svg>`;
             return `data:image/svg+xml;utf8,${encodeURIComponent(svg)}`;
         }
 
@@ -1744,10 +1894,73 @@
 
         window.resetCustomerForm = (clearStatus = true) => {
             setCustomerFormData({});
+            const autoInput = document.getElementById('customer-auto-input');
+            if (autoInput) autoInput.value = '';
             if (clearStatus) {
                 document.getElementById('customer-form-status').textContent = '';
             }
         };
+
+        window.autoFillCustomerForm = async () => {
+            const raw = (document.getElementById('customer-auto-input')?.value || '').trim();
+            if (!raw) {
+                // Try to read from clipboard if textarea is empty
+                try {
+                    const text = await navigator.clipboard.readText();
+                    if (text) document.getElementById('customer-auto-input').value = text.trim();
+                } catch (_) {}
+                return;
+            }
+
+            // Normalize: split by comma, newline, or semicolon
+            const parts = raw.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean);
+            if (parts.length === 0) return;
+
+            let phone = '';
+            let province = '';
+            let district = '';
+            let ward = '';
+            let addressParts = [];
+
+            // Phone pattern: 10-11 digits, may start with 0 or +84
+            const phoneRe = /^(\+84|84|0)[0-9]{8,10}$/;
+
+            // Vietnamese address keywords
+            const provinceKws = ['tỉnh', 'tp', 'tp.', 'thành phố', 'city', 'tinh'];
+            const districtKws = ['quận', 'quan', 'huyện', 'huyen', 'q.', 'h.', 'tx', 'thị xã'];
+            const wardKws = ['phường', 'phuong', 'xã', 'xa', 'thị trấn', 'thi tran', 'p.', 'x.'];
+
+            const normalize = s => s.toLowerCase().normalize('NFC');
+
+            parts.forEach(part => {
+                const n = normalize(part);
+                if (phoneRe.test(part.replace(/\s/g, ''))) { phone = part.replace(/\s/g, ''); return; }
+                if (provinceKws.some(k => n.startsWith(k) || n.includes(' ' + k + ' '))) { province = part; return; }
+                if (districtKws.some(k => n.startsWith(k) || n.includes(' ' + k + ' '))) { district = part; return; }
+                if (wardKws.some(k => n.startsWith(k) || n.includes(' ' + k + ' '))) { ward = part; return; }
+                // Everything else → address detail
+                addressParts.push(part);
+            });
+
+            const addressDetail = addressParts.join(', ');
+
+            // Fill into form (không điền tên)
+            if (phone) document.getElementById('customer-phone').value = phone;
+            if (province) document.getElementById('customer-province').value = province;
+            if (district) document.getElementById('customer-district').value = district;
+            if (ward) document.getElementById('customer-ward').value = ward;
+            if (addressDetail) document.getElementById('customer-address-detail').value = addressDetail;
+
+            // Status feedback
+            const status = document.getElementById('customer-form-status');
+            if (status) {
+                const filled = [phone && 'SĐT', province && 'Tỉnh', district && 'Huyện', ward && 'Xã/Phường', addressDetail && 'Địa chỉ'].filter(Boolean);
+                status.textContent = filled.length ? `✅ Đã điền: ${filled.join(', ')}` : '⚠️ Không nhận ra định dạng. Hãy nhập thêm dữ liệu.';
+                status.className = filled.length ? 'text-xs text-green-600 mt-1' : 'text-xs text-amber-600 mt-1';
+            }
+        };
+
+
 
         window.editCustomer = (customerId) => {
             const customer = customersData.find(item => item.id === customerId);
@@ -1780,11 +1993,16 @@
                 await loadCustomers();
                 const importedCount = Array.isArray(data.imported) ? data.imported.length : 0;
                 const skippedCount = Array.isArray(data.skipped) ? data.skipped.length : 0;
-                alert(`Đã lấy ${importedCount} khách từ lịch sử. Bỏ qua ${skippedCount} khách đã có.`);
+                if (importedCount > 0) {
+                    alert(`✅ Đã thêm ${importedCount} khách hàng mới từ lịch sử.${skippedCount > 0 ? `\n(${skippedCount} khách đã có trong danh sách, giữ nguyên.)` : ''}`);
+                } else {
+                    alert(`ℹ️ Tất cả ${skippedCount} khách đã có trong danh sách rồi. Không có khách mới để thêm.`);
+                }
             } catch (error) {
                 alert('Lỗi lấy khách từ lịch sử: ' + error.message);
             }
         };
+
 
         window.reprintItem = (username, itemId) => socket.emit('reprint-item', { username: normalizeTikTokUsername(username), itemId });
         window.reprintTotal = (username) => socket.emit('reprint-total', normalizeTikTokUsername(username));
@@ -1815,18 +2033,25 @@
                 price
             });
         };
-        window.editItem = (username, itemId, oldText, oldPrice) => {
-            const textPrompt = currentLang === 'en' ? 'Edit comment/product:' : 'Sửa bình luận/sản phẩm:';
-            const text = normalizeDisplayText(prompt(textPrompt, oldText || '') || '');
-            if (!text) return;
-            const pricePrompt = currentLang === 'en' ? 'Enter new price:' : 'Nhập giá mới:';
-            const price = parseFloat(prompt(pricePrompt, oldPrice));
-            if (!Number.isNaN(price) && price > 0) {
-                socket.emit('edit-item', { username: normalizeTikTokUsername(username), itemId, text, price });
-            }
+
+        window.filterOrdersGrid = (query) => {
+            const q = (query || '').toLowerCase().trim();
+            const grids = document.querySelectorAll('[data-current-orders-grid]');
+            grids.forEach(grid => {
+                const cards = grid.querySelectorAll('.order-card, .live-order-card, [data-username]');
+                cards.forEach(card => {
+                    if (!q) { card.style.display = ''; return; }
+                    const username = (card.dataset.username || card.getAttribute('data-username') || '').toLowerCase();
+                    const name = (card.querySelector('.customer-name, .order-nickname, [data-name]')?.textContent || '').toLowerCase();
+                    const cardText = (card.textContent || '').toLowerCase();
+                    const match = username.includes(q) || name.includes(q) || cardText.includes(q);
+                    card.style.display = match ? '' : 'none';
+                });
+            });
         };
 
         window.printAllSummary = () => {
+
             let html = `<div style="font-family: 'Times New Roman', Times, serif; width: 80mm; margin: 0 auto; color: black;">`;
             html += `<div style="text-align:center;"><h2 style="margin: 0;">TONG KET PHIEN LIVE</h2><hr style="border: 1px solid black;"></div>`;
             let totalOverall = 0;
@@ -1907,14 +2132,42 @@
                         if (devBadge) devBadge.classList.remove('hidden');
                     }
 
+                    // --- AUTO-CONNECT LOGIC ---
+                    // Ưu tiên: defaultTikTokId (từ Settings) nếu autoConnectEnabled = true
+                    // Fallback: lastBroadcasterId (phiên cuối)
+                    const scopedDefaultKey = getScopedStorageKey('defaultTikTokId');
+                    const scopedAutoKey = getScopedStorageKey('autoConnectEnabled');
                     const scopedLastBroadcasterKey = getScopedStorageKey('lastBroadcasterId');
-                    const lastBroadcasterId = scopedLastBroadcasterKey
-                        ? (localStorage.getItem(scopedLastBroadcasterKey) || '').trim()
-                        : '';
-                    if (lastBroadcasterId) {
-                        tiktokIdInput.value = lastBroadcasterId;
-                        activeBroadcasterId = lastBroadcasterId;
-                        socket.emit('start-live', lastBroadcasterId);
+
+                    const defaultTikTokId = scopedDefaultKey ? (localStorage.getItem(scopedDefaultKey) || '').trim() : '';
+                    const autoConnectEnabled = scopedAutoKey ? localStorage.getItem(scopedAutoKey) === 'true' : false;
+                    const lastBroadcasterId = scopedLastBroadcasterKey ? (localStorage.getItem(scopedLastBroadcasterKey) || '').trim() : '';
+
+                    // Chọn ID để kết nối
+                    let idToConnect = '';
+                    if (autoConnectEnabled && defaultTikTokId) {
+                        // Dùng ID mặc định đã set trong Settings
+                        idToConnect = defaultTikTokId;
+                    } else if (lastBroadcasterId) {
+                        // Fallback: phiên cuối cùng
+                        idToConnect = lastBroadcasterId;
+                    }
+
+                    if (idToConnect) {
+                        if (tiktokIdInput) tiktokIdInput.value = idToConnect;
+                        activeBroadcasterId = idToConnect;
+                        
+                        const sessionKey = getScopedStorageKey('activeSessionId');
+                        const storedSessionId = sessionKey ? localStorage.getItem(sessionKey) : null;
+                        socket.emit('start-live', {
+                            uniqueId: idToConnect,
+                            sessionId: storedSessionId
+                        });
+
+                        // Tự chuyển sang tab Live nếu auto-connect
+                        if (autoConnectEnabled && defaultTikTokId) {
+                            setTimeout(() => switchView('live'), 300);
+                        }
                     }
                 } else {
                     clearRealtimeUi();
@@ -1928,6 +2181,102 @@
             renderEmptyCommentState();
         })();
 
+        // --- LẮNG NGHE SESSION INFO TỪ SERVER ---
+        socket.on('session-info', (data) => {
+            activeBroadcasterId = data.broadcasterId;
+            const sessionKey = getScopedStorageKey('activeSessionId');
+            const broadcasterKey = getScopedStorageKey('lastBroadcasterId');
+            if (sessionKey) localStorage.setItem(sessionKey, data.sessionId);
+            if (broadcasterKey) localStorage.setItem(broadcasterKey, data.broadcasterId);
+
+            if (data.isContinuation) {
+                showLiveToast(currentLang === 'en' ? '🔄 Resumed previous live session' : '🔄 Đã kết nối lại phiên live trước', 'success');
+            }
+        });
+
+        // --- AUTO-SAVE KHI LIVE KẾT THÚC ---
+        socket.on('live-ended', async (data) => {
+            const broadcasterId = data?.broadcasterId || activeBroadcasterId || '';
+            const msg = currentLang === 'en' ? t('live.liveEnded') : 'Khách đã xuống live. Đang tự động lưu phiên...';
+            showLiveToast(msg, 'info');
+
+            // Xoá Session ID khỏi localStorage nếu server thông báo kết thúc hẳn
+            if (data?.clearSession) {
+                const sessionKey = getScopedStorageKey('activeSessionId');
+                if (sessionKey) localStorage.removeItem(sessionKey);
+            }
+
+            // Cập nhật UI trạng thái
+            const kpiStatusEl = document.getElementById('kpi-status');
+            if (kpiStatusEl) {
+                kpiStatusEl.textContent = currentLang === 'en' ? 'Live ended' : 'Live đã kết thúc';
+                kpiStatusEl.className = 'text-base font-bold mt-3 text-amber-500';
+            }
+            if (pageLiveStatus) {
+                pageLiveStatus.classList.add('is-offline');
+                pageLiveStatus.lastChild.textContent = ' Disconnected';
+            }
+
+            // Auto-save nếu có đơn
+            if (Object.keys(ordersData).length > 0) {
+                await autoSaveCurrentSession(broadcasterId);
+            }
+        });
+
+        // Auto-save không cần prompt
+        async function autoSaveCurrentSession(broadcasterId) {
+            const tiktokId = broadcasterId || (tiktokIdInput ? tiktokIdInput.value.trim().replace('@', '') : '') || activeBroadcasterId || '';
+            const now = new Date();
+            const liveName = `Live ${tiktokId ? '@' + tiktokId + ' ' : ''}${now.toLocaleDateString('vi-VN')} ${now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })} (tự động)`;
+            try {
+                const res = await fetch('/api/live-sessions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        liveName,
+                        tiktokUsername: tiktokId,
+                        startedAt: now.toISOString(),
+                        endedAt: now.toISOString(),
+                        orders: ordersData
+                    })
+                });
+                const result = await res.json();
+                if (result.success) {
+                    showLiveToast(
+                        (currentLang === 'en' ? '✅ ' + t('live.autoSaved') : '✅ Phiên live đã được tự động lưu: ') + liveName,
+                        'success'
+                    );
+                    refreshOverviewTopShops?.();
+                }
+            } catch (e) {
+                console.warn('Auto-save session error:', e);
+            }
+        }
+
+        // Toast thông báo nhẹ (không block UI)
+        function showLiveToast(message, type = 'info') {
+            const existing = document.getElementById('live-toast-bar');
+            if (existing) existing.remove();
+            const toast = document.createElement('div');
+            toast.id = 'live-toast-bar';
+            const colors = { success: '#16a34a', info: '#2563eb', warning: '#d97706', error: '#dc2626' };
+            toast.style.cssText = `
+                position: fixed; top: 16px; left: 50%; transform: translateX(-50%);
+                z-index: 9999; background: ${colors[type] || colors.info};
+                color: #fff; padding: 10px 20px; border-radius: 12px;
+                font-size: 13px; font-weight: 600; box-shadow: 0 4px 16px rgba(0,0,0,0.18);
+                max-width: 90vw; text-align: center; pointer-events: none;
+                animation: fadeInDown 0.3s ease;
+            `;
+            toast.textContent = message;
+            document.body.appendChild(toast);
+            setTimeout(() => {
+                toast.style.opacity = '0';
+                toast.style.transition = 'opacity 0.3s';
+                setTimeout(() => toast.remove(), 300);
+            }, 5000);
+        }
+
         let selectedSessionIds = new Set();
         let lastMergeData = null;
         let lastMergeSourceIds = [];
@@ -1937,7 +2286,7 @@
             if (Object.keys(ordersData).length === 0) {
                 return alert(currentLang === 'en' ? 'No orders to save yet!' : 'Chưa có đơn hàng nào để lưu!');
             }
-            const tiktokId = tiktokIdInput.value.trim().replace('@', '') || '';
+            const tiktokId = activeBroadcasterId || (tiktokIdInput ? tiktokIdInput.value.trim().replace('@', '') : '') || '';
             const defaultName = `Live ${tiktokId ? '@' + tiktokId + ' ' : ''}${new Date().toLocaleDateString('vi-VN')} ${new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`;
             const liveName = prompt(currentLang === 'en' ? 'Session name:' : 'Đặt tên cho phiên live:', defaultName);
             if (!liveName) return;

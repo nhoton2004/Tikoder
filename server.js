@@ -586,9 +586,14 @@ app.post('/api/customers/import-from-history', requireApiAuth, (req, res) => {
         const existingTikToks = new Set(existingCustomers.map(c => customerStore.normalizeTikTokUsername(c.tiktokUsername)).filter(Boolean));
         const existingNames = new Set(existingCustomers.map(c => normalizeOrderCustomerName(c.displayName, c.tiktokUsername).toLowerCase()).filter(Boolean));
         const sessions = liveSessionStore.readUserSessions(userId);
+        const legacyList = readLegacyHistorySessions(userId, {
+            includeSharedLegacy: isAdminOrSuperAdmin(req.session.user),
+            includeAllUserLegacy: isAdminOrSuperAdmin(req.session.user)
+        });
+        const allSessions = [...sessions, ...legacyList];
         const candidates = new Map();
 
-        sessions.forEach(session => {
+        allSessions.forEach(session => {
             (session.orders || []).forEach(order => {
                 const tiktokUsername = customerStore.normalizeTikTokUsername(order.customerUsername || order.tiktokUsername || '');
                 const rawDisplayName = cleanDisplayText(order.customerName || order.nickname || '');
@@ -895,10 +900,38 @@ function getUserHistoryDir(userId) {
     return dirPath;
 }
 
-function getSessionFileName(userId, broadcasterId) {
+function generateSessionId(broadcasterId) {
     const date = new Date().toISOString().split('T')[0];
+    const rand = Math.random().toString(36).slice(2, 8);
+    return `sess_${date}_${rand}`;
+}
+
+function getSessionFileName(userId, broadcasterId, sessionId) {
     const safeBroadcasterId = customerStore.normalizeTikTokUsername(broadcasterId) || 'unknown';
-    return path.join(getUserHistoryDir(userId), `${date}_${safeBroadcasterId}.json`);
+    if (sessionId) {
+        return path.join(getUserHistoryDir(userId), `${sessionId}_${safeBroadcasterId}.json`);
+    }
+    const now = new Date();
+    const todayStr = now.toISOString().split('T')[0];
+    
+    // Đường dẫn file của hôm nay
+    const todayFile = path.join(getUserHistoryDir(userId), `${todayStr}_${safeBroadcasterId}.json`);
+    
+    // Nếu hiện tại là sáng sớm (từ 0h đến 6h sáng)
+    if (now.getHours() < 6) {
+        const yesterday = new Date(now);
+        yesterday.setDate(yesterday.getDate() - 1);
+        const yesterdayStr = yesterday.toISOString().split('T')[0];
+        const yesterdayFile = path.join(getUserHistoryDir(userId), `${yesterdayStr}_${safeBroadcasterId}.json`);
+        
+        // Nếu file hôm nay chưa tồn tại mà file hôm qua đã có dữ liệu, dùng tiếp file hôm qua
+        if (!fs.existsSync(todayFile) && fs.existsSync(yesterdayFile)) {
+            console.log(`>>> Live xuyên đêm phát hiện: Dùng tiếp file phiên live hôm qua: ${yesterdayStr}`);
+            return yesterdayFile;
+        }
+    }
+    
+    return todayFile;
 }
 
 function createEmptyLiveRuntime(userId) {
@@ -907,6 +940,9 @@ function createEmptyLiveRuntime(userId) {
         tiktokConnection: null,
         confirmedOrders: {},
         currentBroadcasterId: '',
+        sessionId: null,
+        sessionStartedAt: null,
+        gracePeriodTimer: null,
         processedMsgIds: new Set(),
         chatBufferByBroadcaster: new Map(),
         sockets: new Set()
@@ -923,12 +959,18 @@ function getLiveRuntime(userId) {
 function resetLiveRuntime(userId) {
     const runtime = liveRuntimeByUser.get(userId);
     if (!runtime) return;
+    if (runtime.gracePeriodTimer) {
+        clearTimeout(runtime.gracePeriodTimer);
+    }
     if (runtime.tiktokConnection) {
         try { runtime.tiktokConnection.disconnect(); } catch (e) {}
     }
     runtime.tiktokConnection = null;
     runtime.confirmedOrders = {};
     runtime.currentBroadcasterId = '';
+    runtime.sessionId = null;
+    runtime.sessionStartedAt = null;
+    runtime.gracePeriodTimer = null;
     runtime.processedMsgIds.clear();
     runtime.chatBufferByBroadcaster.clear();
     runtime.sockets.clear();
@@ -938,9 +980,61 @@ function resetLiveRuntime(userId) {
 function saveSessionDataForUser(userId) {
     const runtime = getLiveRuntime(userId);
     if (!runtime.currentBroadcasterId) return;
-    const fileName = getSessionFileName(userId, runtime.currentBroadcasterId);
+    const fileName = getSessionFileName(userId, runtime.currentBroadcasterId, runtime.sessionId);
     runtime.confirmedOrders = sanitizeConfirmedOrders(runtime.confirmedOrders);
     fs.writeFileSync(fileName, JSON.stringify(runtime.confirmedOrders, null, 2));
+}
+
+function internalSaveLiveSession(userId, runtime) {
+    const now = new Date();
+    const broadcasterId = runtime.currentBroadcasterId;
+    if (!broadcasterId) return;
+
+    // Chuyển đổi confirmedOrders sang format orders[]
+    const orders = Object.values(runtime.confirmedOrders || {}).flatMap(customer =>
+        (customer.items || []).map(item => ({
+            id: `order_${item.id || Date.now()}`,
+            customerName: customer.nickname || customer.username,
+            customerUsername: customer.username,
+            profilePictureUrl: customer.profilePictureUrl || '',
+            productName: item.text || '',
+            quantity: 1,
+            price: item.price || 0,
+            total: item.price || 0,
+            note: '',
+            time: item.time || '',
+            createdAt: now.toISOString()
+        }))
+    );
+
+    if (orders.length === 0) return;
+
+    const liveName = `Live @${broadcasterId} ${now.toLocaleDateString('vi-VN')} (tự động)`;
+    const sessionData = {
+        id: `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        userId,
+        liveName,
+        tiktokUsername: broadcasterId,
+        startedAt: runtime.sessionStartedAt || now.toISOString(),
+        endedAt: now.toISOString(),
+        createdAt: now.toISOString(),
+        orders,
+        summary: {
+            totalOrders: orders.length,
+            totalQuantity: orders.length,
+            totalRevenue: orders.reduce((s, o) => s + (o.price || 0), 0)
+        }
+    };
+
+    const sessionsFile = path.join(DATA_DIR, 'live-sessions', `${safeStorageId(userId)}.json`);
+    let existing = { sessions: [] };
+    if (fs.existsSync(sessionsFile)) {
+        try { existing = JSON.parse(fs.readFileSync(sessionsFile)); } catch(e) {}
+    }
+    existing.sessions = [sessionData, ...(existing.sessions || [])];
+    fs.mkdirSync(path.dirname(sessionsFile), { recursive: true });
+    fs.writeFileSync(sessionsFile, JSON.stringify(existing, null, 2));
+    console.log(`>>> Auto-saved live session for user ${userId}: ${liveName}`);
 }
 
 if (fs.existsSync(CONFIG_FILE)) {
@@ -1861,8 +1955,9 @@ function buildOverviewDataset(currentUser, range) {
 
     const topCustomerMap = {};
     const hourlyMap = {};
-    
-    rows.forEach(row => {
+    const productMap = {};
+
+    rows.forEach((row) => {
         // Top customers
         const customerKey = row.customerUsername || row.customer || 'unknown';
         if (!topCustomerMap[customerKey]) {
@@ -1876,13 +1971,19 @@ function buildOverviewDataset(currentUser, range) {
         topCustomerMap[customerKey].orders += 1;
         topCustomerMap[customerKey].revenue += Number(row.value || 0);
 
+        // Top products
+        const productKey = String(row.productName || row.product || 'unknown').trim();
+        if (!productMap[productKey]) {
+            productMap[productKey] = { name: productKey, qty: 0, revenue: 0 };
+        }
+        productMap[productKey].qty += Number(row.quantity || 1);
+        productMap[productKey].revenue += Number(row.value || 0);
+
         // Hourly stats
         let hour = null;
         if (row.timestamp) {
             const d = new Date(row.timestamp);
             if (!isNaN(d.getTime())) {
-                // row.timestamp là epoch ms (UTC+7)
-                // d.getUTCHours() sẽ trả về UTC. +7 để ra VN
                 hour = d.getUTCHours() + 7;
                 if (hour >= 24) hour -= 24;
             }
@@ -2144,6 +2245,8 @@ const liveContext = {
     safeLegacyHistoryFileName,
     HISTORY_ROOT_DIR,
     printerInterface,
-    tiktokSignApiKey
+    tiktokSignApiKey,
+    generateSessionId,
+    internalSaveLiveSession
 };
 setupLiveHandler(io, liveContext);

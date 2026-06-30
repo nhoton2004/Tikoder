@@ -75,7 +75,7 @@
                         <img src="/icons/receipt-text.svg" alt="" width="14" height="14">
                         <span>Lưu phiên</span>
                     </button>
-                    <button onclick="showLiveSessions()" class="topbar-session-btn p-2 bg-red-50 border border-red-100 rounded-xl flex items-center gap-1" title="Lịch sử Phiên Live" aria-label="Lịch sử Phiên Live">
+                    <button onclick="showLiveSessions()" class="topbar-session-btn p-2 bg-red-500 border border-red-600 rounded-xl flex items-center gap-1 text-white" title="Lịch sử Phiên Live" aria-label="Lịch sử Phiên Live">
                         <img src="/icons/receipt-text.svg" alt="" width="14" height="14">
                         <span class="text-[11px] font-bold">Lịch sử</span>
                     </button>
@@ -112,11 +112,15 @@
                                     <p class="text-sm text-gray-500" data-i18n="ov.subtitle">Theo dõi nhanh tình hình đơn hàng, live và doanh thu</p>
                                 </div>
                                 <div class="overview-controls flex flex-wrap items-center justify-end gap-2 text-xs">
-                                    <button type="button" class="overview-range-btn px-3 py-2 bg-white border border-gray-200 rounded-xl font-bold" data-range="today" data-i18n="ov.today">Hôm nay</button>
-                                    <button type="button" class="overview-range-btn px-3 py-2 bg-white border border-gray-200 rounded-xl font-bold" data-range="7" data-i18n="ov.range">7 ngày qua</button>
-                                    <button type="button" class="overview-range-btn px-3 py-2 bg-white border border-gray-200 rounded-xl font-bold" data-range="30" data-i18n="ov.last30">30 ngày</button>
-                                    <input id="overview-start" type="text" inputmode="numeric" placeholder="dd/mm/yyyy" class="px-3 py-2 bg-white border border-gray-200 rounded-xl">
-                                    <input id="overview-end" type="text" inputmode="numeric" placeholder="dd/mm/yyyy" class="px-3 py-2 bg-white border border-gray-200 rounded-xl">
+                                    <div class="overview-controls-presets flex gap-2">
+                                        <button type="button" class="overview-range-btn px-3 py-2 bg-white border border-gray-200 rounded-xl font-bold" data-range="today" data-i18n="ov.today">Hôm nay</button>
+                                        <button type="button" class="overview-range-btn px-3 py-2 bg-white border border-gray-200 rounded-xl font-bold" data-range="7" data-i18n="ov.range">7 ngày qua</button>
+                                        <button type="button" class="overview-range-btn px-3 py-2 bg-white border border-gray-200 rounded-xl font-bold" data-range="30" data-i18n="ov.last30">30 ngày</button>
+                                    </div>
+                                    <div class="overview-controls-dates flex gap-2">
+                                        <input id="overview-start" type="text" inputmode="numeric" placeholder="dd/mm/yyyy" class="px-3 py-2 bg-white border border-gray-200 rounded-xl">
+                                        <input id="overview-end" type="text" inputmode="numeric" placeholder="dd/mm/yyyy" class="px-3 py-2 bg-white border border-gray-200 rounded-xl">
+                                    </div>
                                 </div>
                             </div>
 
@@ -155,7 +159,7 @@
                                     <div class="overview-meta-row">
                                         <span class="overview-meta-pill"><strong id="ov-live-active">0</strong> <span data-i18n="ov.liveActive">Live đang hoạt động</span></span>
                                         <span class="overview-meta-pill"><strong id="ov-close-rate">0%</strong> <span data-i18n="ov.closeRate">Tỷ lệ chốt</span></span>
-                                        <span id="ov-comments-wrapper" class="overview-meta-pill"><strong id="ov-comments">0</strong> <span data-i18n="ov.comments">Bình luận live</span></span>
+                                        <span class="overview-meta-pill"><strong id="ov-comments">0</strong> <span data-i18n="ov.comments">Bình luận live</span></span>
                                     </div>
                                 </div>
 
@@ -231,11 +235,7 @@
 
                         <div class="live-connect-bar">
                             <span class="live-status-chip"><span></span> TikTok Live</span>
-                            <div class="live-connect-row">
-                                <input id="tiktok-id" type="text" placeholder="Nhập ID TikTok chủ Live để kết nối...">
-                                    <button id="btn-connect" type="button" data-i18n="live.connectBtn"><span class="material-symbols-outlined">link</span> Kết nối ngay</button>
-                            </div>
-                            <div class="live-quick-actions">
+                            <div class="live-quick-actions" style="margin-left: auto;">
                                 <span>Rapid fire</span>
                                 <button type="button" onclick="printAllSummary()"><span class="material-symbols-outlined">receipt_long</span> In chốt</button>
                                 <button type="button" onclick="showLiveSessions()"><span class="material-symbols-outlined">history</span> Lịch sử</button>
@@ -298,7 +298,13 @@
                             <section id="section-current-orders" class="live-panel live-orders-panel orders-current-panel" data-current-orders-panel>
                                 <div class="live-panel-head">
                                     <h3 data-i18n="orders.current"><span class="material-symbols-outlined">local_mall</span> Đơn đang chốt</h3>
-                                    <span id="live-orders-count" class="live-count-pill" data-current-orders-count>0 đơn - 0đ</span>
+                                    <div class="flex items-center gap-2">
+                                        <div style="position:relative; display:flex; align-items:center;">
+                                            <span class="material-symbols-outlined" style="position:absolute; left:10px; font-size:16px; color:#9ca3af; pointer-events:none;">search</span>
+                                            <input id="orders-search" type="search" placeholder="Tìm khách hàng..." style="padding:6px 10px 6px 32px; border:1px solid #374151; border-radius:10px; font-size:12px; font-weight:600; background:#1f2937; color:#f9fafb; width:180px; outline:none;" oninput="filterOrdersGrid(this.value)">
+                                        </div>
+                                        <span id="live-orders-count" class="live-count-pill" data-current-orders-count>0 đơn - 0đ</span>
+                                    </div>
                                 </div>
                                 <div id="current-orders-empty" class="live-orders-empty" data-current-orders-empty>
                                     Chưa có đơn đang chốt. Khi bấm CHỐT từ bình luận hoặc Load đơn từ lịch sử, đơn sẽ xuất hiện ở đây.
@@ -343,12 +349,21 @@
                                 </div>
                             </div>
 
-                            <form id="customer-form" class="panel p-4 space-y-3">
+            <form id="customer-form" class="panel p-4 space-y-3" onsubmit="saveCustomerForm(event)">
                                 <input type="hidden" id="customer-id">
                                 <div>
                                     <h3 id="customer-form-title" class="font-black text-xl">Thêm khách hàng</h3>
                                     <p id="customer-form-status" class="text-xs text-gray-400 mt-1"></p>
                                 </div>
+
+                                <!-- Nhập tự động -->
+                                <div class="border border-dashed border-gray-300 rounded-xl p-3 bg-gray-50 space-y-2">
+                                    <label class="block text-xs font-bold text-gray-600">Nhập tự động</label>
+                                    <textarea id="customer-auto-input" rows="3" class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm resize-none" placeholder="Dán thông tin địa chỉ và số điện thoại vào đây, hệ thống sẽ tự động điền vào các ô bên dưới."></textarea>
+                                    <p class="text-[11px] text-gray-400">Ví dụ: 0908888888, 12 Le Duan, Phuong Ben Nghe, Quan 1, TP Ho Chi Minh</p>
+                                    <button type="button" onclick="autoFillCustomerForm()" class="px-3 py-1.5 bg-white border border-red-400 text-red-600 rounded-lg text-xs font-bold hover:bg-red-50 transition-colors">Dán và nhập tự động</button>
+                                </div>
+
                                 <label class="block text-xs font-bold text-gray-500">TikTok username
                                     <input id="customer-tiktok" type="text" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm" placeholder="@username">
                                 </label>
@@ -383,6 +398,7 @@
                                     <button type="button" onclick="resetCustomerForm()" class="bg-white border border-gray-300 px-4 py-2 rounded-xl text-sm font-bold">Hủy</button>
                                 </div>
                             </form>
+
                         </div>
                     </section>
 
@@ -452,6 +468,27 @@
                                         <span class="settings-status-dot" data-i18n="settings.online">Online</span>
                                     </div>
                                     <div class="settings-card-body">
+                                        <div class="settings-field settings-field-highlight">
+                                            <label for="default-tiktok-id" data-i18n="settings.defaultTiktokId">TikTok ID mặc định</label>
+                                            <p data-i18n="settings.defaultTiktokIdDesc">ID TikTok chủ live sẽ tự động kết nối mỗi khi đăng nhập.</p>
+                                            <div class="settings-input-wrap">
+                                                <span>⚡</span>
+                                                <input type="text" id="default-tiktok-id" placeholder="Nhập @username hoặc ID TikTok...">
+                                            </div>
+                                            <div class="settings-toggle-row" style="margin-top:10px;display:flex;align-items:center;gap:10px;justify-content:space-between;">
+                                                <label class="settings-toggle-label" for="auto-connect-enabled" style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:13px;font-weight:600;">
+                                                    <span class="settings-toggle-switch">
+                                                        <input type="checkbox" id="auto-connect-enabled" style="display:none;">
+                                                        <span class="settings-toggle-track" id="auto-connect-track"></span>
+                                                    </span>
+                                                    <span data-i18n="settings.autoConnect">Tự động kết nối khi đăng nhập</span>
+                                                </label>
+                                                
+                                                <button type="button" id="btn-test-connect" onclick="testConnectionFromSettings()" style="background: linear-gradient(135deg, #ef4444, #ff7e75); color: white; border: none; padding: 6px 12px; border-radius: 8px; font-size: 12px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 4px; box-shadow: 0 4px 10px rgba(239, 68, 68, 0.25);">
+                                                    ⚡ Kết nối ngay
+                                                </button>
+                                            </div>
+                                        </div>
                                         <div class="settings-field">
                                             <label for="printer-ip" data-i18n="settings.printer">Máy in hóa đơn</label>
                                             <p data-i18n="settings.printerDesc">Địa chỉ IP hoặc cổng kết nối của máy in.</p>
@@ -585,7 +622,73 @@
         </div>
     </div>
 
+    <!-- Modal sửa item -->
+    <div id="edit-item-modal" class="fixed inset-0 bg-black bg-opacity-60 z-[80] hidden flex items-center justify-center p-4 no-print">
+        <div class="bg-white rounded-2xl shadow-2xl w-full max-w-sm">
+            <div class="p-5 border-b flex justify-between items-center">
+                <h3 class="font-black text-lg">Sửa sản phẩm</h3>
+                <button onclick="closeEditItemModal()" class="text-gray-400 hover:text-black text-xl leading-none">&times;</button>
+            </div>
+            <div class="p-5 space-y-4">
+                <label class="block text-xs font-bold text-gray-500">Bình luận / Sản phẩm
+                    <input id="edit-item-text" type="text" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm" placeholder="Tên sản phẩm">
+                </label>
+                <label class="block text-xs font-bold text-gray-500">Giá tiền (VNĐ)
+                    <input id="edit-item-price" type="number" min="0" step="1000" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm" placeholder="50000">
+                </label>
+            </div>
+            <div class="px-5 pb-5 flex gap-2">
+                <button onclick="confirmEditItem()" class="flex-1 bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-slate-700 transition-colors">Lưu thay đổi</button>
+                <button onclick="closeEditItemModal()" class="px-4 py-2 border border-gray-300 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors">Hủy</button>
+            </div>
+        </div>
+    </div>
+
     <script src="/js/mobile-gestures.js"></script>
     <script src="/js/dashboard.js"></script>
+    <script>
+        // Edit-item modal
+        (() => {
+            const state = {};
+
+            window.editItem = (username, itemId, oldText, oldPrice) => {
+                state.username = username;
+                state.itemId = itemId;
+                document.getElementById('edit-item-text').value = oldText || '';
+                document.getElementById('edit-item-price').value = oldPrice != null ? oldPrice : '';
+                document.getElementById('edit-item-modal').classList.remove('hidden');
+                setTimeout(() => document.getElementById('edit-item-text').select(), 80);
+            };
+
+            window.closeEditItemModal = () => {
+                document.getElementById('edit-item-modal').classList.add('hidden');
+            };
+
+            window.confirmEditItem = () => {
+                const textRaw = document.getElementById('edit-item-text').value || '';
+                const text = typeof normalizeDisplayText === 'function' ? normalizeDisplayText(textRaw) : textRaw.trim();
+                const price = parseFloat(document.getElementById('edit-item-price').value);
+                if (!text) return;
+                if (!Number.isNaN(price) && price >= 0) {
+                    const uname = typeof normalizeTikTokUsername === 'function' ? normalizeTikTokUsername(state.username) : state.username;
+                    socket.emit('edit-item', { username: uname, itemId: state.itemId, text, price });
+                }
+                closeEditItemModal();
+            };
+
+            document.addEventListener('DOMContentLoaded', () => {
+                const overlay = document.getElementById('edit-item-modal');
+                overlay.addEventListener('click', (e) => { if (e.target === overlay) closeEditItemModal(); });
+                document.getElementById('edit-item-price').addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') confirmEditItem();
+                    if (e.key === 'Escape') closeEditItemModal();
+                });
+                document.getElementById('edit-item-text').addEventListener('keydown', (e) => {
+                    if (e.key === 'Enter') document.getElementById('edit-item-price').focus();
+                    if (e.key === 'Escape') closeEditItemModal();
+                });
+            });
+        })();
+    </script>
 </body>
 </html>

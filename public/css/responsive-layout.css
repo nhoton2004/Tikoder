@@ -2,48 +2,32 @@
  * Responsive Layout — Tối ưu cho Mobile & Tablet
  */
 
-/* Mobile Navigation - Gọn gàng hơn */
+/* Mobile & Tablet Portrait (< 768px) */
 @media (max-width: 767px) {
-    /* Mobile Header (hamburger) */
-    .mobile-header { display: flex; }
-    
-    .mobile-bottom-nav {
-        padding: 6px 8px calc(6px + env(safe-area-inset-bottom));
-        gap: 2px;
+    /* Mobile Header */
+    .mobile-header {
+        display: flex !important;
+        background: rgba(255, 255, 255, 0.9) !important;
+        backdrop-filter: blur(12px) !important;
+        -webkit-backdrop-filter: blur(12px) !important;
+        border-bottom: 1px solid rgba(15, 23, 42, 0.08) !important;
+    }
+    [data-theme="dark"] .mobile-header {
+        background: rgba(15, 23, 42, 0.9) !important;
+        border-bottom-color: rgba(148, 163, 184, 0.16) !important;
     }
     
-    .mobile-nav-item {
-        min-height: 44px;
-        font-size: 9px;
-        border-radius: 8px;
-    }
-    
-    .mobile-nav-item span:first-child {
-        font-size: 15px;
-        line-height: 16px;
-    }
-    
-    /* Mobile Sidebar - Drawer */
-    #app-sidebar {
-        position: fixed !important;
-        left: -280px;
-        top: 0;
-        bottom: 0;
-        width: 280px;
-        transition: left 0.3s cubic-bezier(0.16, 1, 0.3, 1);
-        z-index: 100;
-        box-shadow: 10px 0 30px rgba(0,0,0,0.1);
-        background: white !important;
-    }
-    
-    #app-sidebar.open {
-        left: 0;
+    /* Hide topbar on mobile */
+    .topbar {
+        display: none !important;
     }
 
     /* Ép App Shell full width mobile */
     .app-shell {
         display: block !important;
         padding: 0 !important;
+        margin-top: 56px !important; /* Space for mobile header */
+        margin-bottom: 60px !important; /* Space for bottom nav */
     }
 
     .main-wrap, .app-shell-main {
@@ -52,18 +36,283 @@
     }
     
     .dashboard-section {
-        padding: 12px !important;
+        padding: 12px 10px !important;
         width: 100% !important;
     }
 
-    /* Touch-friendly buttons */
+    /* Mobile Sidebar - Drawer */
+    #app-sidebar {
+        position: fixed !important;
+        top: 12px !important;
+        bottom: 12px !important;
+        left: 12px !important;
+        width: min(288px, calc(100vw - 24px)) !important;
+        height: calc(100dvh - 24px) !important;
+        z-index: 3000 !important;
+        border-radius: 16px !important;
+        transform: translateX(calc(-100% - 24px)) !important;
+        transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1) !important;
+        box-shadow: 10px 0 30px rgba(0,0,0,0.15) !important;
+        background: white !important;
+        overflow: hidden !important;
+    }
+    [data-theme="dark"] #app-sidebar {
+        background: var(--bg-subtle) !important;
+        border: 1px solid var(--border-base) !important;
+    }
+    
+    #app-sidebar.open {
+        transform: translateX(0) !important;
+    }
+
+    /* Glassmorphic Mobile Bottom Navigation */
+    .mobile-bottom-nav {
+        display: grid !important;
+        position: fixed !important;
+        left: 0 !important;
+        right: 0 !important;
+        bottom: 0 !important;
+        z-index: 1500 !important;
+        grid-template-columns: repeat(5, minmax(0, 1fr)) !important;
+        gap: 2px !important;
+        padding: 6px 8px calc(6px + env(safe-area-inset-bottom)) !important;
+        background: rgba(255, 255, 255, 0.85) !important;
+        backdrop-filter: blur(20px) saturate(190%) !important;
+        -webkit-backdrop-filter: blur(20px) saturate(190%) !important;
+        border-top: 1px solid rgba(15, 23, 42, 0.08) !important;
+        box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.06) !important;
+    }
+    [data-theme="dark"] .mobile-bottom-nav {
+        background: rgba(15, 23, 42, 0.85) !important;
+        border-top: 1px solid rgba(148, 163, 184, 0.16) !important;
+        box-shadow: 0 -8px 24px rgba(0, 0, 0, 0.25) !important;
+    }
+    
+    .mobile-nav-item {
+        min-height: 48px !important;
+        font-size: 9px !important;
+        border-radius: 10px !important;
+        color: #64748b !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        gap: 3px !important;
+        transition: all 0.2s !important;
+    }
+    [data-theme="dark"] .mobile-nav-item {
+        color: #94a3b8 !important;
+    }
+    
+    .mobile-nav-item span:first-child {
+        font-size: 18px !important;
+        line-height: 18px !important;
+    }
+    .mobile-nav-item img {
+        width: 18px !important;
+        height: 18px !important;
+        filter: invert(43%) sepia(9%) saturate(834%) hue-rotate(176deg) brightness(91%) contrast(88%) !important;
+    }
+    
+    .mobile-nav-item.active {
+        background: #ffe8ef !important;
+        color: #E8002D !important;
+    }
+    .mobile-nav-item.active img {
+        filter: invert(13%) sepia(100%) saturate(5421%) hue-rotate(340deg) brightness(92%) contrast(106%) !important;
+    }
+    [data-theme="dark"] .mobile-nav-item.active {
+        background: rgba(16, 185, 129, 0.12) !important;
+        color: var(--brand-primary) !important;
+    }
+    [data-theme="dark"] .mobile-nav-item.active img {
+        filter: invert(62%) sepia(74%) saturate(4415%) hue-rotate(124deg) brightness(101%) contrast(85%) !important;
+    }
+
+    /* Overview Section Controls (Tối ưu xếp chồng) */
+    .overview-header-row {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 12px !important;
+    }
+
+    .overview-controls {
+        display: flex !important;
+        flex-direction: column !important;
+        width: 100% !important;
+        gap: 6px !important;
+        margin-top: 4px !important;
+    }
+    
+    .overview-controls-presets {
+        display: flex !important;
+        width: 100% !important;
+        gap: 6px !important;
+    }
+    .overview-controls-presets .overview-range-btn {
+        flex: 1 1 0% !important;
+        text-align: center !important;
+        padding: 6px 2px !important;
+        font-size: 11px !important;
+        min-height: 36px !important;
+        line-height: 1.2 !important;
+    }
+    
+    .overview-controls-dates {
+        display: flex !important;
+        width: 100% !important;
+        gap: 6px !important;
+    }
+    .overview-controls-dates input {
+        flex: 1 1 0% !important;
+        width: 50% !important;
+        text-align: center !important;
+        font-size: 12px !important;
+        padding: 6px !important;
+        min-height: 36px !important;
+        line-height: 1.2 !important;
+    }
+
+    /* Overview Metrics (Grid 3 cột nhỏ gọn nằm ngang) */
+    .overview-mini-metrics {
+        display: grid !important;
+        grid-template-columns: repeat(3, minmax(0, 1fr)) !important;
+        gap: 6px !important;
+        width: 100% !important;
+    }
+    
+    .overview-mini-card {
+        padding: 8px 6px !important;
+        border-radius: 10px !important;
+        text-align: center !important;
+    }
+    
+    .overview-mini-label {
+        font-size: 10px !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+    }
+    
+    .overview-mini-value {
+        font-size: 16px !important;
+        margin-top: 2px !important;
+        font-weight: 900 !important;
+    }
+    
+    .overview-mini-value-money {
+        font-size: 12px !important;
+        font-weight: 950 !important;
+        word-break: break-all !important;
+    }
+    
+    .overview-mini-note {
+        font-size: 8px !important;
+        margin-top: 2px !important;
+        white-space: nowrap !important;
+    }
+
+    .overview-insight-grid {
+        grid-template-columns: 1fr !important;
+        gap: 12px !important;
+    }
+
+    /* Customers Table chuyển thành Cards cực đẹp */
+    .customers-table thead {
+        display: none !important;
+    }
+    
+    .customers-table tbody {
+        display: grid !important;
+        grid-template-columns: 1fr !important;
+        gap: 10px !important;
+        padding: 10px 0 !important;
+    }
+    
+    .customers-table tr {
+        display: flex !important;
+        flex-direction: column !important;
+        background: white !important;
+        border: 1px solid #e4e7ec !important;
+        border-radius: 12px !important;
+        padding: 12px !important;
+        box-shadow: 0 2px 8px rgba(15,23,42,0.02) !important;
+        position: relative !important;
+    }
+    [data-theme="dark"] .customers-table tr {
+        background: var(--bg-subtle) !important;
+        border-color: var(--border-base) !important;
+    }
+    
+    .customers-table td {
+        display: block !important;
+        padding: 3px 0 !important;
+        border: none !important;
+        width: 100% !important;
+        text-align: left !important;
+        background: transparent !important;
+    }
+    
+    .customers-table td.customer-table-username {
+        font-size: 14px !important;
+        color: var(--brand-hot) !important;
+        font-weight: 850 !important;
+        padding-bottom: 2px !important;
+    }
+    
+    .customers-table td.customer-table-name {
+        font-size: 13px !important;
+        color: #1e293b !important;
+        font-weight: 700 !important;
+    }
+    [data-theme="dark"] .customers-table td.customer-table-name {
+        color: var(--text-primary) !important;
+    }
+    
+    .customers-table td.customer-table-phone::before {
+        content: "SĐT: ";
+        font-weight: bold;
+        color: #94a3b8;
+    }
+    
+    .customers-table td.customer-table-address::before {
+        content: "Địa chỉ: ";
+        font-weight: bold;
+        color: #94a3b8;
+    }
+    
+    .customers-table td.customer-table-actions {
+        margin-top: 6px !important;
+        padding-top: 8px !important;
+        border-top: 1px solid #f1f5f9 !important;
+        display: flex !important;
+        justify-content: flex-end !important;
+        gap: 6px !important;
+    }
+    [data-theme="dark"] .customers-table td.customer-table-actions {
+        border-top-color: var(--border-base) !important;
+    }
+    
+    .customers-table td.customer-table-actions button {
+        flex: 1 !important;
+        max-width: 110px !important;
+        min-height: 36px !important;
+        border-radius: 8px !important;
+        font-size: 11px !important;
+        font-weight: 800 !important;
+        justify-content: center !important;
+        display: inline-flex !important;
+        align-items: center !important;
+    }
+
+    /* Touch targets & other elements */
     button, .menu-item, .order-action-btn {
-        min-height: 44px;
-        min-width: 44px;
+        min-height: 40px;
+        min-width: 40px;
     }
     
     .chat-row {
-        padding: 16px;
+        padding: 12px !important;
     }
     
     .order-item-actions {
@@ -78,36 +327,112 @@
         background: #f3f4f6;
         border-radius: 8px;
     }
+
+    /* Tối ưu hóa phần Live View & Kết nối */
+    body[data-view="live"] .live-kpi-strip {
+        grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+        gap: 8px !important;
+    }
+    
+    body[data-view="live"] .live-stat {
+        min-height: 64px !important;
+        padding: 10px 12px !important;
+        gap: 8px !important;
+    }
+    body[data-view="live"] .live-stat strong {
+        font-size: 16px !important;
+    }
+    body[data-view="live"] .live-stat span {
+        font-size: 11px !important;
+    }
+    
+    .live-connect-bar {
+        padding: 12px !important;
+    }
+    .live-connect-row {
+        flex-direction: column !important;
+        gap: 8px !important;
+    }
+    .live-connect-row input {
+        width: 100% !important;
+        min-height: 40px !important;
+    }
+    .live-connect-row button {
+        width: 100% !important;
+        min-height: 40px !important;
+        justify-content: center !important;
+    }
+    .live-quick-actions {
+        flex-wrap: wrap !important;
+        gap: 6px !important;
+    }
+    .live-quick-actions button {
+        flex: 1 1 calc(50% - 6px) !important;
+        min-height: 38px !important;
+        justify-content: center !important;
+        font-size: 12px !important;
+    }
+
+    /* Tối ưu hóa đầu bảng / Tìm kiếm trong Đơn hàng */
+    .live-panel-head {
+        flex-direction: column !important;
+        align-items: stretch !important;
+        gap: 8px !important;
+        padding: 10px 12px !important;
+    }
+    .live-panel-head .flex.items-center.gap-2 {
+        width: 100% !important;
+        justify-content: space-between !important;
+    }
+    .live-panel-head #orders-search {
+        width: 140px !important;
+        font-size: 11px !important;
+    }
+    .live-panel-head #orders-search:focus {
+        width: 100% !important;
+    }
+    .live-panel-head .live-panel-actions {
+        width: 100% !important;
+        justify-content: space-between !important;
+    }
+
+    /* Cải thiện các ô nhập liệu chung (Forms) */
+    #customer-form input,
+    #customer-form select,
+    #customer-form textarea {
+        min-height: 40px !important;
+        font-size: 13px !important;
+        border-radius: 10px !important;
+    }
+    #customer-form textarea {
+        min-height: 60px !important;
+    }
+    #customer-form label {
+        margin-bottom: 2px !important;
+    }
 }
 
-/* Tablet: Sidebar thu gọn (Mini Mode) */
+/* Tablet (768px to 1023px) */
 @media (min-width: 768px) and (max-width: 1023px) {
     #app-sidebar:not(.open) {
-        width: 72px;
+        width: 72px !important;
     }
-    #app-sidebar:not(.open) .sidebar-text {
-        display: none;
+    #app-sidebar:not(.open) .brand-copy,
+    #app-sidebar:not(.open) .menu-label,
+    #app-sidebar:not(.open) .sidebar-toggle-label {
+        display: none !important;
     }
-    #app-sidebar:not(.open) .sidebar-item {
-        justify-content: center;
-        padding: 12px 0;
+    #app-sidebar:not(.open) .menu-item {
+        justify-content: center !important;
+        padding: 0 !important;
+        gap: 0 !important;
     }
-    #app-sidebar:not(.open) .logo-container {
-        justify-content: center;
+    #app-sidebar:not(.open) .brand-lockup {
+        justify-content: center !important;
     }
 }
 
-/* Desktop: Đảm bảo sidebar hiển thị bình thường */
+/* Desktop (>= 1024px) */
 @media (min-width: 1024px) {
     .mobile-header { display: none !important; }
-}
-
-/* Shared Styles */
-.mobile-header {
-    display: none;
-    height: 56px;
-    align-items: center;
-    padding: 0 16px;
-    background: var(--bg-main);
-    border-bottom: 1px solid var(--border-base);
 }

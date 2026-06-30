@@ -440,11 +440,12 @@
                         <label class="field-label" for="login-password">Mật khẩu</label>
                         <input type="password" id="login-password" class="field-input" placeholder="••••••••" autocomplete="current-password">
                     </div>
-                    <div class="field-group" style="margin-bottom: 10px;">
+                    <div class="field-group" style="margin-bottom: 10px; display: flex; align-items: center; justify-content: space-between;">
                         <label style="display: flex; align-items: center; cursor: pointer; font-size: 13px; font-weight: 600; color: #374151;">
                             <input type="checkbox" id="remember-me" style="margin-right: 8px; width: 16px; height: 16px; cursor: pointer;">
                             Ghi nhớ đăng nhập
                         </label>
+                        <button type="button" id="btn-forgot" onclick="openForgotPassword()" style="background: none; border: none; color: var(--brand-hot); font-size: 12px; font-weight: 700; cursor: pointer; padding: 0; text-decoration: underline;">Quên mật khẩu?</button>
                     </div>
                     <button id="btn-login" class="btn-primary">Đăng nhập</button>
                 </div>
@@ -482,6 +483,21 @@
         </main>
     </div>
 
+    <!-- Modal quên mật khẩu -->
+    <div id="forgot-overlay" style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.45); z-index:999; align-items:center; justify-content:center;">
+        <div style="background:#fff; width:min(420px,94%); border-radius:4px; box-shadow:0 24px 80px rgba(15,23,42,0.22); padding:clamp(28px,5vw,40px); position:relative;">
+            <button onclick="closeForgotPassword()" style="position:absolute; top:14px; right:16px; background:none; border:none; font-size:20px; color:#9ca3af; cursor:pointer; line-height:1;">✕</button>
+            <h2 style="font-size:20px; font-weight:900; letter-spacing:-0.03em; color:#111827; margin-bottom:6px;">Đặt lại mật khẩu</h2>
+            <p style="font-size:13px; color:#667085; margin-bottom:24px;">Nhập email đăng ký. Chúng tôi sẽ gửi link đặt lại mật khẩu về hộp thư của bạn.</p>
+            <div style="margin-bottom:16px;">
+                <label style="display:block; font-size:10px; font-weight:900; color:#111827; margin-bottom:8px; text-transform:uppercase; letter-spacing:0.08em;">Email</label>
+                <input type="email" id="forgot-email" class="field-input" placeholder="email@example.com" autocomplete="email" style="width:100%;">
+            </div>
+            <div id="forgot-msg" style="display:none; margin-bottom:14px; padding:10px 14px; font-size:13px; font-weight:700; border-radius:2px;"></div>
+            <button id="btn-forgot-submit" onclick="submitForgotPassword()" class="btn-primary" style="margin-top:0;">Gửi email đặt lại mật khẩu</button>
+        </div>
+    </div>
+
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-app.js";
         import {
@@ -490,7 +506,8 @@
             createUserWithEmailAndPassword,
             GoogleAuthProvider,
             signInWithPopup,
-            signOut
+            signOut,
+            sendPasswordResetEmail
         } from "https://www.gstatic.com/firebasejs/10.9.0/firebase-auth.js";
 
         const firebaseConfig = {
@@ -625,6 +642,63 @@
         document.getElementById('login-email').addEventListener('keydown', (e) => {
             if (e.key === 'Enter') document.getElementById('login-password').focus();
         });
+
+        // --- FORGOT PASSWORD ---
+        window.openForgotPassword = () => {
+            const emailVal = document.getElementById('login-email').value.trim();
+            document.getElementById('forgot-email').value = emailVal;
+            document.getElementById('forgot-msg').style.display = 'none';
+            document.getElementById('forgot-msg').textContent = '';
+            const overlay = document.getElementById('forgot-overlay');
+            overlay.style.display = 'flex';
+            setTimeout(() => document.getElementById('forgot-email').focus(), 80);
+        };
+
+        window.closeForgotPassword = () => {
+            document.getElementById('forgot-overlay').style.display = 'none';
+        };
+
+        // Close modal when clicking on backdrop
+        document.getElementById('forgot-overlay').addEventListener('click', (e) => {
+            if (e.target === document.getElementById('forgot-overlay')) closeForgotPassword();
+        });
+
+        document.getElementById('forgot-email').addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') submitForgotPassword();
+            if (e.key === 'Escape') closeForgotPassword();
+        });
+
+        window.submitForgotPassword = async () => {
+            const email = document.getElementById('forgot-email').value.trim();
+            const msgEl = document.getElementById('forgot-msg');
+            const btn = document.getElementById('btn-forgot-submit');
+            if (!email) {
+                msgEl.textContent = 'Vui lòng nhập địa chỉ email.';
+                msgEl.style.cssText = 'display:block; padding:10px 14px; font-size:13px; font-weight:700; background:#fff1f2; border:1px solid #fecdd3; color:#be123c; margin-bottom:14px;';
+                return;
+            }
+            btn.disabled = true;
+            btn.innerHTML = '<span class="spinner"></span>Đang gửi...';
+            try {
+                await sendPasswordResetEmail(auth, email);
+                msgEl.textContent = `✅ Đã gửi email đến ${email}. Vui lòng kiểm tra hộp thư (kể cả thư mục Spam).`;
+                msgEl.style.cssText = 'display:block; padding:10px 14px; font-size:13px; font-weight:700; background:#ecfdf5; border:1px solid #bbf7d0; color:#047857; margin-bottom:14px;';
+                btn.textContent = 'Đã gửi ✓';
+                btn.style.background = '#059669';
+                btn.disabled = true;
+            } catch (error) {
+                const errMap = {
+                    'auth/user-not-found': 'Không tìm thấy tài khoản với email này.',
+                    'auth/invalid-email': 'Địa chỉ email không hợp lệ.',
+                    'auth/too-many-requests': 'Gửi quá nhiều lần. Vui lòng thử lại sau.',
+                };
+                msgEl.textContent = errMap[error.code] || `Lỗi: ${error.message}`;
+                msgEl.style.cssText = 'display:block; padding:10px 14px; font-size:13px; font-weight:700; background:#fff1f2; border:1px solid #fecdd3; color:#be123c; margin-bottom:14px;';
+                btn.disabled = false;
+                btn.textContent = 'Gửi email đặt lại mật khẩu';
+                btn.style.background = '';
+            }
+        };
 
         // --- EMAIL/PASSWORD REGISTER ---
         document.getElementById('btn-register').addEventListener('click', async () => {

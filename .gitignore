@@ -1,12 +1,22 @@
 node_modules
 .env
 firebase-service-account.json
+node_modules
+.env
+.env.example
 data/
-history/dev-user/
-# History data files (contain user PII)
 history/
 *.json.bak
 2026-*.json
 
 # Config with potential secrets
 config.local.json
+config.json
+.dockerignore
+Dockerfile
+.clinerules
+SECURITY.md
+LEARNING_GUIDE.md
+NOTION_IMPORT_GUIDE.txt
+PR_SUMMARY.md
+package-lock.json

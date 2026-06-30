@@ -47,8 +47,17 @@ function setupLiveHandler(io, ctx) {
         socket.on('disconnect', () => {
             runtime.sockets.delete(socket.id);
             if (runtime.sockets.size === 0 && runtime.tiktokConnection) {
-                try { runtime.tiktokConnection.disconnect(); } catch (e) {}
-                runtime.tiktokConnection = null;
+                // Đặt Grace Period 2 phút trước khi ngắt TikTok Live
+                runtime.gracePeriodTimer = setTimeout(() => {
+                    if (runtime.sockets.size > 0) return; // User đã reconnect thành công
+                    console.log(`>>> Grace period expired for user ${userId}. Disconnecting TikTok Live.`);
+                    try { runtime.tiktokConnection.disconnect(); } catch (e) {}
+                    runtime.tiktokConnection = null;
+                    
+                    // Tự động lưu phiên vào Lịch sử
+                    ctx.saveSessionDataForUser(userId);
+                    ctx.internalSaveLiveSession(userId, runtime);
+                }, 2 * 60 * 1000); // 2 phút
             }
         });
 
@@ -71,9 +80,24 @@ function setupLiveHandler(io, ctx) {
             socket.emit('chat-buffer', { broadcasterId: id, comments });
         });
 
-        socket.on('start-live', (uniqueId) => {
+        socket.on('start-live', (payload) => {
+            const uniqueId = typeof payload === 'string' ? payload : (payload?.uniqueId || '');
+            const clientSessionId = typeof payload === 'object' ? payload?.sessionId : null;
+
             const broadcasterId = customerStore.normalizeTikTokUsername(uniqueId);
             if (!broadcasterId) return socket.emit('status', { connected: false, error: 'TikTok ID không hợp lệ', broadcasterId: '' });
+
+            // Huỷ Grace Period nếu đang chờ reconnect
+            if (runtime.gracePeriodTimer) {
+                clearTimeout(runtime.gracePeriodTimer);
+                runtime.gracePeriodTimer = null;
+                console.log(`>>> Grace period cancelled. User reconnected for user ${userId}.`);
+            }
+
+            // Kiểm tra xem có phải tiếp tục phiên cũ không
+            const isContinuation = clientSessionId &&
+                                   clientSessionId === runtime.sessionId &&
+                                   broadcasterId === runtime.currentBroadcasterId;
 
             if (runtime.tiktokConnection) {
                 try { runtime.tiktokConnection.disconnect(); } catch (e) {}
@@ -81,14 +105,38 @@ function setupLiveHandler(io, ctx) {
             }
 
             runtime.currentBroadcasterId = broadcasterId;
-            runtime.processedMsgIds.clear();
 
-            const fileName = ctx.getSessionFileName(userId, broadcasterId);
-            if (fs.existsSync(fileName)) {
-                runtime.confirmedOrders = sanitizeConfirmedOrders(JSON.parse(fs.readFileSync(fileName)));
+            if (isContinuation) {
+                console.log(`>>> Resuming existing session ${runtime.sessionId} for user ${userId}`);
             } else {
-                runtime.confirmedOrders = {};
+                // Tự động lưu session cũ nếu đang có session khác hoạt động và có đơn hàng
+                if (runtime.sessionId && Object.keys(runtime.confirmedOrders || {}).length > 0) {
+                    ctx.saveSessionDataForUser(userId);
+                    ctx.internalSaveLiveSession(userId, runtime);
+                }
+                
+                // Khởi tạo phiên mới hoàn toàn
+                runtime.sessionId = ctx.generateSessionId(broadcasterId);
+                runtime.sessionStartedAt = new Date().toISOString();
+                runtime.processedMsgIds.clear();
+                
+                // Thử load file ngày hôm nay hoặc hôm qua trước
+                const fileName = ctx.getSessionFileName(userId, broadcasterId, null);
+                if (fs.existsSync(fileName)) {
+                    runtime.confirmedOrders = sanitizeConfirmedOrders(JSON.parse(fs.readFileSync(fileName)));
+                } else {
+                    runtime.confirmedOrders = {};
+                }
             }
+
+            // Gửi session-info về client
+            socket.emit('session-info', {
+                sessionId: runtime.sessionId,
+                broadcasterId,
+                startedAt: runtime.sessionStartedAt,
+                isContinuation
+            });
+
             emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
 
             const userConnection = new WebcastPushConnection(broadcasterId);
@@ -138,7 +186,32 @@ function setupLiveHandler(io, ctx) {
 
                 emitToUser(userId, 'raw-chat', chatPayload);
             });
-        });
+
+            // Lắng nghe sự kiện stream kết thúc (khách xuống live)
+            userConnection.on('streamEnd', (data) => {
+                if (runtime.tiktokConnection !== userConnection) return;
+                console.log(`>>> Stream ended for broadcaster: ${broadcasterId} (user: ${userId})`);
+
+                // Auto-save dữ liệu phiên vào file history
+                saveSessionDataForUser(userId);
+                ctx.internalSaveLiveSession(userId, runtime);
+
+                // Thông báo về client để auto-save và cập nhật UI, xoá session ID
+                emitToUser(userId, 'live-ended', { broadcasterId, reason: data?.action || 'ended', clearSession: true });
+
+                // Ngắt kết nối TikTok
+                try { userConnection.disconnect(); } catch (e) {}
+                if (runtime.tiktokConnection === userConnection) {
+                    runtime.tiktokConnection = null;
+                }
+            });
+
+            // Lắng nghe lỗi kết nối bất ngờ
+            userConnection.on('disconnected', () => {
+                if (runtime.tiktokConnection !== userConnection) return;
+                emitToUser(userId, 'status', { connected: false, error: 'Mất kết nối với TikTok Live', broadcasterId });
+            });
+        }); // end socket.on('start-live')
 
         socket.on('confirm-item', (data) => {
             const username = customerStore.normalizeTikTokUsername(data.uniqueId || data.username || '');
