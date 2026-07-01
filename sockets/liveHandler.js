@@ -106,9 +106,39 @@ function setupLiveHandler(io, ctx) {
 
             runtime.currentBroadcasterId = broadcasterId;
 
+            // Auto-save + idle timeout mỗi lần start-live
+            if (runtime.autoSaveTimer) {
+                clearInterval(runtime.autoSaveTimer);
+                runtime.autoSaveTimer = null;
+            }
+            if (runtime.idleTimer) {
+                clearTimeout(runtime.idleTimer);
+                runtime.idleTimer = null;
+            }
+
+            runtime.autoSaveTimer = setInterval(() => {
+                if (runtime.currentBroadcasterId) {
+                    saveSessionDataForUser(userId);
+                }
+            }, 30000);
+
+            const resetIdleTimer = () => {
+                if (runtime.idleTimer) clearTimeout(runtime.idleTimer);
+                runtime.idleTimer = setTimeout(() => {
+                    console.log(`>>> Idle timeout expired for user ${userId}. Ending live.`);
+                    try { runtime.tiktokConnection.disconnect(); } catch (e) {}
+                    runtime.tiktokConnection = null;
+                    if (runtime.autoSaveTimer) {
+                        clearInterval(runtime.autoSaveTimer);
+                        runtime.autoSaveTimer = null;
+                    }
+                    saveSessionDataForUser(userId);
+                    ctx.internalSaveLiveSession(userId, runtime);
+                    emitToUser(userId, 'live-ended', { broadcasterId, reason: 'idle_10m', clearSession: true });
+                }, 10 * 60 * 1000);
+            };
+
             if (isContinuation) {
-                console.log(`>>> Resuming existing session ${runtime.sessionId} for user ${userId}`);
-            } else {
                 // Tự động lưu session cũ nếu đang có session khác hoạt động và có đơn hàng
                 if (runtime.sessionId && Object.keys(runtime.confirmedOrders || {}).length > 0) {
                     ctx.saveSessionDataForUser(userId);
@@ -129,6 +159,32 @@ function setupLiveHandler(io, ctx) {
                 }
             }
 
+            const userConnection = new WebcastPushConnection(broadcasterId);
+            runtime.tiktokConnection = userConnection;
+
+            if (isContinuation) {
+                console.log(`>>> Resuming existing session ${runtime.sessionId} for user ${userId}`);
+            } else {
+                // Tự động lưu session cũ nếu đang có session khác hoạt động và có đơn hàng
+                if (runtime.sessionId && Object.keys(runtime.confirmedOrders || {}).length > 0) {
+                    ctx.saveSessionDataForUser(userId);
+                    ctx.internalSaveLiveSession(userId, runtime);
+                }
+
+                // Khởi tạo phiên mới hoàn toàn
+                runtime.sessionId = ctx.generateSessionId(broadcasterId);
+                runtime.sessionStartedAt = new Date().toISOString();
+                runtime.processedMsgIds.clear();
+
+                // Thử load file ngày hôm nay hoặc hôm qua trước
+                const fileName = ctx.getSessionFileName(userId, broadcasterId, null);
+                if (fs.existsSync(fileName)) {
+                    runtime.confirmedOrders = sanitizeConfirmedOrders(JSON.parse(fs.readFileSync(fileName)));
+                } else {
+                    runtime.confirmedOrders = {};
+                }
+            }
+
             // Gửi session-info về client
             socket.emit('session-info', {
                 sessionId: runtime.sessionId,
@@ -138,9 +194,6 @@ function setupLiveHandler(io, ctx) {
             });
 
             emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
-
-            const userConnection = new WebcastPushConnection(broadcasterId);
-            runtime.tiktokConnection = userConnection;
 
             userConnection.connect().then(state => {
                 if (runtime.tiktokConnection !== userConnection) return;
@@ -163,6 +216,7 @@ function setupLiveHandler(io, ctx) {
                 if (runtime.processedMsgIds.has(data.msgId)) return;
                 runtime.processedMsgIds.add(data.msgId);
                 setTimeout(() => runtime.processedMsgIds.delete(data.msgId), 120000);
+                if (typeof runtime.resetIdleTimer === 'function') runtime.resetIdleTimer();
 
                 const commenterUsername = customerStore.normalizeTikTokUsername(data.uniqueId || data.username || '');
                 const nickname = cleanDisplayText(data.nickname || data.displayName || '');
@@ -205,6 +259,9 @@ function setupLiveHandler(io, ctx) {
                     runtime.tiktokConnection = null;
                 }
             });
+
+            // Start idle từ lúc connect TikTok thành công
+            if (typeof runtime.resetIdleTimer === 'function') runtime.resetIdleTimer();
 
             // Lắng nghe lỗi kết nối bất ngờ
             userConnection.on('disconnected', () => {

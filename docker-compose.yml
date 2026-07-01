@@ -1,14 +1,13 @@
 services:
-  tiktok-app:
-    build: .
-    container_name: tiktok_order_app
+  app:
+    build:
+      context: .
     ports:
-      - "3000:3000"
+      - 127.0.0.1:3000:3000
+    env_file:
+      - ./.env
     volumes:
       - ./data:/app/data
       - ./history:/app/history
       - ./config.json:/app/config.json
-      - ./firebase-service-account.json:/app/firebase-service-account.json:ro
-    env_file:
-      - .env
-    restart: "no"
+    restart: unless-stopped

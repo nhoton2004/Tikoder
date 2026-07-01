@@ -1768,14 +1768,25 @@ function parseDateKey(value) {
 
 function normalizeOverviewRange(startQuery, endQuery) {
     const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const defaultStart = new Date(today);
-    defaultStart.setDate(defaultStart.getDate() - 6);
+    const vietnamOffsetMinutes = 7 * 60;
+
+    function toVietnamStart(date) {
+        const d = new Date(date);
+        d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+        const ms = d.getTime() + vietnamOffsetMinutes * 60 * 1000;
+        const start = new Date(ms);
+        start.setHours(0, 0, 0, 0);
+        return start;
+    }
+
+    const defaultStartDate = toVietnamStart(new Date());
+    defaultStartDate.setDate(defaultStartDate.getDate() - 6);
+    const defaultStart = defaultStartDate;
 
     let start = parseDateKey(startQuery) || defaultStart;
-    let end = parseDateKey(endQuery) || today;
-    start.setHours(0, 0, 0, 0);
-    end.setHours(0, 0, 0, 0);
+    let end = parseDateKey(endQuery) || toVietnamStart(new Date());
+    start = toVietnamStart(start);
+    end = toVietnamStart(end);
 
     if (start > end) {
         const tmp = start;
