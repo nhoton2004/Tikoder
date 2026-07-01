@@ -1386,7 +1386,42 @@
             ordersData = normalizeOrdersMap(allOrders);
             calculateKpis();
             refreshCommentUserTooltips();
+
+            // Tắt spin + hiển thị kết quả
+            const iconEl = document.querySelector('[onclick="refreshCurrentOrders()"] .material-symbols-outlined');
+            if (iconEl) iconEl.classList.remove('spinning');
+            const totalOrders = Object.values(ordersData).reduce((sum, o) => sum + (Array.isArray(o.items) ? o.items.length : 0), 0);
+            showLiveToast(`✅ Cập nhật xong: ${totalOrders} đơn`, 'success');
         });
+
+        // Thêm hàm refresh để gọi lại danh sách đơn chốt hiện tại
+        window.refreshCurrentOrders = function () {
+            const refreshBtn = document.querySelector('[onclick="refreshCurrentOrders()"]');
+            const iconEl = refreshBtn?.querySelector('.material-symbols-outlined');
+
+            // Spin animation
+            if (iconEl) iconEl.classList.add('spinning');
+
+            if (!socket.connected) {
+                if (refreshBtn) {
+                    refreshBtn.disabled = true;
+                    refreshBtn.title = 'Đang kết nối lại...';
+                }
+                showLiveToast('⚠️ Đang kết nối lại...', 'warning');
+                socket.connect();
+                socket.once('connect', () => {
+                    if (refreshBtn) {
+                        refreshBtn.disabled = false;
+                        refreshBtn.title = 'Làm mới đơn chốt';
+                    }
+                    socket.emit('get-current-orders');
+                });
+                return;
+            }
+
+            socket.emit('get-current-orders');
+            showLiveToast('Đang cập nhật...', 'info');
+        };
 
         function normalizeOrdersMap(orderMap) {
             return Object.values(orderMap || {}).reduce((result, order) => {

@@ -18,6 +18,7 @@ const orderExcelExporter = require('./utils/orderExcelExporter');
 const { cleanDisplayText, normalizeDisplayName, normalizeDisplayText } = require('./utils/displayName');
 const adminRoutes = require('./routes/admin');
 const debtRoutes = require('./routes/debts');
+const { setupLiveHandler, getLiveRuntime, liveRuntimeByUser } = require('./sockets/liveHandler');
 
 // DEV ONLY: Bật để bỏ qua đăng nhập Firebase trong môi trường local/dev.
 // SECURITY: NEVER enable in production. Must be explicitly set AND in development environment.
@@ -877,7 +878,6 @@ const LIVE_SESSIONS_DIR = path.join(__dirname, 'data', 'live-sessions');
 let printerInterface = 'tcp://192.168.1.9'; 
 let tiktokSignApiKey = '';
 let printer = null;
-const liveRuntimeByUser = new Map(); // { userId -> runtime state }
 const CHAT_BUFFER_LIMIT = 300;
 
 function safeStorageId(value) {
@@ -932,28 +932,6 @@ function getSessionFileName(userId, broadcasterId, sessionId) {
     }
     
     return todayFile;
-}
-
-function createEmptyLiveRuntime(userId) {
-    return {
-        userId,
-        tiktokConnection: null,
-        confirmedOrders: {},
-        currentBroadcasterId: '',
-        sessionId: null,
-        sessionStartedAt: null,
-        gracePeriodTimer: null,
-        processedMsgIds: new Set(),
-        chatBufferByBroadcaster: new Map(),
-        sockets: new Set()
-    };
-}
-
-function getLiveRuntime(userId) {
-    if (!liveRuntimeByUser.has(userId)) {
-        liveRuntimeByUser.set(userId, createEmptyLiveRuntime(userId));
-    }
-    return liveRuntimeByUser.get(userId);
 }
 
 function resetLiveRuntime(userId) {
@@ -1026,7 +1004,7 @@ function internalSaveLiveSession(userId, runtime) {
         }
     };
 
-    const sessionsFile = path.join(DATA_DIR, 'live-sessions', `${safeStorageId(userId)}.json`);
+    const sessionsFile = path.join(LIVE_SESSIONS_DIR, `${safeStorageId(userId)}.json`);
     let existing = { sessions: [] };
     if (fs.existsSync(sessionsFile)) {
         try { existing = JSON.parse(fs.readFileSync(sessionsFile)); } catch(e) {}
@@ -2226,7 +2204,6 @@ function toExcelXml(rows) {
 }
 
 const { getDb, migrateFromJson } = require('./utils/db');
-const { setupLiveHandler } = require('./sockets/liveHandler');
 
 // Initialize DB and Migrate
 getDb();

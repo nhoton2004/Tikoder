@@ -1,0 +1,6 @@
+◇ injected env (6) from .env // tip: ⌁ auth for agents [www.vestauth.com]
+Firebase Admin initialized.
+✅ Migrated 3 customer files
+✅ Migrated 3 session files
+Server running at http://0.0.0.0:3000
+Database initialized and data migrated.

@@ -18,6 +18,9 @@ function getLiveRuntime(userId) {
             tiktokConnection: null,
             confirmedOrders: {},
             currentBroadcasterId: '',
+            sessionId: null,
+            sessionStartedAt: null,
+            gracePeriodTimer: null,
             processedMsgIds: new Set(),
             chatBufferByBroadcaster: new Map(),
             sockets: new Set()
@@ -42,6 +45,21 @@ function setupLiveHandler(io, ctx) {
         runtime.sockets.add(socket.id);
         socket.join(getUserRoom(userId));
 
+        // Auto-restore confirmed orders on reconnect (tablet -> laptop sync)
+        if (Object.keys(runtime.confirmedOrders || {}).length > 0) {
+            socket.emit('all-confirmed-orders', runtime.confirmedOrders);
+        } else if (runtime.currentBroadcasterId) {
+            // Thử load lại từ file ngày hôm nay (sau server crash/restart)
+            const todayFile = ctx.getSessionFileName(userId, runtime.currentBroadcasterId, null);
+            if (fs.existsSync(todayFile)) {
+                runtime.confirmedOrders = sanitizeConfirmedOrders(JSON.parse(fs.readFileSync(todayFile)));
+                if (Object.keys(runtime.confirmedOrders).length > 0) {
+                    console.log(`>>> Auto-restored ${Object.keys(runtime.confirmedOrders).length} orders after restart for user ${userId}`);
+                    socket.emit('all-confirmed-orders', runtime.confirmedOrders);
+                }
+            }
+        }
+
         socket.emit('system-config', { printerInterface: ctx.printerInterface, tiktokSignApiKey: ctx.tiktokSignApiKey });
 
         socket.on('disconnect', () => {
@@ -56,7 +74,11 @@ function setupLiveHandler(io, ctx) {
                     
                     // Tự động lưu phiên vào Lịch sử
                     ctx.saveSessionDataForUser(userId);
-                    ctx.internalSaveLiveSession(userId, runtime);
+                    try {
+                        ctx.internalSaveLiveSession(userId, runtime);
+                    } catch (err) {
+                        console.error('>>> [ERROR] internalSaveLiveSession failed (server will not crash):', err.message);
+                    }
                 }, 2 * 60 * 1000); // 2 phút
             }
         });
@@ -133,31 +155,14 @@ function setupLiveHandler(io, ctx) {
                         runtime.autoSaveTimer = null;
                     }
                     saveSessionDataForUser(userId);
-                    ctx.internalSaveLiveSession(userId, runtime);
+                    try {
+                        ctx.internalSaveLiveSession(userId, runtime);
+                    } catch (err) {
+                        console.error('>>> [ERROR] internalSaveLiveSession failed (server will not crash):', err.message);
+                    }
                     emitToUser(userId, 'live-ended', { broadcasterId, reason: 'idle_10m', clearSession: true });
                 }, 10 * 60 * 1000);
             };
-
-            if (isContinuation) {
-                // Tự động lưu session cũ nếu đang có session khác hoạt động và có đơn hàng
-                if (runtime.sessionId && Object.keys(runtime.confirmedOrders || {}).length > 0) {
-                    ctx.saveSessionDataForUser(userId);
-                    ctx.internalSaveLiveSession(userId, runtime);
-                }
-                
-                // Khởi tạo phiên mới hoàn toàn
-                runtime.sessionId = ctx.generateSessionId(broadcasterId);
-                runtime.sessionStartedAt = new Date().toISOString();
-                runtime.processedMsgIds.clear();
-                
-                // Thử load file ngày hôm nay hoặc hôm qua trước
-                const fileName = ctx.getSessionFileName(userId, broadcasterId, null);
-                if (fs.existsSync(fileName)) {
-                    runtime.confirmedOrders = sanitizeConfirmedOrders(JSON.parse(fs.readFileSync(fileName)));
-                } else {
-                    runtime.confirmedOrders = {};
-                }
-            }
 
             const userConnection = new WebcastPushConnection(broadcasterId);
             runtime.tiktokConnection = userConnection;
@@ -168,7 +173,11 @@ function setupLiveHandler(io, ctx) {
                 // Tự động lưu session cũ nếu đang có session khác hoạt động và có đơn hàng
                 if (runtime.sessionId && Object.keys(runtime.confirmedOrders || {}).length > 0) {
                     ctx.saveSessionDataForUser(userId);
-                    ctx.internalSaveLiveSession(userId, runtime);
+                    try {
+                        ctx.internalSaveLiveSession(userId, runtime);
+                    } catch (err) {
+                        console.error('>>> [ERROR] internalSaveLiveSession failed (server will not crash):', err.message);
+                    }
                 }
 
                 // Khởi tạo phiên mới hoàn toàn
@@ -248,7 +257,11 @@ function setupLiveHandler(io, ctx) {
 
                 // Auto-save dữ liệu phiên vào file history
                 saveSessionDataForUser(userId);
-                ctx.internalSaveLiveSession(userId, runtime);
+                try {
+                    ctx.internalSaveLiveSession(userId, runtime);
+                } catch (err) {
+                    console.error('>>> [ERROR] internalSaveLiveSession failed (server will not crash):', err.message);
+                }
 
                 // Thông báo về client để auto-save và cập nhật UI, xoá session ID
                 emitToUser(userId, 'live-ended', { broadcasterId, reason: data?.action || 'ended', clearSession: true });
@@ -365,17 +378,21 @@ function setupLiveHandler(io, ctx) {
         });
 
         socket.on('get-history-list', () => {
-            const historyDir = path.join(ctx.HISTORY_ROOT_DIR, ctx.safeStorageId(userId));
+            const safeId = ctx.safeStorageId(userId);
+            const historyDir = path.join(ctx.HISTORY_ROOT_DIR, safeId);
             if (!fs.existsSync(historyDir)) fs.mkdirSync(historyDir, { recursive: true });
-            const userFiles = fs.existsSync(historyDir) ? fs.readdirSync(historyDir).filter(f => f.endsWith('.json')) : [];
+            const userFiles = fs.readdirSync(historyDir).filter(f => f.endsWith('.json'));
 
             const historyList = userFiles.map(f => {
                 const stats = fs.statSync(path.join(historyDir, f));
                 return { fileName: f, mtime: stats.mtime };
-            });
+            }).sort((a, b) => b.mtime - a.mtime);
 
-            historyList.sort((a, b) => b.mtime - a.mtime);
             socket.emit('history-list', historyList);
+
+            if (historyList.length > 0) {
+                socket.emit('load-history-file', historyList[0].fileName);
+            }
         });
 
         socket.on('load-history-file', (fileName) => {
@@ -387,14 +404,20 @@ function setupLiveHandler(io, ctx) {
             const historyDir = isSharedFile ? ctx.HISTORY_ROOT_DIR : path.join(ctx.HISTORY_ROOT_DIR, ctx.safeStorageId(userId));
             const filePath = path.join(historyDir, safeFileName);
             if (!fs.existsSync(filePath)) return;
-            runtime.confirmedOrders = sanitizeConfirmedOrders(JSON.parse(fs.readFileSync(filePath)));
+            const rawData = JSON.parse(fs.readFileSync(filePath));
+            runtime.confirmedOrders = sanitizeConfirmedOrders(rawData);
             const match = safeFileName.match(/^(\d{4})-(\d{2})-(\d{2})_(.+)\.json$/);
             if (match) {
                 runtime.currentBroadcasterId = customerStore.normalizeTikTokUsername(match[4]);
             }
             socket.emit('history-data', { fileName: isSharedFile ? `shared:${safeFileName}` : safeFileName, data: runtime.confirmedOrders });
         });
+
+        // Trả về runtime.confirmedOrders từ memory, không đọc disk
+        socket.on('get-current-orders', () => {
+            socket.emit('all-confirmed-orders', runtime.confirmedOrders);
+        });
     });
 }
 
-module.exports = { setupLiveHandler, getLiveRuntime };
+module.exports = { setupLiveHandler, getLiveRuntime, liveRuntimeByUser };
