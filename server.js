@@ -265,25 +265,54 @@ function parseScopedLiveSessionId(sessionId) {
 }
 
 function readAllStoredLiveSessions() {
-    if (!fs.existsSync(LIVE_SESSIONS_DIR)) return [];
-    return fs.readdirSync(LIVE_SESSIONS_DIR)
-        .filter(fileName => fileName.endsWith('.json'))
-        .flatMap(fileName => {
-            const ownerUserId = fileName.replace(/\.json$/i, '');
-            const fullPath = path.join(LIVE_SESSIONS_DIR, fileName);
-            try {
-                const parsed = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
-                const sessions = Array.isArray(parsed?.sessions) ? parsed.sessions : [];
-                return sessions.map(session => ({
-                    ...session,
-                    ownerUserId: session.userId || ownerUserId,
-                    rawSessionId: session.id
-                }));
-            } catch (error) {
-                console.error(`Lỗi đọc file live session ${fileName}:`, error.message);
-                return [];
-            }
+    const results = [];
+    // JSON files (legacy)
+    if (fs.existsSync(LIVE_SESSIONS_DIR)) {
+        const jsonSessions = fs.readdirSync(LIVE_SESSIONS_DIR)
+            .filter(fileName => fileName.endsWith('.json'))
+            .flatMap(fileName => {
+                const ownerUserId = fileName.replace(/\.json$/i, '');
+                const fullPath = path.join(LIVE_SESSIONS_DIR, fileName);
+                try {
+                    const parsed = JSON.parse(fs.readFileSync(fullPath, 'utf-8'));
+                    const sessions = Array.isArray(parsed?.sessions) ? parsed.sessions : [];
+                    return sessions.map(session => ({
+                        ...session,
+                        ownerUserId: session.userId || ownerUserId,
+                        rawSessionId: session.id
+                    }));
+                } catch (error) {
+                    console.error(`Lỗi đọc file live session ${fileName}:`, error.message);
+                    return [];
+                }
+            });
+        results.push(...jsonSessions);
+    }
+    // SQLite (new sessions)
+    try {
+        const db = getDb();
+        const sqliteSessions = db.prepare('SELECT * FROM live_sessions ORDER BY created_at DESC').all();
+        sqliteSessions.forEach(s => {
+            const orders = db.prepare('SELECT * FROM orders WHERE session_id = ? ORDER BY created_at').all(s.id);
+            results.push({
+                ...s,
+                id: s.id,
+                userId: s.user_id,
+                liveName: s.live_name,
+                tiktokUsername: s.tiktok_username,
+                startedAt: s.started_at,
+                endedAt: s.ended_at,
+                createdAt: s.created_at,
+                summary: typeof s.summary === 'string' ? JSON.parse(s.summary || '{}') : (s.summary || {}),
+                orders,
+                ownerUserId: s.user_id,
+                rawSessionId: s.id
+            });
         });
+    } catch (e) {
+        console.error('Lỗi đọc SQLite sessions:', e.stack || e.message);
+    }
+    return results;
 }
 
 function formatVisibleLiveSession(session, currentUser, includeOwnerScope = false) {
@@ -326,6 +355,7 @@ function getVisibleStoredLiveSession(currentUser, sessionId) {
         }, currentUser, isAdminOrSuperAdmin(currentUser)) : null;
     }
 
+    // Try own sessions first (SQLite user-specific)
     const ownSession = liveSessionStore.getLiveSessionById(currentUser.uid, sessionId);
     if (ownSession) {
         return formatVisibleLiveSession({
@@ -335,9 +365,37 @@ function getVisibleStoredLiveSession(currentUser, sessionId) {
         }, currentUser, isAdminOrSuperAdmin(currentUser));
     }
 
-    if (!isAdminOrSuperAdmin(currentUser)) return null;
-    const matched = readAllStoredLiveSessions().find(session => session.rawSessionId === sessionId || session.id === sessionId);
-    return matched ? formatVisibleLiveSession(matched, currentUser, true) : null;
+    // Fallback: search SQLite directly for non-scoped session (handles unsynchronized scoped ids)
+    try {
+        const db = getDb();
+        const row = db.prepare('SELECT * FROM live_sessions WHERE id = ?').get(sessionId);
+        if (row && row.user_id === currentUser.uid) {
+            const orders = db.prepare('SELECT * FROM orders WHERE session_id = ? ORDER BY created_at').all(row.id);
+            const session = liveSessionStore.rowToSession(row);
+            session.orders = orders.map(liveSessionStore.rowToOrder);
+            return formatVisibleLiveSession({
+                ...session,
+                ownerUserId: currentUser.uid,
+                rawSessionId: row.id
+            }, currentUser, isAdminOrSuperAdmin(currentUser));
+        }
+        // row không tìm thấy hoặc thuộc user khác — đây là "not found", không phải lỗi code
+    } catch (err) {
+        // Phân biệt: TypeError/ReferenceError là lỗi code (phải biết ngay), SQLiteError là lỗi DB
+        if (err instanceof TypeError || err instanceof ReferenceError) {
+            console.error('[getVisibleStoredLiveSession] Lỗi code trong SQLite fallback — kiểm tra export của liveSessionStore:', err.stack || err);
+        } else {
+            console.error('[getVisibleStoredLiveSession] SQLite fallback error:', err.stack || err.message || err);
+        }
+        // Không return null ngay — tiếp tục thử admin fallback bên dưới
+    }
+
+    // Admin can search all sessions
+    if (isAdminOrSuperAdmin(currentUser)) {
+        const matched = readAllStoredLiveSessions().find(session => session.rawSessionId === sessionId || session.id === sessionId);
+        return matched ? formatVisibleLiveSession(matched, currentUser, true) : null;
+    }
+    return null;
 }
 
 function deleteVisibleStoredLiveSession(currentUser, sessionId) {
@@ -353,8 +411,6 @@ app.get('/api/live-sessions', requireApiAuth, (req, res) => {
         const userId = user.uid;
         const includeSharedLegacy = isAdminOrSuperAdmin(user);
         const sessions = readVisibleStoredLiveSessions(user);
-        // Trả về danh sách không kèm orders chi tiết (nhẹ hơn)
-        // ⭐ KHÔNG FILTER - trả về tất cả sessions (cả merged_session + live_session)
         const list = sessions.map(s => ({
             id: s.id,
             rawSessionId: s.rawSessionId || s.id,
@@ -379,10 +435,11 @@ app.get('/api/live-sessions', requireApiAuth, (req, res) => {
             const right = Date.parse(b.createdAt || b.startedAt || 0) || 0;
             return right - left;
         });
+        console.log(`>>> /api/live-sessions uid=${userId} stored=${list.length} legacy=${legacyList.length} total=${combinedList.length}`);
         res.json({ sessions: combinedList });
     } catch (error) {
         console.error('Lỗi lấy danh sách phiên live:', error);
-        res.status(500).json({ error: 'Lỗi server' });
+        res.status(500).json({ error: 'Lỗi server', detail: error.message });
     }
 });
 
@@ -458,28 +515,28 @@ app.get('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
         const userId = user.uid;
         const includeSharedLegacy = isAdminOrSuperAdmin(user);
         const includeAllUserLegacy = isAdminOrSuperAdmin(user);
+        const requestedId = String(req.params.sessionId || '').trim();
 
         let session, orders;
 
-        if (String(req.params.sessionId || '').startsWith('legacy:')) {
-            session = getLegacyHistorySession(userId, req.params.sessionId, { includeSharedLegacy, includeAllUserLegacy });
+        if (requestedId.startsWith('legacy:')) {
+            session = getLegacyHistorySession(userId, requestedId, { includeSharedLegacy, includeAllUserLegacy });
             if (!session) {
                 return res.status(404).json({ error: 'Không tìm thấy phiên live' });
             }
             orders = session.orders || [];
         } else {
-            session = getVisibleStoredLiveSession(user, req.params.sessionId);
+            session = getVisibleStoredLiveSession(user, requestedId);
             if (!session) {
                 return res.status(404).json({ error: 'Không tìm thấy phiên live' });
             }
-            // Orders are already stored in session.orders
-            orders = session.orders || [];
+            orders = Array.isArray(session.orders) ? session.orders : [];
         }
 
         res.json({ session, orders, comments: [] }); // comments: [] - chưa lưu chi tiết
     } catch (error) {
         console.error('Lỗi lấy chi tiết phiên live:', error);
-        res.status(500).json({ error: 'Lỗi server' });
+        res.status(500).json({ error: 'Lỗi server', detail: error.message });
     }
 });
 
@@ -512,6 +569,30 @@ app.delete('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
 });
 
 // POST /api/live-sessions/merge-summary — Gộp nhiều phiên
+//
+// MANUAL TEST CASE (Step 5 — Bug fix verification):
+//   Mục tiêu: Đảm bảo merge trả về dữ liệu đúng sau khi fix export rowToSession/rowToOrder.
+//
+//   1. Chuẩn bị: Tạo 2 phiên live SQLite có ít nhất 1 đơn hàng mỗi phiên.
+//      Cách nhanh: Dùng curl hoặc UI lưu 2 phiên qua POST /api/live-sessions.
+//
+//   2. Lấy 2 session ID từ GET /api/live-sessions (trường "id" trong mảng sessions).
+//
+//   3. Gọi API:
+//      curl -X POST http://localhost:3000/api/live-sessions/merge-summary \
+//        -H "Content-Type: application/json" \
+//        -d '{"sessionIds":["<id_phien_1>","<id_phien_2>"]}' \
+//        --cookie "connect.sid=<session_cookie>"
+//
+//   4. Assert response JSON:
+//      - response.summary.totalOrders > 0           (không còn 0đ)
+//      - response.mergedOrders.length > 0           (không còn mảng rỗng)
+//      - response.summary.totalRevenue > 0          (tổng tiền > 0)
+//      - response.selectedSessions.length === 2     (đủ 2 phiên đầu vào)
+//
+//   Root cause đã fix: rowToSession/rowToOrder thiếu export trong liveSessionStore.js
+//   khiến fallback SQLite trong getVisibleStoredLiveSession throw TypeError bị nuốt im lặng,
+//   toàn bộ sessions trả về null → mergedOrders = [] → 0đ.
 app.post('/api/live-sessions/merge-summary', requireApiAuth, (req, res) => {
     try {
         const user = req.session.user;
@@ -530,7 +611,7 @@ app.post('/api/live-sessions/merge-summary', requireApiAuth, (req, res) => {
 
         res.json(result);
     } catch (error) {
-        console.error('Lỗi gộp phiên live:', error);
+        console.error('Lỗi gộp phiên live:', error.stack || error);
         res.status(500).json({ error: 'Lỗi server' });
     }
 });
@@ -906,10 +987,15 @@ function generateSessionId(broadcasterId) {
     return `sess_${date}_${rand}`;
 }
 
+function safeFileName(str) {
+    return str.replace(/[^a-zA-Z0-9_\-\.]/g, '_');
+}
+
 function getSessionFileName(userId, broadcasterId, sessionId) {
-    const safeBroadcasterId = customerStore.normalizeTikTokUsername(broadcasterId) || 'unknown';
+    const safeBroadcasterId = safeFileName(customerStore.normalizeTikTokUsername(broadcasterId) || 'unknown');
     if (sessionId) {
-        return path.join(getUserHistoryDir(userId), `${sessionId}_${safeBroadcasterId}.json`);
+        const safeSessionId = safeFileName(sessionId);
+        return path.join(getUserHistoryDir(userId), `${safeSessionId}_${safeBroadcasterId}.json`);
     }
     const now = new Date();
     const todayStr = now.toISOString().split('T')[0];
@@ -971,7 +1057,7 @@ function internalSaveLiveSession(userId, runtime) {
     // Chuyển đổi confirmedOrders sang format orders[]
     const orders = Object.values(runtime.confirmedOrders || {}).flatMap(customer =>
         (customer.items || []).map(item => ({
-            id: `order_${item.id || Date.now()}`,
+            id: `order_${item.id || Date.now() + '_' + Math.random().toString(36).slice(2, 8)}`,
             customerName: customer.nickname || customer.username,
             customerUsername: customer.username,
             profilePictureUrl: customer.profilePictureUrl || '',
@@ -1004,14 +1090,7 @@ function internalSaveLiveSession(userId, runtime) {
         }
     };
 
-    const sessionsFile = path.join(LIVE_SESSIONS_DIR, `${safeStorageId(userId)}.json`);
-    let existing = { sessions: [] };
-    if (fs.existsSync(sessionsFile)) {
-        try { existing = JSON.parse(fs.readFileSync(sessionsFile)); } catch(e) {}
-    }
-    existing.sessions = [sessionData, ...(existing.sessions || [])];
-    fs.mkdirSync(path.dirname(sessionsFile), { recursive: true });
-    fs.writeFileSync(sessionsFile, JSON.stringify(existing, null, 2));
+    liveSessionStore.createLiveSession(userId, sessionData);
     console.log(`>>> Auto-saved live session for user ${userId}: ${liveName}`);
 }
 
@@ -1545,7 +1624,7 @@ function readLegacyHistorySession(userId, fileName, options = {}) {
             summary
         };
     } catch (e) {
-        console.error(`Lỗi đọc phiên history ${safeFileName}:`, e.message);
+        console.error(`[readLegacyHistorySession] Lỗi đọc phiên history ${safeFileName}:`, e.stack || e.message || e);
         return null;
     }
 }
@@ -1633,11 +1712,19 @@ function mergeVisibleLiveSessionsWithLegacy(currentUser, sessionIds, options = {
     const selectedIds = Array.isArray(sessionIds) ? sessionIds : [];
     const userSessions = selectedIds
         .filter(id => !String(id).startsWith('legacy:'))
-        .map(id => getVisibleStoredLiveSession(currentUser, id))
+        .map(id => {
+            const s = getVisibleStoredLiveSession(currentUser, id);
+            if (!s) console.warn(`>>> Merge: không tìm thấy session id=${id} cho user ${currentUser.uid}`);
+            return s;
+        })
         .filter(Boolean);
     const legacySessions = selectedIds
         .filter(id => String(id).startsWith('legacy:'))
-        .map(id => getLegacyHistorySession(currentUser.uid, id, { includeSharedLegacy, includeAllUserLegacy }))
+        .map(id => {
+            const s = getLegacyHistorySession(currentUser.uid, id, { includeSharedLegacy, includeAllUserLegacy });
+            if (!s) console.warn(`>>> Merge: không tìm thấy legacy session id=${id} cho user ${currentUser.uid}`);
+            return s;
+        })
         .filter(Boolean);
     const selected = [...userSessions, ...legacySessions];
 
@@ -1702,6 +1789,37 @@ function buildExportDataset(scope, currentUser) {
         ? readAllUserHistoryRows()
         : readLegacyHistoryRows(currentUser.uid, { includeSharedLegacy });
     const allRows = [...live.rows, ...history.rows];
+
+    // Add SQLite rows
+    try {
+        const db = getDb();
+        const sqliteOrders = db.prepare(`
+            SELECT o.*, s.tiktok_username, s.live_name, s.created_at as session_created_at
+            FROM orders o JOIN live_sessions s ON o.session_id = s.id
+            ORDER BY o.created_at
+        `).all();
+        sqliteOrders.forEach(o => {
+            allRows.push({
+                source: o.type === 'legacy_history' ? 'legacy_history' : 'live_session',
+                userId: o.user_id,
+                sessionId: o.session_id,
+                sessionName: o.live_name || '',
+                sessionCreatedAt: o.session_created_at || '',
+                tiktokUsername: o.tiktok_username || '',
+                orderId: o.id || '',
+                customerName: normalizeOrderCustomerName(o.customer_name || '', o.customer_username || ''),
+                customerUsername: customerStore.normalizeTikTokUsername(o.customer_username || ''),
+                productName: normalizeDisplayText(o.product_name || ''),
+                quantity: Number(o.quantity || 1),
+                price: Number(o.price || 0),
+                total: Number(o.total || o.price || 0),
+                itemTime: o.item_time || '',
+                orderCreatedAt: o.created_at || ''
+            });
+        });
+    } catch (e) {
+        console.error('Lỗi đọc SQLite for export:', e.message);
+    }
 
     const rows = scope === 'all'
         ? allRows
@@ -1872,8 +1990,8 @@ function legacyHistoryOverviewRows(userId, options = {}) {
                 source: 'legacy_history',
                 userId,
                 date,
-                timestamp: timestampFromParts(date, row.itemTime),
-                shop: meta.shop || row.tiktokUsername || '',
+                timestamp: timestampFromParts(date, row.itemTime || ''),
+                shop: meta.shop || '',
                 orderId: String(row.orderId || ''),
                 customer: normalizeOrderCustomerName(row.customerName || '', row.customerUsername || ''),
                 customerUsername: customerStore.normalizeTikTokUsername(row.customerUsername || ''),
@@ -1883,6 +2001,40 @@ function legacyHistoryOverviewRows(userId, options = {}) {
                 status: 'done'
             };
         });
+}
+
+function sqliteOverviewRows(currentUser, range) {
+    const db = getDb();
+    const rows = [];
+    // Query all orders from SQLite sessions
+    const orders = db.prepare(`
+        SELECT o.*, s.tiktok_username, s.live_name FROM orders o
+        JOIN live_sessions s ON o.session_id = s.id
+        WHERE o.user_id = ? AND s.type != 'legacy_history'
+        ORDER BY o.created_at
+    `).all(currentUser.uid);
+
+    orders.forEach(o => {
+        const createdAt = o.created_at || '';
+        const date = createdAt.split('T')[0] || formatDateKey(new Date());
+        if (range && !dateRangeContains(range, date)) return;
+        const timestamp = Date.parse(createdAt) || timestampFromParts(date, o.item_time || '');
+        rows.push({
+            source: o.id ? 'live_session' : 'legacy_history',
+            userId: currentUser.uid,
+            date,
+            timestamp,
+            shop: o.tiktok_username || '',
+            orderId: o.id || '',
+            customer: normalizeOrderCustomerName(o.customer_name || '', o.customer_username || ''),
+            customerUsername: customerStore.normalizeTikTokUsername(o.customer_username || ''),
+            productName: normalizeDisplayText(o.product_name || ''),
+            quantity: Number(o.quantity || 1),
+            value: Number(o.total || o.price || 0),
+            status: 'done'
+        });
+    });
+    return rows;
 }
 
 function dedupeOverviewRows(rows) {
@@ -1925,11 +2077,22 @@ function buildDailyOverview(rows, range) {
 function buildOverviewDataset(currentUser, range) {
     const includeSharedLegacy = isAdminOrSuperAdmin(currentUser);
     const runtime = getLiveRuntime(currentUser.uid);
-    const allRows = dedupeOverviewRows([
+    // SQLite rows (new sessions + migrated history)
+    const sqliteRows = sqliteOverviewRows(currentUser, range);
+    // Legacy JSON rows (fallback for files not yet migrated)
+    const legacyRows = dedupeOverviewRows([
         ...currentLiveRows(currentUser),
         ...liveSessionOverviewRows(currentUser),
         ...legacyHistoryOverviewRows(currentUser.uid, { includeSharedLegacy })
-    ]);
+    ]).filter(row => row.date && dateRangeContains(range, row.date));
+    // Merge, SQLite takes priority (dedup by orderId)
+    const seen = new Set();
+    const allRows = [...sqliteRows, ...legacyRows].filter(row => {
+        const key = `${row.orderId}_${row.customerUsername}_${row.value}_${row.date}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
     const rows = allRows.filter(row => row.date && dateRangeContains(range, row.date));
     const todayKey = formatDateKey(new Date());
     const comments = dateRangeContains(range, todayKey) && runtime.currentBroadcasterId
@@ -2062,11 +2225,21 @@ function buildOrdersDataset(currentUser, filters = {}) {
         phoneByUsername.set(username, phone);
     });
 
-    const rows = dedupeOverviewRows([
+    const range = normalizeOverviewRange(filters.start || '', filters.end || '');
+    const sqliteRows = sqliteOverviewRows(currentUser, range);
+    const legacyRows = dedupeOverviewRows([
         ...currentLiveRows(currentUser),
         ...liveSessionOverviewRows(currentUser),
         ...legacyHistoryOverviewRows(currentUser.uid, { includeSharedLegacy })
     ]);
+
+    const seen = new Set();
+    const rows = [...sqliteRows, ...legacyRows].filter(row => {
+        const key = `${row.orderId}_${row.customerUsername}_${row.value}_${row.date}`;
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
 
     const parsedStart = parseDateKey(filters.start);
     const parsedEnd = parseDateKey(filters.end);
@@ -2203,11 +2376,12 @@ function toExcelXml(rows) {
 </Workbook>`;
 }
 
-const { getDb, migrateFromJson } = require('./utils/db');
+const { getDb, migrateFromJson, dbMigrateHistoryToSqlite, dbInsertOrder, dbGetOrdersByUserAndDateRange, dbGetAllUserOrders } = require('./utils/db');
 
 // Initialize DB and Migrate
 getDb();
 migrateFromJson();
+dbMigrateHistoryToSqlite();
 
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {

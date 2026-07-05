@@ -1,53 +1,72 @@
 /**
- * Live Session Store — lưu trữ lịch sử phiên live theo từng user (JSON file)
- * Mỗi user có 1 file riêng: data/live-sessions/{userId}.json
+ * Live Session Store — per-user SQLite storage.
+ * API tương thích ngược với JSON file version.
  */
 
-const fs = require('fs');
-const path = require('path');
+const { getDb } = require('./db');
 const { cleanDisplayText, normalizeDisplayName, normalizeDisplayText } = require('./displayName');
 
-const DATA_DIR = path.join(__dirname, '..', 'data', 'live-sessions');
-
-// Đảm bảo thư mục tồn tại
-function ensureDir() {
-    if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
+// ── Field mapping ──────────────────────────────────────────────
+function rowToSession(row) {
+    if (!row) return null;
+    return {
+        id: row.id,
+        userId: row.user_id,
+        type: row.type || 'live_session',
+        liveName: row.live_name || '',
+        tiktokUsername: row.tiktok_username || '',
+        startedAt: row.started_at || '',
+        endedAt: row.ended_at || '',
+        createdAt: row.created_at || '',
+        summary: typeof row.summary === 'string' ? JSON.parse(row.summary || '{}') : (row.summary || {}),
+        orders: []
+    };
 }
 
-function getUserSessionFile(userId) {
-    ensureDir();
-    return path.join(DATA_DIR, `${userId}.json`);
+function rowToOrder(row) {
+    if (!row) return null;
+    return {
+        id: row.id,
+        customerName: row.customer_name || '',
+        customerUsername: row.customer_username || '',
+        profilePictureUrl: row.profile_picture_url || '',
+        productName: row.product_name || '',
+        quantity: row.quantity || 1,
+        price: row.price || 0,
+        total: row.total || 0,
+        note: row.note || '',
+        time: row.item_time || '',
+        createdAt: row.created_at || ''
+    };
 }
+
+// ── Public API ─────────────────────────────────────────────────
 
 function readUserSessions(userId) {
-    const filePath = getUserSessionFile(userId);
-    if (!fs.existsSync(filePath)) return [];
-    try {
-        const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-        return data.sessions || [];
-    } catch (e) {
-        console.error(`Lỗi đọc file sessions của user ${userId}:`, e.message);
-        return [];
-    }
+    const db = getDb();
+    const sessions = db.prepare('SELECT * FROM live_sessions WHERE user_id = ? ORDER BY created_at DESC').all(userId);
+    const getOrders = db.prepare('SELECT * FROM orders WHERE session_id = ? ORDER BY created_at');
+    return sessions.map(s => {
+        const session = rowToSession(s);
+        session.orders = getOrders.all(s.id).map(rowToOrder);
+        return session;
+    });
 }
 
 function writeUserSessions(userId, sessions) {
-    const filePath = getUserSessionFile(userId);
-    ensureDir();
-    fs.writeFileSync(filePath, JSON.stringify({ sessions }, null, 2), 'utf-8');
+    const db = getDb();
+    const del = db.transaction(() => {
+        db.prepare('DELETE FROM orders WHERE session_id IN (SELECT id FROM live_sessions WHERE user_id = ?)').run(userId);
+        db.prepare('DELETE FROM live_sessions WHERE user_id = ?').run(userId);
+    });
+    del();
+    for (const s of sessions) {
+        createLiveSession(userId, s);
+    }
 }
 
-/**
- * Tính summary từ danh sách orders
- * orders ở đây là mảng phẳng hoặc confirmedOrders object từ app hiện tại
- */
 function calculateSessionSummary(orders) {
-    let totalOrders = 0;
-    let totalQuantity = 0;
-    let totalRevenue = 0;
-
+    let totalOrders = 0, totalQuantity = 0, totalRevenue = 0;
     if (Array.isArray(orders)) {
         totalOrders = orders.length;
         orders.forEach(o => {
@@ -55,7 +74,6 @@ function calculateSessionSummary(orders) {
             totalRevenue += (o.total || o.price || 0);
         });
     } else if (typeof orders === 'object' && orders !== null) {
-        // confirmedOrders format: { tiktokUsername: { items: [...], total: N } }
         Object.values(orders).forEach(customer => {
             if (customer.items && Array.isArray(customer.items)) {
                 totalOrders += customer.items.length;
@@ -66,16 +84,11 @@ function calculateSessionSummary(orders) {
             }
         });
     }
-
     return { totalOrders, totalQuantity, totalRevenue };
 }
 
-/**
- * Tính tổng theo sản phẩm (product summary)
- */
 function calculateProductSummary(orders) {
     const productMap = {};
-
     const processItem = (item) => {
         const name = item.text || item.productName || 'Không rõ';
         if (!productMap[name]) {
@@ -85,7 +98,6 @@ function calculateProductSummary(orders) {
         productMap[name].totalQuantity += (item.quantity || 1);
         productMap[name].totalRevenue += (item.price || item.total || 0);
     };
-
     if (Array.isArray(orders)) {
         orders.forEach(processItem);
     } else if (typeof orders === 'object' && orders !== null) {
@@ -95,13 +107,9 @@ function calculateProductSummary(orders) {
             }
         });
     }
-
     return Object.values(productMap).sort((a, b) => b.totalRevenue - a.totalRevenue);
 }
 
-/**
- * Chuyển confirmedOrders (object) thành mảng orders phẳng để lưu
- */
 function flattenConfirmedOrders(confirmedOrders) {
     const flat = [];
     Object.values(confirmedOrders).forEach(customer => {
@@ -132,18 +140,11 @@ function generateSessionId() {
     return 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
 }
 
-/**
- * Tạo phiên live mới cho user
- */
 function createLiveSession(userId, data) {
-    const sessions = readUserSessions(userId);
-
-    // Chuyển confirmedOrders sang mảng phẳng nếu cần
     let orders = data.orders;
     if (orders && !Array.isArray(orders)) {
         orders = flattenConfirmedOrders(orders);
     } else if (Array.isArray(orders)) {
-        // Đảm bảo mỗi order có id
         orders = orders.map(o => ({
             ...o,
             id: o.id || `order_${Date.now() + Math.random()}`,
@@ -157,68 +158,100 @@ function createLiveSession(userId, data) {
 
     const calculatedSummary = calculateSessionSummary(orders);
     const summary = data.summary && typeof data.summary === 'object'
-        ? { ...calculatedSummary, ...data.summary }
+        ? { ...data.summary, ...calculatedSummary }
         : calculatedSummary;
     const now = new Date().toISOString();
+    const id = generateSessionId();
 
-    const newSession = {
-        id: generateSessionId(),
-        userId,
-        type: data.type || 'live_session',
-        liveName: data.liveName || `Phiên live ${new Date().toLocaleDateString('vi-VN')}`,
-        tiktokUsername: data.tiktokUsername || '',
-        startedAt: data.startedAt || now,
-        endedAt: data.endedAt || now,
-        createdAt: now,
-        orders,
-        summary
-    };
+    const db = getDb();
 
-    if (Array.isArray(data.sourceSessionIds)) {
-        newSession.sourceSessionIds = data.sourceSessionIds;
-    }
+    const orderStmt = db.prepare(`
+        INSERT INTO orders (id, session_id, user_id, customer_name, customer_username, profile_picture_url, product_name, quantity, price, total, note, item_time, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
 
-    sessions.unshift(newSession); // Mới nhất lên đầu
-    writeUserSessions(userId, sessions);
+    const finalSummary = db.transaction(() => {
+        db.prepare(`
+            INSERT INTO live_sessions (id, user_id, type, live_name, tiktok_username, started_at, ended_at, created_at, summary)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        `).run(
+            id, userId,
+            data.type || 'live_session',
+            data.liveName || `Phiên live ${new Date().toLocaleDateString('vi-VN')}`,
+            data.tiktokUsername || '',
+            data.startedAt || now,
+            data.endedAt || now,
+            now,
+            JSON.stringify(summary)
+        );
 
-    return newSession;
+        for (const o of orders) {
+            const newOrderId = `order_${id}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            orderStmt.run(
+                newOrderId,
+                id, userId,
+                o.customerName || '', o.customerUsername || '',
+                o.profilePictureUrl || '', o.productName || '',
+                o.quantity || 1, o.price || 0, o.total || 0,
+                o.note || '', o.time || '', o.createdAt || now
+            );
+        }
+
+        console.log(`>>> createLiveSession: đã insert ${orders.length} orders cho session ${id}`);
+
+        const actualOrders = db.prepare('SELECT * FROM orders WHERE session_id = ?').all(id);
+
+        console.log(`>>> createLiveSession: verify — session ${id} có ${actualOrders.length} orders trong DB`);
+        if (actualOrders.length !== orders.length) {
+            console.error(`>>> CẢNH BÁO: Số order insert (${orders.length}) khác số order thực tế trong DB (${actualOrders.length}) — có thể do PRIMARY KEY conflict`);
+        }
+
+        const actualSummary = calculateSessionSummary(actualOrders.map(row => ({
+            quantity: row.quantity,
+            price: row.price,
+            total: row.total
+        })));
+        const mergedSummary = { ...summary, ...actualSummary };
+        if (Array.isArray(data.sourceSessionIds)) {
+            mergedSummary.sourceSessionIds = data.sourceSessionIds;
+        }
+        db.prepare('UPDATE live_sessions SET summary = ? WHERE id = ?').run(JSON.stringify(mergedSummary), id);
+        return mergedSummary;
+    })();
+
+    return getLiveSessionById(userId, id);
 }
 
-/**
- * Lấy 1 phiên live theo ID (chỉ của user)
- */
 function getLiveSessionById(userId, sessionId) {
-    const sessions = readUserSessions(userId);
-    return sessions.find(s => s.id === sessionId) || null;
+    const db = getDb();
+    const sessionRow = db.prepare('SELECT * FROM live_sessions WHERE id = ? AND user_id = ?').get(sessionId, userId);
+
+    if (!sessionRow) return null;
+
+    const orders = db.prepare('SELECT * FROM orders WHERE session_id = ? ORDER BY created_at').all(sessionId);
+    const session = rowToSession(sessionRow);
+    session.orders = orders.map(rowToOrder);
+    return session;
 }
 
-/**
- * Xóa 1 phiên live
- */
 function deleteLiveSession(userId, sessionId) {
-    let sessions = readUserSessions(userId);
-    const index = sessions.findIndex(s => s.id === sessionId);
-    if (index === -1) return false;
-    sessions.splice(index, 1);
-    writeUserSessions(userId, sessions);
-    return true;
+    const db = getDb();
+    db.prepare('DELETE FROM orders WHERE session_id = ?').run(sessionId);
+    const result = db.prepare('DELETE FROM live_sessions WHERE id = ? AND user_id = ?').run(sessionId, userId);
+    return result.changes > 0;
 }
 
-/**
- * Gộp nhiều phiên live → trả kết quả (không lưu)
- */
+// ⚠️ DEPRECATED/UNUSED: Hàm này giữ nguyên order.id gốc khi merge, có thể gây 
+// PRIMARY KEY conflict nếu dùng để lưu trực tiếp vào DB. Dùng 
+// mergeVisibleLiveSessionsWithLegacy (server.js) + createLiveSession thay thế.
 function mergeLiveSessions(userId, sessionIds) {
-    const sessions = readUserSessions(userId);
-    const selected = sessions.filter(s => sessionIds.includes(s.id));
-
-    if (selected.length === 0) return null;
+    const sessions = sessionIds.map(id => getLiveSessionById(userId, id)).filter(Boolean);
+    if (sessions.length === 0) return null;
 
     const mergedOrders = [];
     const seenOrderIds = new Set();
-
-    selected.forEach(session => {
+    sessions.forEach(session => {
         (session.orders || []).forEach(order => {
-            // Tránh trùng order id
             if (order.id && seenOrderIds.has(order.id)) return;
             if (order.id) seenOrderIds.add(order.id);
             mergedOrders.push({ ...order, fromSession: session.liveName });
@@ -228,7 +261,6 @@ function mergeLiveSessions(userId, sessionIds) {
     const summary = calculateSessionSummary(mergedOrders);
     const productSummary = calculateProductSummary(mergedOrders);
 
-    // Nhóm theo khách hàng
     const customerMap = {};
     mergedOrders.forEach(o => {
         const customerUsername = normalizeDisplayText(o.customerUsername || '');
@@ -236,11 +268,8 @@ function mergeLiveSessions(userId, sessionIds) {
         const key = customerUsername || customerName || 'unknown';
         if (!customerMap[key]) {
             customerMap[key] = {
-                customerName,
-                customerUsername,
-                profilePictureUrl: o.profilePictureUrl,
-                orders: [],
-                total: 0
+                customerName, customerUsername,
+                profilePictureUrl: o.profilePictureUrl, orders: [], total: 0
             };
         }
         customerMap[key].orders.push(o);
@@ -248,21 +277,18 @@ function mergeLiveSessions(userId, sessionIds) {
     });
 
     return {
-        selectedSessions: selected.map(s => ({
-            id: s.id,
-            liveName: s.liveName,
-            tiktokUsername: s.tiktokUsername,
-            startedAt: s.startedAt,
-            summary: s.summary
+        selectedSessions: sessions.map(s => ({
+            id: s.id, liveName: s.liveName, tiktokUsername: s.tiktokUsername,
+            startedAt: s.startedAt, summary: s.summary
         })),
-        summary: {
-            totalSessions: selected.length,
-            ...summary
-        },
-        mergedOrders,
-        productSummary,
+        summary: { totalSessions: sessions.length, ...summary },
+        mergedOrders, productSummary,
         customerSummary: Object.values(customerMap).sort((a, b) => b.total - a.total)
     };
+}
+
+function getUserSessionFile(userId) {
+    return '';
 }
 
 module.exports = {
@@ -275,5 +301,7 @@ module.exports = {
     calculateSessionSummary,
     calculateProductSummary,
     flattenConfirmedOrders,
-    getUserSessionFile
+    getUserSessionFile,
+    rowToSession,
+    rowToOrder
 };

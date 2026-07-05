@@ -605,6 +605,7 @@
                 <h3 class="font-bold text-lg text-green-800" data-i18n="merge.title">Kết quả gộp phiên</h3>
                 <div class="flex items-center gap-2 flex-wrap justify-end">
                     <span id="merge-save-status" class="text-xs font-bold text-green-700"></span>
+                    <button onclick="loadMergedSessionToView()" id="btn-load-merged" class="bg-red-500 text-white px-3 py-1.5 rounded text-xs font-bold hidden">Load phiên đã gộp</button>
                     <button onclick="exportMergedExcel()" class="bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold">Xuất Excel đi đơn</button>
                     <button onclick="saveMergedSession()" id="btn-save-merged" class="bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold hidden" data-i18n="merge.save">Lưu phiên gộp</button>
                     <button onclick="printMergeSummary()" class="bg-blue-600 text-white px-3 py-1.5 rounded text-xs font-bold" data-i18n="merge.printSummary">In tổng hợp</button>

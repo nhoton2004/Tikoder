@@ -1299,7 +1299,7 @@
                 const data = await res.json();
                 console.log('📦 Data:', data);
 
-                if (!data.session) {
+                if (!data || !data.session) {
                     alert('Không tìm thấy phiên');
                     return;
                 }
@@ -1387,11 +1387,9 @@
             calculateKpis();
             refreshCommentUserTooltips();
 
-            // Tắt spin + hiển thị kết quả
+            // Tắt spin
             const iconEl = document.querySelector('[onclick="refreshCurrentOrders()"] .material-symbols-outlined');
             if (iconEl) iconEl.classList.remove('spinning');
-            const totalOrders = Object.values(ordersData).reduce((sum, o) => sum + (Array.isArray(o.items) ? o.items.length : 0), 0);
-            showLiveToast(`✅ Cập nhật xong: ${totalOrders} đơn`, 'success');
         });
 
         // Thêm hàm refresh để gọi lại danh sách đơn chốt hiện tại
@@ -2352,15 +2350,29 @@
 
         window.showLiveSessions = async () => {
             selectedSessionIds.clear();
-            document.getElementById('live-sessions-modal').classList.remove('hidden');
             document.getElementById('live-sessions-list').innerHTML = '<p class="text-center text-gray-400 py-10">Loading...</p>';
-            updateMergeBtn();
+            document.getElementById('btn-merge').classList.add('hidden');
+            document.getElementById('btn-export-selected').classList.add('hidden');
+            document.getElementById('merge-count').textContent = '0';
+            document.getElementById('live-sessions-modal').classList.remove('hidden');
             try {
                 const res = await fetch('/api/live-sessions');
+                if (!res.ok) {
+                    const status = res.status;
+                    let text = 'Lỗi không xác định';
+                    try { const err = await res.json(); text = err.error || text; } catch (_) {}
+                    document.getElementById('live-sessions-list').innerHTML = `<p class="text-center text-red-400 py-10">Load error (${status}): ${text}</p>`;
+                    return;
+                }
                 const data = await res.json();
-                renderLiveSessionsList(data.sessions || []);
+                const sessions = Array.isArray(data.sessions) ? data.sessions : [];
+                if (sessions.length === 0) {
+                    document.getElementById('live-sessions-list').innerHTML = `<p class="text-center text-gray-400 py-10">Chưa có phiên live nào.</p>`;
+                } else {
+                    renderLiveSessionsList(sessions);
+                }
             } catch (e) {
-                document.getElementById('live-sessions-list').innerHTML = '<p class="text-center text-red-400 py-10">Load error</p>';
+                document.getElementById('live-sessions-list').innerHTML = `<p class="text-center text-red-400 py-10">Load error: ${e.message}</p>`;
             }
         };
 
@@ -2522,13 +2534,23 @@
 
         window.closeMergeModal = () => document.getElementById('merge-modal').classList.add('hidden');
 
+        window.loadMergedSessionToView = () => {
+            if (!lastMergeData || !lastMergeData.savedSessionId) return;
+            loadSessionOrdersToCurrentView(lastMergeData.savedSessionId);
+            closeMergeModal();
+        };
+
         function renderMergeResults(data) {
             const s = data.summary;
             const container = document.getElementById('merge-results-content');
             const saveBtn = document.getElementById('btn-save-merged');
+            const loadBtn = document.getElementById('btn-load-merged');
             const saveStatus = document.getElementById('merge-save-status');
+            
             if (saveBtn) saveBtn.classList.toggle('hidden', lastMergeSourceIds.length === 0 || Boolean(data.savedSessionId));
+            if (loadBtn) loadBtn.classList.toggle('hidden', !Boolean(data.savedSessionId));
             if (saveStatus) saveStatus.textContent = data.savedSessionId ? t('merge.saved') : '';
+            
             let html = `
                 <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
                     <div class="bg-purple-50 p-3 rounded-lg text-center"><p class="text-[10px] text-gray-500 uppercase">Sessions</p><p class="text-xl font-black text-purple-700">${s.totalSessions}</p></div>
@@ -2588,8 +2610,10 @@
                 if (!res.ok || !data.success) return alert('Error: ' + (data.error || 'Save error'));
                 lastMergeData.savedSessionId = data.session?.id || '';
                 const saveBtn = document.getElementById('btn-save-merged');
+                const loadBtn = document.getElementById('btn-load-merged');
                 const saveStatus = document.getElementById('merge-save-status');
                 if (saveBtn) saveBtn.classList.add('hidden');
+                if (loadBtn) loadBtn.classList.remove('hidden');
                 if (saveStatus) saveStatus.textContent = t('merge.saved');
                 refreshOverviewData(false);
             } catch (e) {

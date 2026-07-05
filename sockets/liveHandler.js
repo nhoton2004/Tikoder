@@ -77,7 +77,7 @@ function setupLiveHandler(io, ctx) {
                     try {
                         ctx.internalSaveLiveSession(userId, runtime);
                     } catch (err) {
-                        console.error('>>> [ERROR] internalSaveLiveSession failed (server will not crash):', err.message);
+                        console.error('>>> [ERROR] internalSaveLiveSession failed (server will not crash):', err.stack || err.message);
                     }
                 }, 2 * 60 * 1000); // 2 phút
             }
@@ -158,7 +158,7 @@ function setupLiveHandler(io, ctx) {
                     try {
                         ctx.internalSaveLiveSession(userId, runtime);
                     } catch (err) {
-                        console.error('>>> [ERROR] internalSaveLiveSession failed (server will not crash):', err.message);
+                        console.error('>>> [ERROR] internalSaveLiveSession failed (server will not crash):', err.stack || err.message);
                     }
                     emitToUser(userId, 'live-ended', { broadcasterId, reason: 'idle_10m', clearSession: true });
                 }, 10 * 60 * 1000);
@@ -176,7 +176,7 @@ function setupLiveHandler(io, ctx) {
                     try {
                         ctx.internalSaveLiveSession(userId, runtime);
                     } catch (err) {
-                        console.error('>>> [ERROR] internalSaveLiveSession failed (server will not crash):', err.message);
+                        console.error('>>> [ERROR] internalSaveLiveSession failed (server will not crash):', err.stack || err.message);
                     }
                 }
 
@@ -260,7 +260,7 @@ function setupLiveHandler(io, ctx) {
                 try {
                     ctx.internalSaveLiveSession(userId, runtime);
                 } catch (err) {
-                    console.error('>>> [ERROR] internalSaveLiveSession failed (server will not crash):', err.message);
+                    console.error('>>> [ERROR] internalSaveLiveSession failed (server will not crash):', err.stack || err.message);
                 }
 
                 // Thông báo về client để auto-save và cập nhật UI, xoá session ID

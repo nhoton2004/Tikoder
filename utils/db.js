@@ -429,6 +429,120 @@ function closeDb() {
     }
 }
 
+// ==================== REAL-TIME ORDER OPERATIONS ====================
+
+// ⚠️ UNUSED: Hàm này hiện không được gọi ở đâu trong codebase.
+function dbInsertOrder(userId, sessionId, order = {}) {
+    const now = new Date().toISOString();
+    const id = order.id || `order_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    getDb().prepare(`
+        INSERT OR IGNORE INTO orders (id, session_id, user_id, customer_name, customer_username, profile_picture_url, product_name, quantity, price, total, note, item_time, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+        id, sessionId, userId,
+        order.customerName || '',
+        order.customerUsername || '',
+        order.profilePictureUrl || '',
+        order.productName || '',
+        order.quantity || 1,
+        order.price || 0,
+        order.total || 0,
+        order.note || '',
+        order.itemTime || order.time || '',
+        order.createdAt || now
+    );
+    return id;
+}
+
+function dbGetOrdersByUserAndDateRange(userId, startDate, endDate) {
+    return getDb().prepare(`
+        SELECT o.* FROM orders o
+        JOIN live_sessions s ON o.session_id = s.id
+        WHERE o.user_id = ? AND o.created_at >= ? AND o.created_at < ?
+        ORDER BY o.created_at
+    `).all(userId, startDate, endDate);
+}
+
+function dbGetAllUserOrders(userId) {
+    return getDb().prepare(`
+        SELECT o.* FROM orders o
+        JOIN live_sessions s ON o.session_id = s.id
+        WHERE o.user_id = ?
+        ORDER BY o.created_at
+    `).all(userId);
+}
+
+function dbMigrateHistoryToSqlite() {
+    const historyRoot = path.join(__dirname, '..', 'history');
+    if (!fs.existsSync(historyRoot)) return;
+
+    const entries = fs.readdirSync(historyRoot, { withFileTypes: true });
+    for (const entry of entries) {
+        if (entry.isDirectory()) {
+            const userId = entry.name;
+            const dir = path.join(historyRoot, userId);
+            const files = fs.readdirSync(dir).filter(f => f.endsWith('.json'));
+            for (const file of files) {
+                try {
+                    const data = JSON.parse(fs.readFileSync(path.join(dir, file), 'utf-8'));
+                    const match = file.match(/^(\d{4}-\d{2}-\d{2})_(.+)\.json$/);
+                    if (!match) continue;
+                    const dateStr = match[1];
+                    const broadcaster = match[2].replace(/\.json$/i, '');
+                    const sessionId = `legacy_${userId}_${file.replace('.json', '')}`;
+                    const exists = getDb().prepare('SELECT id FROM live_sessions WHERE id = ?').get(sessionId);
+                    if (exists) continue;
+
+                    const items = [];
+                    Object.values(data).forEach(customer => {
+                        const username = (customer.username || customer.tiktokUsername || '').replace(/^@+/, '');
+                        const displayName = customer.nickname || customer.displayName || username;
+                        if (customer.items && Array.isArray(customer.items)) {
+                            customer.items.forEach(item => {
+                                items.push({
+                                    customerName: displayName,
+                                    customerUsername: username,
+                                    profilePictureUrl: customer.profilePictureUrl || '',
+                                    productName: item.text || '',
+                                    quantity: 1,
+                                    price: item.price || 0,
+                                    total: item.price || 0,
+                                    time: item.time || '',
+                                    createdAt: `${dateStr}T${(item.time || '00:00:00')}.000Z`
+                                });
+                            });
+                        }
+                    });
+
+                    if (items.length === 0) continue;
+                    const summary = calculateSessionSummary(items);
+                    getDb().prepare(`
+                        INSERT OR IGNORE INTO live_sessions (id, user_id, type, live_name, tiktok_username, started_at, ended_at, created_at, summary)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    `).run(sessionId, userId, 'legacy_history', file.replace('.json', ''), broadcaster, `${dateStr}T00:00:00.000Z`, `${dateStr}T23:59:59.000Z`, `${dateStr}T00:00:00.000Z`, JSON.stringify(summary));
+
+                    const orderStmt = getDb().prepare(`
+                        INSERT OR IGNORE INTO orders (id, session_id, user_id, customer_name, customer_username, profile_picture_url, product_name, quantity, price, total, note, item_time, created_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    `);
+                    for (const item of items) {
+                        orderStmt.run(
+                            `legacy_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                            sessionId, userId,
+                            item.customerName, item.customerUsername,
+                            item.profilePictureUrl || '', item.productName,
+                            item.quantity, item.price, item.total,
+                            '', item.time, item.createdAt
+                        );
+                    }
+                } catch (e) {
+                    console.error(`Migrate history file ${file} error:`, e.message);
+                }
+            }
+        }
+    }
+}
+
 module.exports = {
     getDb,
     migrateFromJson,
@@ -445,10 +559,16 @@ module.exports = {
     dbGetLiveSessionById,
     dbListLiveSessions,
     dbDeleteLiveSession,
+    // Orders
+    dbInsertOrder,
+    dbGetOrdersByUserAndDateRange,
+    dbGetAllUserOrders,
     // Debts
     dbCreateDebt,
     dbListDebts,
     dbGetDebtSummary,
     dbUpdateDebt,
     dbDeleteDebt,
+    // Migration
+    dbMigrateHistoryToSqlite,
 };

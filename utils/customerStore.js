@@ -1,115 +1,92 @@
 /**
- * Customer Store - per-user JSON storage.
- * Each user has one file: data/customers/{userId}.json
+ * Customer Store — per-user SQLite storage.
+ * API tương thích ngược với JSON file version.
  */
 
-const fs = require('fs');
-const path = require('path');
+const { getDb } = require('./db');
 const { cleanDisplayText, normalizeDisplayText, normalizeTextForDisplay } = require('./displayName');
 
-const DATA_DIR = path.join(__dirname, '..', 'data', 'customers');
-
 const CUSTOMER_FIELDS = [
-    'tiktokUsername',
-    'displayName',
-    'phone',
-    'province',
-    'district',
-    'ward',
-    'addressDetail',
-    'addressNote',
-    'postalCode',
-    'customerCode',
-    'deliveryNote',
-    'defaultWeightKg',
-    'allowTryOn',
-    'viewOnlyNoTry',
-    'partialDelivery'
+    'tiktokUsername', 'displayName', 'phone', 'province', 'district', 'ward',
+    'addressDetail', 'addressNote', 'postalCode', 'customerCode', 'deliveryNote',
+    'defaultWeightKg', 'allowTryOn', 'viewOnlyNoTry', 'partialDelivery'
 ];
 
-function ensureDir() {
-    if (!fs.existsSync(DATA_DIR)) {
-        fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-}
+const SNAKE_TO_CAMEL = {
+    tiktok_username: 'tiktokUsername', display_name: 'displayName', phone: 'phone',
+    province: 'province', district: 'district', ward: 'ward',
+    address_detail: 'addressDetail', address_note: 'addressNote',
+    postal_code: 'postalCode', customer_code: 'customerCode',
+    delivery_note: 'deliveryNote', default_weight_kg: 'defaultWeightKg',
+    allow_try_on: 'allowTryOn', view_only_no_try: 'viewOnlyNoTry',
+    partial_delivery: 'partialDelivery', id: 'id', user_id: 'userId',
+    created_at: 'createdAt', updated_at: 'updatedAt'
+};
 
-function safeUserId(userId) {
-    // SECURITY: Prevent path traversal and injection attacks
-    const sanitized = String(userId || '')
-        .trim()
-        .replace(/[^a-zA-Z0-9_.-]/g, '_')
-        .replace(/\.{2,}/g, '_')  // Block ".." sequences
-        .replace(/^\.+/, '_');     // Block leading dots
-    
-    // Reject empty or suspicious patterns
-    if (!sanitized || sanitized === '.' || sanitized === '..' || sanitized.length > 255) {
-        throw new Error(`Invalid userId: "${userId}"`);
+function rowToCustomer(row) {
+    if (!row) return null;
+    const c = {};
+    for (const [snake, camel] of Object.entries(SNAKE_TO_CAMEL)) {
+        c[camel] = row[snake] !== undefined ? row[snake] : '';
     }
-    return sanitized;
+    c.displayName = cleanDisplayText(c.displayName);
+    c.tiktokUsername = normalizeTikTokUsername(c.tiktokUsername);
+    return c;
 }
 
 function normalizeTikTokUsername(username) {
     return normalizeDisplayText(username).replace(/^@+/, '').replace(/\s+/g, '').toLowerCase();
 }
 
-function getUserCustomerFile(userId) {
-    ensureDir();
-    return path.join(DATA_DIR, `${safeUserId(userId)}.json`);
-}
-
-function readUserCustomers(userId) {
-    const filePath = getUserCustomerFile(userId);
-    if (!fs.existsSync(filePath)) return [];
-    try {
-        const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-        const customers = Array.isArray(data?.customers) ? data.customers : [];
-        return customers
-            .filter(customer => customer.userId === userId)
-            .map(sanitizeCustomerForDisplay);
-    } catch (error) {
-        console.error(`Lỗi đọc file customers của user ${userId}:`, error.message);
-        return [];
-    }
-}
-
-function sanitizeCustomerForDisplay(customer = {}) {
-    const tiktokUsername = normalizeTikTokUsername(customer.tiktokUsername);
-    return {
-        ...customer,
-        tiktokUsername,
-        displayName: cleanDisplayText(customer.displayName)
-    };
-}
-
-function writeUserCustomers(userId, customers) {
-    ensureDir();
-    const normalized = Array.isArray(customers)
-        ? customers.map(customer => ({ ...customer, userId }))
-        : [];
-    fs.writeFileSync(getUserCustomerFile(userId), JSON.stringify({ customers: normalized }, null, 2), 'utf-8');
-}
-
 function listCustomers(userId, query = '') {
     const q = normalizeTextForDisplay(query).toLowerCase();
-    const customers = readUserCustomers(userId);
-    if (!q) return customers;
-    return customers.filter(customer => {
-        return [
-            normalizeTextForDisplay(customer.displayName),
-            customer.tiktokUsername,
-            customer.phone
-        ].some(value => String(value || '').toLowerCase().includes(q));
-    });
+    if (!q) {
+        return getDb().prepare('SELECT * FROM customers WHERE user_id = ? ORDER BY created_at DESC').all(userId).map(rowToCustomer);
+    }
+    const like = `%${q}%`;
+    return getDb().prepare(
+        'SELECT * FROM customers WHERE user_id = ? AND (LOWER(display_name) LIKE ? OR LOWER(tiktok_username) LIKE ? OR LOWER(phone) LIKE ?) ORDER BY created_at DESC'
+    ).all(userId, like, like, like).map(rowToCustomer);
 }
 
 function getCustomerById(userId, customerId) {
-    return readUserCustomers(userId).find(customer => customer.id === customerId && customer.userId === userId) || null;
+    return rowToCustomer(getDb().prepare('SELECT * FROM customers WHERE id = ? AND user_id = ?').get(customerId, userId));
 }
 
 function findCustomerByTikTok(userId, tiktokUsername) {
     const normalized = normalizeTikTokUsername(tiktokUsername);
     if (!normalized) return null;
-    return readUserCustomers(userId).find(customer => normalizeTikTokUsername(customer.tiktokUsername) === normalized) || null;
+    return rowToCustomer(getDb().prepare('SELECT * FROM customers WHERE user_id = ? AND LOWER(tiktok_username) = ?').get(userId, normalized));
+}
+
+function readUserCustomers(userId) {
+    return getDb().prepare('SELECT * FROM customers WHERE user_id = ? ORDER BY created_at DESC').all(userId).map(rowToCustomer);
+}
+
+function writeUserCustomers(userId, customers) {
+    const db = getDb();
+    db.prepare('DELETE FROM customers WHERE user_id = ?').run(userId);
+    const stmt = db.prepare(`
+        INSERT INTO customers (id, user_id, tiktok_username, display_name, phone, province, district, ward, address_detail, address_note, postal_code, customer_code, delivery_note, default_weight_kg, allow_try_on, view_only_no_try, partial_delivery, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const insertAll = db.transaction((items) => {
+        for (const c of items) {
+            stmt.run(
+                c.id || `customer_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+                userId,
+                c.tiktokUsername || '',
+                c.displayName || '',
+                c.phone || '', c.province || '', c.district || '', c.ward || '',
+                c.addressDetail || '', c.addressNote || '', c.postalCode || '',
+                c.customerCode || '', c.deliveryNote || '', c.defaultWeightKg || '',
+                c.allowTryOn || '', c.viewOnlyNoTry || '', c.partialDelivery || '',
+                c.createdAt || new Date().toISOString(),
+                c.updatedAt || new Date().toISOString()
+            );
+        }
+    });
+    insertAll(customers);
 }
 
 function pickCustomerFields(data) {
@@ -128,64 +105,47 @@ function pickCustomerFields(data) {
 }
 
 function createCustomer(userId, data = {}) {
-    const customers = readUserCustomers(userId);
+    const db = getDb();
     const now = new Date().toISOString();
-    const customer = {
-        id: `customer_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        userId,
-        tiktokUsername: '',
-        displayName: '',
-        phone: '',
-        province: '',
-        district: '',
-        ward: '',
-        addressDetail: '',
-        addressNote: '',
-        postalCode: '',
-        customerCode: '',
-        deliveryNote: '',
-        defaultWeightKg: '',
-        allowTryOn: '',
-        viewOnlyNoTry: '',
-        partialDelivery: '',
-        ...pickCustomerFields(data),
-        createdAt: now,
-        updatedAt: now
-    };
-
-    customer.tiktokUsername = normalizeTikTokUsername(customer.tiktokUsername);
-    customer.displayName = cleanDisplayText(customer.displayName);
-    customers.unshift(customer);
-    writeUserCustomers(userId, customers);
-    return customer;
+    const id = `customer_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const fields = pickCustomerFields(data);
+    db.prepare(`
+        INSERT INTO customers (id, user_id, tiktok_username, display_name, phone, province, district, ward, address_detail, address_note, postal_code, customer_code, delivery_note, default_weight_kg, allow_try_on, view_only_no_try, partial_delivery, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+        id, userId,
+        fields.tiktokUsername || '', fields.displayName || '',
+        fields.phone || '', fields.province || '', fields.district || '', fields.ward || '',
+        fields.addressDetail || '', fields.addressNote || '', fields.postalCode || '',
+        fields.customerCode || '', fields.deliveryNote || '', fields.defaultWeightKg || '',
+        fields.allowTryOn || '', fields.viewOnlyNoTry || '', fields.partialDelivery || '',
+        now, now
+    );
+    return getCustomerById(userId, id);
 }
 
 function updateCustomer(userId, customerId, patch = {}) {
-    const customers = readUserCustomers(userId);
-    const index = customers.findIndex(customer => customer.id === customerId && customer.userId === userId);
-    if (index === -1) return null;
+    const existing = getDb().prepare('SELECT id FROM customers WHERE id = ? AND user_id = ?').get(customerId, userId);
+    if (!existing) return null;
 
-    const next = {
-        ...customers[index],
-        ...pickCustomerFields(patch),
-        userId,
-        id: customers[index].id,
-        createdAt: customers[index].createdAt,
-        updatedAt: new Date().toISOString()
-    };
-    next.tiktokUsername = normalizeTikTokUsername(next.tiktokUsername);
-    next.displayName = cleanDisplayText(next.displayName);
-    customers[index] = next;
-    writeUserCustomers(userId, customers);
-    return next;
+    const now = new Date().toISOString();
+    const fields = pickCustomerFields(patch);
+    const setClauses = ['updated_at = ?'];
+    const values = [now];
+    for (const [snake, camel] of Object.entries(SNAKE_TO_CAMEL)) {
+        if (fields[camel] !== undefined && camel !== 'id' && camel !== 'userId' && camel !== 'createdAt' && camel !== 'updatedAt') {
+            setClauses.push(`${snake} = ?`);
+            values.push(fields[camel]);
+        }
+    }
+    values.push(customerId, userId);
+    getDb().prepare(`UPDATE customers SET ${setClauses.join(', ')} WHERE id = ? AND user_id = ?`).run(...values);
+    return getCustomerById(userId, customerId);
 }
 
 function deleteCustomer(userId, customerId) {
-    const customers = readUserCustomers(userId);
-    const next = customers.filter(customer => !(customer.id === customerId && customer.userId === userId));
-    if (next.length === customers.length) return false;
-    writeUserCustomers(userId, next);
-    return true;
+    const result = getDb().prepare('DELETE FROM customers WHERE id = ? AND user_id = ?').run(customerId, userId);
+    return result.changes > 0;
 }
 
 module.exports = {
@@ -198,5 +158,5 @@ module.exports = {
     updateCustomer,
     deleteCustomer,
     normalizeTikTokUsername,
-    getUserCustomerFile
+    getUserCustomerFile: () => ''
 };
