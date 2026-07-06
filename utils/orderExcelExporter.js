@@ -167,7 +167,7 @@ function setOrderRow(row, data) {
     row.commit();
 }
 
-async function exportDeliveryExcel({ userId, orders, now = new Date() }) {
+async function exportDeliveryExcel({ userId, orders, options = {}, now = new Date() }) {
     ensureTemplateDir();
     if (!fs.existsSync(TEMPLATE_FILE)) {
         const message = `Không tìm thấy file mẫu Excel tại ${TEMPLATE_FILE}`;
@@ -192,9 +192,20 @@ async function exportDeliveryExcel({ userId, orders, now = new Date() }) {
 
     let rowNumber = 2;
     customerGroups.forEach((group, groupIndex) => {
-        const savedCustomer = group.customerUsername
+        // Cố gắng tìm khách hàng theo TikTok Username
+        let savedCustomer = group.customerUsername && !group.customerUsername.startsWith('offline_')
             ? customerStore.findCustomerByTikTok(userId, group.customerUsername)
             : null;
+
+        // Nếu không tìm thấy, cố gắng tìm theo Display Name (phục vụ khách offline hoặc trùng tên)
+        if (!savedCustomer && group.customerName) {
+            const list = customerStore.listCustomers(userId, group.customerName);
+            const match = list.find(c => String(c.displayName || '').trim().toLowerCase() === String(group.customerName).trim().toLowerCase());
+            if (match) {
+                savedCustomer = match;
+            }
+        }
+
         const fallbackName = normalizeDisplayName(group.customerName, group.customerUsername ? `@${group.customerUsername}` : undefined);
         const customer = {
             displayName: fallbackName,
@@ -207,8 +218,13 @@ async function exportDeliveryExcel({ userId, orders, now = new Date() }) {
             postalCode: '',
             customerCode: '',
             deliveryNote: '',
+            defaultWeightKg: '',
+            allowTryOn: '',
+            viewOnlyNoTry: '',
+            partialDelivery: '',
             ...savedCustomer
         };
+
         const missingFields = getMissingFields(customer);
         if (missingFields.length > 0) {
             missingCustomers.push({
@@ -219,11 +235,32 @@ async function exportDeliveryExcel({ userId, orders, now = new Date() }) {
             });
         }
 
+        // Tạo tên sản phẩm tổng hợp: "Sản phẩm A (x2), Sản phẩm B"
+        const productNames = group.orders.map(o => {
+            const name = o.productName || 'Sản phẩm';
+            return o.quantity > 1 ? `${name} (x${o.quantity})` : name;
+        }).join(', ');
+
+        let mergedProductName = productNames || 'Đơn hàng livestream';
+        if (mergedProductName.length > 100) {
+            mergedProductName = mergedProductName.substring(0, 97) + '...';
+        }
+
+        // Tính tổng tiền COD & Giá trị đơn hàng (Cộng thêm phí ship nếu có)
+        const shippingFee = Number(options.shippingFee || 0);
+        const totalValue = group.total + shippingFee;
+
+        // Trọng lượng
+        let weight = parseFloat(customer.defaultWeightKg || options.defaultWeightKg || 0.5);
+        if (Number.isNaN(weight) || weight <= 0) {
+            weight = 0.5;
+        }
+
         const orderCode = `TK-${dateKey}-${String(groupIndex + 1).padStart(3, '0')}`;
         const row = sheet.getRow(rowNumber);
         copyStyle(styleSource, row);
+        
         setOrderRow(row, {
-            // Giữ 1 khách hàng trên 1 dòng và chỉ điền phần thông tin vận chuyển.
             orderCode,
             receiverName: normalizeDisplayName(customer.displayName, fallbackName),
             phone: customer.phone || '',
@@ -233,26 +270,25 @@ async function exportDeliveryExcel({ userId, orders, now = new Date() }) {
             addressDetail: customer.addressDetail || '',
             addressNote: customer.addressNote || '',
             postalCode: customer.postalCode || '',
-            // Xóa trắng toàn bộ các cột từ "Tên sản phẩm" trở đi.
-            productName: '',
-            quantity: '',
-            price: '',
-            weightKg: '',
-            lengthCm: '',
-            widthCm: '',
-            heightCm: '',
-            customerCode: '',
-            orderValue: '',
-            partialDelivery: '',
-            allowTryOn: '',
-            viewOnlyNoTry: '',
-            rejectionFeeEnabled: '',
-            rejectionFeeAmount: '',
-            collectCod: '',
-            codAmount: '',
-            highValue: '',
-            paymentMethod: '',
-            deliveryNote: ''
+            productName: mergedProductName,
+            quantity: 1, // Để là 1 đơn kiện tổng hợp
+            price: totalValue, // Đơn giá bằng tổng tiền COD
+            weightKg: weight,
+            lengthCm: Number(options.defaultLengthCm || 20),
+            widthCm: Number(options.defaultWidthCm || 10),
+            heightCm: Number(options.defaultHeightCm || 10),
+            customerCode: customer.customerCode || '',
+            orderValue: totalValue,
+            partialDelivery: customer.partialDelivery || options.partialDelivery || 'N',
+            allowTryOn: customer.allowTryOn || options.allowTryOn || 'N',
+            viewOnlyNoTry: customer.viewOnlyNoTry || options.viewOnlyNoTry || 'Y',
+            rejectionFeeEnabled: options.rejectionFeeEnabled || 'N',
+            rejectionFeeAmount: options.rejectionFeeEnabled === 'Y' ? Number(options.rejectionFeeAmount || 0) : 0,
+            collectCod: totalValue > 0 ? 'Y' : 'N',
+            codAmount: totalValue,
+            highValue: totalValue >= 3000000 ? 'Y' : 'N',
+            paymentMethod: options.paymentMethod || 'Người gửi trả',
+            deliveryNote: customer.deliveryNote || options.defaultDeliveryNote || ''
         });
         rowNumber += 1;
     });

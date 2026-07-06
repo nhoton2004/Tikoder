@@ -7,6 +7,7 @@ const { WebcastPushConnection, SignConfig } = require('tiktok-live-connector');
 const path = require('path');
 const fs = require('fs');
 const { cleanDisplayText, normalizeDisplayText } = require('../utils/displayName');
+const liveSessionStore = require('../utils/liveSessionStore');
 
 const liveRuntimeByUser = new Map();
 const CHAT_BUFFER_LIMIT = 300;
@@ -17,16 +18,35 @@ function getLiveRuntime(userId) {
             userId,
             tiktokConnection: null,
             confirmedOrders: {},
+            manualConfirmedOrders: {}, // Cách ly cho mục Đơn hàng thủ công
+            activeLoadedSessionId: null, // Session ID đang load ở mục Đơn hàng
             currentBroadcasterId: '',
             sessionId: null,
             sessionStartedAt: null,
             gracePeriodTimer: null,
             processedMsgIds: new Set(),
             chatBufferByBroadcaster: new Map(),
-            sockets: new Set()
+            sockets: new Set(),
+            recentConfirmKeys: new Map() // Lưu dedup key -> timestamp
         });
     }
     return liveRuntimeByUser.get(userId);
+}
+
+/**
+ * Debounce flush DB: chờ 3 giây sau thao tác cuối mới ghi vào SQLite.
+ * Giảm thải ghi đĩa trong khi vẫn đảm bảo dữ liệu được cập nhật.
+ */
+function scheduleDebouncedSave(userId, runtime, ctx) {
+    if (runtime.saveDebouncedTimer) clearTimeout(runtime.saveDebouncedTimer);
+    runtime.saveDebouncedTimer = setTimeout(() => {
+        ctx.flushSessionToDb(userId, runtime);
+        // Nếu đang load session lịch sử/thủ công, sync ngược về session gốc
+        if (runtime.activeLoadedSessionId) {
+            ctx.syncSessionOrders(userId, runtime.activeLoadedSessionId, runtime.manualConfirmedOrders);
+        }
+        runtime.saveDebouncedTimer = null;
+    }, 1500); // 1.5s debounce — đủ nhanh cho cảm giác real-time
 }
 
 function setupLiveHandler(io, ctx) {
@@ -46,19 +66,28 @@ function setupLiveHandler(io, ctx) {
         socket.join(getUserRoom(userId));
 
         // Auto-restore confirmed orders on reconnect (tablet -> laptop sync)
-        if (Object.keys(runtime.confirmedOrders || {}).length > 0) {
-            socket.emit('all-confirmed-orders', runtime.confirmedOrders);
-        } else if (runtime.currentBroadcasterId) {
-            // Thử load lại từ file ngày hôm nay (sau server crash/restart)
-            const todayFile = ctx.getSessionFileName(userId, runtime.currentBroadcasterId, null);
-            if (fs.existsSync(todayFile)) {
-                runtime.confirmedOrders = sanitizeConfirmedOrders(JSON.parse(fs.readFileSync(todayFile)));
-                if (Object.keys(runtime.confirmedOrders).length > 0) {
-                    console.log(`>>> Auto-restored ${Object.keys(runtime.confirmedOrders).length} orders after restart for user ${userId}`);
-                    socket.emit('all-confirmed-orders', runtime.confirmedOrders);
+        const isLiveActive = !!runtime.tiktokConnection || !!runtime.gracePeriodTimer;
+        if (isLiveActive) {
+            if (Object.keys(runtime.confirmedOrders || {}).length > 0) {
+                socket.emit('all-confirmed-orders', runtime.confirmedOrders);
+            } else if (runtime.currentBroadcasterId) {
+                // Thử load lại từ file ngày hôm nay (sau server crash/restart)
+                const todayFile = ctx.getSessionFileName(userId, runtime.currentBroadcasterId, null);
+                if (fs.existsSync(todayFile)) {
+                    runtime.confirmedOrders = sanitizeConfirmedOrders(JSON.parse(fs.readFileSync(todayFile)));
+                    if (Object.keys(runtime.confirmedOrders).length > 0) {
+                        console.log(`>>> Auto-restored ${Object.keys(runtime.confirmedOrders).length} live orders after restart for user ${userId}`);
+                        socket.emit('all-confirmed-orders', runtime.confirmedOrders);
+                    }
                 }
             }
         }
+
+        // Đồng bộ manual confirmed orders cho client vừa reconnect
+        socket.emit('manual-all-confirmed-orders', {
+            data: runtime.manualConfirmedOrders || {},
+            sessionId: runtime.activeLoadedSessionId || null
+        });
 
         socket.emit('system-config', { printerInterface: ctx.printerInterface, tiktokSignApiKey: ctx.tiktokSignApiKey });
 
@@ -71,14 +100,18 @@ function setupLiveHandler(io, ctx) {
                     console.log(`>>> Grace period expired for user ${userId}. Disconnecting TikTok Live.`);
                     try { runtime.tiktokConnection.disconnect(); } catch (e) {}
                     runtime.tiktokConnection = null;
-                    
-                    // Tự động lưu phiên vào Lịch sử
-                    ctx.saveSessionDataForUser(userId);
-                    try {
-                        ctx.internalSaveLiveSession(userId, runtime);
-                    } catch (err) {
-                        console.error('>>> [ERROR] internalSaveLiveSession failed (server will not crash):', err.stack || err.message);
+
+                    // Flush lần cuối vào DB và lưu JSON backup
+                    if (runtime.saveDebouncedTimer) {
+                        clearTimeout(runtime.saveDebouncedTimer);
+                        runtime.saveDebouncedTimer = null;
                     }
+                    ctx.saveSessionDataForUser(userId);
+                    ctx.flushSessionToDb(userId, runtime);
+                    runtime.confirmedOrders = {};
+                    runtime.currentDbSessionId = null;
+                    runtime.currentBroadcasterId = null;
+                    emitToUser(userId, 'all-confirmed-orders', {});
                 }, 2 * 60 * 1000); // 2 phút
             }
         });
@@ -102,6 +135,30 @@ function setupLiveHandler(io, ctx) {
             socket.emit('chat-buffer', { broadcasterId: id, comments });
         });
 
+        socket.on('stop-live', () => {
+            console.log(`>>> Stop live requested by user ${userId}`);
+            const oldBroadcasterId = runtime.currentBroadcasterId;
+            if (runtime.tiktokConnection) {
+                try { runtime.tiktokConnection.disconnect(); } catch (e) {}
+                runtime.tiktokConnection = null;
+            }
+            // Flush and notify
+            if (runtime.saveDebouncedTimer) {
+                clearTimeout(runtime.saveDebouncedTimer);
+                runtime.saveDebouncedTimer = null;
+            }
+            ctx.saveSessionDataForUser(userId);
+            ctx.flushSessionToDb(userId, runtime);
+            
+            runtime.confirmedOrders = {};
+            runtime.currentDbSessionId = null;
+            runtime.currentBroadcasterId = null;
+            emitToUser(userId, 'all-confirmed-orders', {});
+            
+            // Dọn session ID khỏi client khi người dùng chủ động ngắt kết nối
+            emitToUser(userId, 'live-ended', { broadcasterId: oldBroadcasterId, reason: 'user_stopped', clearSession: true });
+        });
+
         socket.on('start-live', (payload) => {
             const uniqueId = typeof payload === 'string' ? payload : (payload?.uniqueId || '');
             const clientSessionId = typeof payload === 'object' ? payload?.sessionId : null;
@@ -117,9 +174,53 @@ function setupLiveHandler(io, ctx) {
             }
 
             // Kiểm tra xem có phải tiếp tục phiên cũ không
-            const isContinuation = clientSessionId &&
-                                   clientSessionId === runtime.sessionId &&
-                                   broadcasterId === runtime.currentBroadcasterId;
+            let isContinuation = false;
+            if (clientSessionId) {
+                if (clientSessionId === runtime.sessionId && broadcasterId === runtime.currentBroadcasterId) {
+                    isContinuation = true;
+                } else {
+                    // Thử khôi phục từ DB nếu server restart hoặc mất đồng bộ RAM
+                    try {
+                        const existingSession = liveSessionStore.getLiveSessionById(userId, clientSessionId);
+                        if (existingSession) {
+                            console.log(`>>> [Live] Khôi phục thành công phiên ${clientSessionId} từ DB cho user ${userId}`);
+                            runtime.sessionId = clientSessionId;
+                            runtime.currentDbSessionId = clientSessionId;
+                            runtime.currentBroadcasterId = existingSession.tiktokUsername || broadcasterId;
+                            runtime.sessionStartedAt = existingSession.startedAt;
+
+                            // Khôi phục danh sách đơn chốt về RAM (dạng object key-value theo username)
+                            const restoredOrders = {};
+                            (existingSession.orders || []).forEach(o => {
+                                const resolvedUsername = o.customerUsername || o.customerName || 'unknown';
+                                const usernameKey = customerStore.normalizeTikTokUsername(resolvedUsername) || resolvedUsername;
+                                if (!restoredOrders[usernameKey]) {
+                                    restoredOrders[usernameKey] = {
+                                        username: usernameKey,
+                                        nickname: o.customerName || usernameKey,
+                                        profilePictureUrl: o.profilePictureUrl || '',
+                                        items: [],
+                                        total: 0
+                                    };
+                                }
+                                const itemPrice = Number(o.price || 0);
+                                restoredOrders[usernameKey].items.push({
+                                    id: o.id,
+                                    text: o.productName,
+                                    price: itemPrice,
+                                    time: o.time || '',
+                                    createdAt: o.createdAt
+                                });
+                                restoredOrders[usernameKey].total += itemPrice;
+                            });
+                            runtime.confirmedOrders = restoredOrders;
+                            isContinuation = true;
+                        }
+                    } catch (err) {
+                        console.error('>>> [LỖI] Khôi phục phiên từ DB thất bại:', err.message);
+                    }
+                }
+            }
 
             if (runtime.tiktokConnection) {
                 try { runtime.tiktokConnection.disconnect(); } catch (e) {}
@@ -128,21 +229,15 @@ function setupLiveHandler(io, ctx) {
 
             runtime.currentBroadcasterId = broadcasterId;
 
-            // Auto-save + idle timeout mỗi lần start-live
-            if (runtime.autoSaveTimer) {
-                clearInterval(runtime.autoSaveTimer);
-                runtime.autoSaveTimer = null;
-            }
+            // Hủy bỏ các timer cũ (không có autoSaveTimer nữa)
             if (runtime.idleTimer) {
                 clearTimeout(runtime.idleTimer);
                 runtime.idleTimer = null;
             }
-
-            runtime.autoSaveTimer = setInterval(() => {
-                if (runtime.currentBroadcasterId) {
-                    saveSessionDataForUser(userId);
-                }
-            }, 30000);
+            if (runtime.saveDebouncedTimer) {
+                clearTimeout(runtime.saveDebouncedTimer);
+                runtime.saveDebouncedTimer = null;
+            }
 
             const resetIdleTimer = () => {
                 if (runtime.idleTimer) clearTimeout(runtime.idleTimer);
@@ -150,16 +245,13 @@ function setupLiveHandler(io, ctx) {
                     console.log(`>>> Idle timeout expired for user ${userId}. Ending live.`);
                     try { runtime.tiktokConnection.disconnect(); } catch (e) {}
                     runtime.tiktokConnection = null;
-                    if (runtime.autoSaveTimer) {
-                        clearInterval(runtime.autoSaveTimer);
-                        runtime.autoSaveTimer = null;
+                    // Flush lần cuối vào DB
+                    if (runtime.saveDebouncedTimer) {
+                        clearTimeout(runtime.saveDebouncedTimer);
+                        runtime.saveDebouncedTimer = null;
                     }
                     saveSessionDataForUser(userId);
-                    try {
-                        ctx.internalSaveLiveSession(userId, runtime);
-                    } catch (err) {
-                        console.error('>>> [ERROR] internalSaveLiveSession failed (server will not crash):', err.stack || err.message);
-                    }
+                    ctx.flushSessionToDb(userId, runtime);
                     emitToUser(userId, 'live-ended', { broadcasterId, reason: 'idle_10m', clearSession: true });
                 }, 10 * 60 * 1000);
             };
@@ -170,14 +262,11 @@ function setupLiveHandler(io, ctx) {
             if (isContinuation) {
                 console.log(`>>> Resuming existing session ${runtime.sessionId} for user ${userId}`);
             } else {
-                // Tự động lưu session cũ nếu đang có session khác hoạt động và có đơn hàng
+                // Flush phiên cũ nếu đang có session khác hoạt động và có đơn hàng
                 if (runtime.sessionId && Object.keys(runtime.confirmedOrders || {}).length > 0) {
                     ctx.saveSessionDataForUser(userId);
-                    try {
-                        ctx.internalSaveLiveSession(userId, runtime);
-                    } catch (err) {
-                        console.error('>>> [ERROR] internalSaveLiveSession failed (server will not crash):', err.stack || err.message);
-                    }
+                    ctx.flushSessionToDb(userId, runtime);
+                    runtime.currentDbSessionId = null; // Reset để initLiveSession tạo mới
                 }
 
                 // Khởi tạo phiên mới hoàn toàn
@@ -207,6 +296,12 @@ function setupLiveHandler(io, ctx) {
             userConnection.connect().then(state => {
                 if (runtime.tiktokConnection !== userConnection) return;
                 emitToUser(userId, 'status', { connected: true, roomId: state.roomId, broadcasterId });
+                // Gửi lại danh sách đơn hàng đã khôi phục để đảm bảo client đồng bộ
+                emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
+                // Tạo session record trong DB ngay khi connect thành công (chỉ 1 lần)
+                if (!isContinuation) {
+                    ctx.initLiveSession(userId, runtime, broadcasterId);
+                }
             }).catch(err => {
                 if (runtime.tiktokConnection !== userConnection) return;
                 let errorMessage = "Lỗi không xác định";
@@ -255,18 +350,17 @@ function setupLiveHandler(io, ctx) {
                 if (runtime.tiktokConnection !== userConnection) return;
                 console.log(`>>> Stream ended for broadcaster: ${broadcasterId} (user: ${userId})`);
 
-                // Auto-save dữ liệu phiên vào file history
-                saveSessionDataForUser(userId);
-                try {
-                    ctx.internalSaveLiveSession(userId, runtime);
-                } catch (err) {
-                    console.error('>>> [ERROR] internalSaveLiveSession failed (server will not crash):', err.stack || err.message);
+                // Flush lần cuối vào DB và lưu JSON backup
+                if (runtime.saveDebouncedTimer) {
+                    clearTimeout(runtime.saveDebouncedTimer);
+                    runtime.saveDebouncedTimer = null;
                 }
+                saveSessionDataForUser(userId);
+                ctx.flushSessionToDb(userId, runtime);
 
-                // Thông báo về client để auto-save và cập nhật UI, xoá session ID
-                emitToUser(userId, 'live-ended', { broadcasterId, reason: data?.action || 'ended', clearSession: true });
+                 // Thông báo về client và ngắt kết nối TikTok
+                 emitToUser(userId, 'live-ended', { broadcasterId, reason: data?.action || 'ended', clearSession: false });
 
-                // Ngắt kết nối TikTok
                 try { userConnection.disconnect(); } catch (e) {}
                 if (runtime.tiktokConnection === userConnection) {
                     runtime.tiktokConnection = null;
@@ -290,90 +384,198 @@ function setupLiveHandler(io, ctx) {
             const profilePictureUrl = normalizeDisplayText(data.profilePictureUrl || '');
             const comment = normalizeDisplayText(data.comment || '');
             const price = Number(data.price || 0);
-            if (!runtime.confirmedOrders[username]) {
-                runtime.confirmedOrders[username] = { username, nickname, profilePictureUrl, items: [], total: 0 };
+            const isManual = !!data.isManual;
+
+            const target = isManual ? 'manualConfirmedOrders' : 'confirmedOrders';
+
+            // Chặn bấm đúp: bỏ qua nếu trùng cả username, nội dung comment và giá trong vòng 1.2 giây
+            if (!runtime.recentConfirmKeys) {
+                runtime.recentConfirmKeys = new Map();
             }
-            const newItem = { id: Date.now() + Math.random(), text: comment, price, time: new Date().toLocaleTimeString('vi-VN') };
-            runtime.confirmedOrders[username].items.push(newItem);
-            runtime.confirmedOrders[username].total += price;
-            saveSessionDataForUser(userId);
-            emitToUser(userId, 'order-confirmed', runtime.confirmedOrders[username]);
-            printBill(newItem, runtime.confirmedOrders[username], userId);
+            const dedupKey = `${username}|${comment}|${price}|${isManual}`;
+            const lastTime = runtime.recentConfirmKeys.get(dedupKey);
+            const now = Date.now();
+            if (lastTime && (now - lastTime) < 1200) {
+                console.log(`>>> [Dedup] Bỏ qua confirm-item trùng lặp cho ${username}: "${comment}" - ${price}đ (isManual: ${isManual})`);
+                if (runtime[target][username]) {
+                    emitToUser(userId, isManual ? 'manual-order-confirmed' : 'order-confirmed', runtime[target][username]);
+                }
+                return;
+            }
+            runtime.recentConfirmKeys.set(dedupKey, now);
+
+            // Cleanup các key cũ hơn 10 giây để tránh phình bộ nhớ
+            for (const [k, t] of runtime.recentConfirmKeys.entries()) {
+                if (now - t > 10000) {
+                    runtime.recentConfirmKeys.delete(k);
+                }
+            }
+
+            if (!runtime[target][username]) {
+                runtime[target][username] = { username, nickname, profilePictureUrl, items: [], total: 0 };
+            }
+             const newItem = { id: Date.now() + Math.random(), text: comment, price, time: new Date().toLocaleTimeString('vi-VN'), createdAt: new Date().toISOString() };
+            runtime[target][username].items.push(newItem);
+            runtime[target][username].total += price;
+
+            if (!isManual) {
+                // Live: Lưu JSON ngay, flush DB sau 1.5s
+                saveSessionDataForUser(userId);
+                scheduleDebouncedSave(userId, runtime, ctx);
+                emitToUser(userId, 'order-confirmed', runtime[target][username]);
+                printBill(newItem, runtime[target][username], userId);
+            } else {
+                // Manual: flush DB sau 1.5s (syncSessionOrders sẽ ghi đè)
+                scheduleDebouncedSave(userId, runtime, ctx);
+                emitToUser(userId, 'manual-order-confirmed', runtime[target][username]);
+                printBill(newItem, runtime[target][username], userId);
+            }
         });
 
         socket.on('replace-confirmed-orders', (payload = {}) => {
-            runtime.confirmedOrders = sanitizeConfirmedOrders(payload.orders || {});
-            const broadcasterId = customerStore.normalizeTikTokUsername(payload.broadcasterId || '');
-            if (broadcasterId) {
-                runtime.currentBroadcasterId = broadcasterId;
-                saveSessionDataForUser(userId);
-            }
-            emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
-        });
+            const isManual = !!payload.isManual;
+            const target = isManual ? 'manualConfirmedOrders' : 'confirmedOrders';
 
-        socket.on('delete-customer', (username) => {
-            const normalizedUsername = customerStore.normalizeTikTokUsername(username);
-            if (runtime.confirmedOrders[normalizedUsername]) {
-                delete runtime.confirmedOrders[normalizedUsername];
-                saveSessionDataForUser(userId);
-                emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
-            }
-        });
-
-        socket.on('delete-item', ({ username, itemId }) => {
-            const normalizedUsername = customerStore.normalizeTikTokUsername(username);
-            if (runtime.confirmedOrders[normalizedUsername]) {
-                const index = runtime.confirmedOrders[normalizedUsername].items.findIndex(i => i.id === itemId);
-                if (index > -1) {
-                    runtime.confirmedOrders[normalizedUsername].total -= runtime.confirmedOrders[normalizedUsername].items[index].price;
-                    runtime.confirmedOrders[normalizedUsername].items.splice(index, 1);
-                    if (runtime.confirmedOrders[normalizedUsername].items.length === 0) delete runtime.confirmedOrders[normalizedUsername];
+            runtime[target] = sanitizeConfirmedOrders(payload.orders || {});
+            
+            if (!isManual) {
+                const broadcasterId = customerStore.normalizeTikTokUsername(payload.broadcasterId || '');
+                if (broadcasterId) {
+                    runtime.currentBroadcasterId = broadcasterId;
                     saveSessionDataForUser(userId);
-                    emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
+                }
+                emitToUser(userId, 'all-confirmed-orders', runtime[target]);
+            } else {
+                emitToUser(userId, 'manual-all-confirmed-orders', {
+                    data: runtime[target],
+                    sessionId: runtime.activeLoadedSessionId
+                });
+            }
+        });
+
+        socket.on('delete-customer', (payload) => {
+            const username = typeof payload === 'string' ? payload : (payload?.username || '');
+            const isManual = typeof payload === 'object' ? !!payload.isManual : false;
+            const normalizedUsername = customerStore.normalizeTikTokUsername(username);
+            const target = isManual ? 'manualConfirmedOrders' : 'confirmedOrders';
+
+            if (runtime[target][normalizedUsername]) {
+                delete runtime[target][normalizedUsername];
+                if (!isManual) {
+                    saveSessionDataForUser(userId);
+                    scheduleDebouncedSave(userId, runtime, ctx);
+                    emitToUser(userId, 'order-customer-deleted', { username: normalizedUsername });
+                } else {
+                    scheduleDebouncedSave(userId, runtime, ctx);
+                    emitToUser(userId, 'manual-order-customer-deleted', { username: normalizedUsername });
                 }
             }
         });
 
-        socket.on('edit-item', ({ username, itemId, text, price }) => {
+        socket.on('delete-item', (payload) => {
+            const username = payload?.username || '';
+            const itemId = payload?.itemId;
+            const isManual = !!payload?.isManual;
             const normalizedUsername = customerStore.normalizeTikTokUsername(username);
-            if (runtime.confirmedOrders[normalizedUsername]) {
-                const item = runtime.confirmedOrders[normalizedUsername].items.find(i => i.id === itemId);
+            const target = isManual ? 'manualConfirmedOrders' : 'confirmedOrders';
+
+            if (runtime[target][normalizedUsername]) {
+                const index = runtime[target][normalizedUsername].items.findIndex(i => String(i.id) === String(itemId));
+                if (index > -1) {
+                    runtime[target][normalizedUsername].total -= runtime[target][normalizedUsername].items[index].price;
+                    runtime[target][normalizedUsername].items.splice(index, 1);
+                    if (runtime[target][normalizedUsername].items.length === 0) delete runtime[target][normalizedUsername];
+                    
+                    if (!isManual) {
+                        saveSessionDataForUser(userId);
+                        scheduleDebouncedSave(userId, runtime, ctx);
+                        emitToUser(userId, 'order-item-deleted', { username: normalizedUsername, itemId });
+                    } else {
+                        scheduleDebouncedSave(userId, runtime, ctx);
+                        emitToUser(userId, 'manual-order-item-deleted', { username: normalizedUsername, itemId });
+                    }
+                }
+            }
+        });
+
+        socket.on('edit-item', (payload) => {
+            const username = payload?.username || '';
+            const itemId = payload?.itemId;
+            const text = payload?.text || '';
+            const price = payload?.price;
+            const isManual = !!payload?.isManual;
+
+            const normalizedUsername = customerStore.normalizeTikTokUsername(username);
+            const target = isManual ? 'manualConfirmedOrders' : 'confirmedOrders';
+
+            if (runtime[target][normalizedUsername]) {
+                const item = runtime[target][normalizedUsername].items.find(i => String(i.id) === String(itemId));
                 if (item) {
                     const newPrice = Number(price);
-                    runtime.confirmedOrders[normalizedUsername].total = runtime.confirmedOrders[normalizedUsername].total - Number(item.price || 0) + (Number.isFinite(newPrice) ? newPrice : Number(item.price || 0));
+                    runtime[target][normalizedUsername].total = runtime[target][normalizedUsername].total - Number(item.price || 0) + (Number.isFinite(newPrice) ? newPrice : Number(item.price || 0));
                     item.text = normalizeDisplayText(text || item.text || '');
                     if (Number.isFinite(newPrice)) item.price = newPrice;
-                    saveSessionDataForUser(userId);
-                    emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
+                    
+                    if (!isManual) {
+                        saveSessionDataForUser(userId);
+                        scheduleDebouncedSave(userId, runtime, ctx);
+                        emitToUser(userId, 'order-confirmed', runtime[target][normalizedUsername]);
+                    } else {
+                        scheduleDebouncedSave(userId, runtime, ctx);
+                        emitToUser(userId, 'manual-order-confirmed', runtime[target][normalizedUsername]);
+                    }
                 }
             }
         });
 
-        socket.on('edit-item-price', ({ username, itemId, newPrice }) => {
+        socket.on('edit-item-price', (payload) => {
+            const username = payload?.username || '';
+            const itemId = payload?.itemId;
+            const newPrice = Number(payload?.newPrice || 0);
+            const isManual = !!payload?.isManual;
+
             const normalizedUsername = customerStore.normalizeTikTokUsername(username);
-            if (runtime.confirmedOrders[normalizedUsername]) {
-                const item = runtime.confirmedOrders[normalizedUsername].items.find(i => i.id === itemId);
+            const target = isManual ? 'manualConfirmedOrders' : 'confirmedOrders';
+
+            if (runtime[target][normalizedUsername]) {
+                const item = runtime[target][normalizedUsername].items.find(i => String(i.id) === String(itemId));
                 if (item) {
-                    runtime.confirmedOrders[normalizedUsername].total = runtime.confirmedOrders[normalizedUsername].total - item.price + newPrice;
+                    runtime[target][normalizedUsername].total = runtime[target][normalizedUsername].total - item.price + newPrice;
                     item.price = newPrice;
-                    saveSessionDataForUser(userId);
-                    emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
+                    
+                    if (!isManual) {
+                        saveSessionDataForUser(userId);
+                        scheduleDebouncedSave(userId, runtime, ctx);
+                        emitToUser(userId, 'order-confirmed', runtime[target][normalizedUsername]);
+                    } else {
+                        scheduleDebouncedSave(userId, runtime, ctx);
+                        emitToUser(userId, 'manual-order-confirmed', runtime[target][normalizedUsername]);
+                    }
                 }
             }
         });
 
-        socket.on('reprint-item', ({ username, itemId }) => {
+        socket.on('reprint-item', (payload) => {
+            const username = payload?.username || '';
+            const itemId = payload?.itemId;
+            const isManual = !!payload?.isManual;
             const normalizedUsername = customerStore.normalizeTikTokUsername(username);
-            if (runtime.confirmedOrders[normalizedUsername]) {
-                const item = runtime.confirmedOrders[normalizedUsername].items.find(i => i.id === itemId);
-                if (item) printBill(item, runtime.confirmedOrders[normalizedUsername], userId);
+            const target = isManual ? 'manualConfirmedOrders' : 'confirmedOrders';
+
+            if (runtime[target][normalizedUsername]) {
+                const item = runtime[target][normalizedUsername].items.find(i => String(i.id) === String(itemId));
+                if (item) printBill(item, runtime[target][normalizedUsername], userId);
             }
         });
 
-        socket.on('reprint-total', (username) => {
+        socket.on('reprint-total', (payload) => {
+            const username = typeof payload === 'string' ? payload : (payload?.username || '');
+            const isManual = typeof payload === 'object' ? !!payload.isManual : false;
             const normalizedUsername = customerStore.normalizeTikTokUsername(username);
-            if (runtime.confirmedOrders[normalizedUsername]) {
-                printDetailedBill(runtime.confirmedOrders[normalizedUsername], userId);
+            const target = isManual ? 'manualConfirmedOrders' : 'confirmedOrders';
+
+            if (runtime[target][normalizedUsername]) {
+                printDetailedBill(runtime[target][normalizedUsername], userId);
             }
         });
 
@@ -395,6 +597,68 @@ function setupLiveHandler(io, ctx) {
             }
         });
 
+         // Set active session khi user load đơn từ lịch sử
+         socket.on('set-active-session', ({ sessionId } = {}) => {
+             runtime.activeLoadedSessionId = sessionId || null;
+             if (sessionId) {
+                 console.log(`>>> User ${userId} đang làm việc với session manual: ${sessionId}`);
+             }
+         });
+
+         // Tự động phục hồi trạng thái phiên làm việc khi reconnect/F5
+         socket.on('restore-live-session', ({ sessionId } = {}) => {
+             if (!sessionId) return;
+             try {
+                 const existingSession = liveSessionStore.getLiveSessionById(userId, sessionId);
+                 if (existingSession) {
+                     console.log(`>>> [Live] Tự động khôi phục phiên active ${sessionId} từ DB cho user ${userId}`);
+                     runtime.sessionId = sessionId;
+                     runtime.currentDbSessionId = sessionId;
+                     runtime.sessionStartedAt = existingSession.startedAt;
+                     if (existingSession.tiktokUsername) {
+                         runtime.currentBroadcasterId = existingSession.tiktokUsername;
+                     }
+
+                     // Khôi phục danh sách đơn chốt về RAM
+                     const restoredOrders = {};
+                     (existingSession.orders || []).forEach(o => {
+                         const resolvedUsername = o.customerUsername || o.customerName || 'unknown';
+                         const usernameKey = customerStore.normalizeTikTokUsername(resolvedUsername) || resolvedUsername;
+                         if (!restoredOrders[usernameKey]) {
+                             restoredOrders[usernameKey] = {
+                                 username: usernameKey,
+                                 nickname: o.customerName || usernameKey,
+                                 profilePictureUrl: o.profilePictureUrl || '',
+                                 items: [],
+                                 total: 0
+                             };
+                         }
+                         const itemPrice = Number(o.price || 0);
+                         restoredOrders[usernameKey].items.push({
+                             id: o.id,
+                             text: o.productName,
+                             price: itemPrice,
+                             time: o.time || '',
+                             createdAt: o.createdAt
+                         });
+                         restoredOrders[usernameKey].total += itemPrice;
+                     });
+                     runtime.confirmedOrders = restoredOrders;
+
+                     // Gửi lại danh sách đơn hàng đã khôi phục
+                     socket.emit('all-confirmed-orders', runtime.confirmedOrders);
+                     socket.emit('session-info', {
+                         sessionId: runtime.sessionId,
+                         broadcasterId: runtime.currentBroadcasterId,
+                         startedAt: runtime.sessionStartedAt,
+                         isContinuation: true
+                     });
+                 }
+             } catch (err) {
+                 console.error('>>> [LỖI] Tự động khôi phục phiên live thất bại:', err.message);
+             }
+         });
+
         socket.on('load-history-file', (fileName) => {
             const rawFileName = String(fileName || '');
             const isSharedFile = rawFileName.startsWith('shared:');
@@ -405,12 +669,22 @@ function setupLiveHandler(io, ctx) {
             const filePath = path.join(historyDir, safeFileName);
             if (!fs.existsSync(filePath)) return;
             const rawData = JSON.parse(fs.readFileSync(filePath));
-            runtime.confirmedOrders = sanitizeConfirmedOrders(rawData);
+            
+            // Cập nhật riêng cho manual session
+            runtime.manualConfirmedOrders = sanitizeConfirmedOrders(rawData);
+            runtime.activeLoadedSessionId = isSharedFile ? `legacy:shared:${safeFileName}` : `legacy:${safeFileName}`;
+            
             const match = safeFileName.match(/^(\d{4})-(\d{2})-(\d{2})_(.+)\.json$/);
             if (match) {
+                // Giữ nguyên broadcasterId nếu cần thiết cho config
                 runtime.currentBroadcasterId = customerStore.normalizeTikTokUsername(match[4]);
             }
-            socket.emit('history-data', { fileName: isSharedFile ? `shared:${safeFileName}` : safeFileName, data: runtime.confirmedOrders });
+            
+            socket.emit('manual-history-data', { 
+                fileName: isSharedFile ? `shared:${safeFileName}` : safeFileName, 
+                data: runtime.manualConfirmedOrders,
+                sessionId: runtime.activeLoadedSessionId
+            });
         });
 
         // Trả về runtime.confirmedOrders từ memory, không đọc disk

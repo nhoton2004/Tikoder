@@ -14,6 +14,7 @@ const rateLimit = require('express-rate-limit');
 
 const liveSessionStore = require('./utils/liveSessionStore');
 const customerStore = require('./utils/customerStore');
+const customerAuditor = require('./utils/customerAuditor');
 const orderExcelExporter = require('./utils/orderExcelExporter');
 const { cleanDisplayText, normalizeDisplayName, normalizeDisplayText } = require('./utils/displayName');
 const adminRoutes = require('./routes/admin');
@@ -329,6 +330,32 @@ function formatVisibleLiveSession(session, currentUser, includeOwnerScope = fals
     };
 }
 
+function getActiveSessionRealtimeData(runtime) {
+    if (!runtime || !runtime.confirmedOrders) return null;
+    const now = new Date();
+    const orders = Object.values(runtime.confirmedOrders).flatMap(customer =>
+        (customer.items || []).map(item => ({
+            customerName: customer.nickname || customer.username,
+            customerUsername: customer.username,
+            profilePictureUrl: customer.profilePictureUrl || '',
+            productName: item.text || '',
+            quantity: 1,
+            price: Number(item.price || 0),
+            total: Number(item.price || 0),
+            time: item.time || '',
+            createdAt: item.createdAt || now.toISOString()
+        }))
+    );
+    return {
+        orders,
+        summary: {
+            totalOrders: orders.length,
+            totalQuantity: orders.length,
+            totalRevenue: orders.reduce((s, o) => s + o.price, 0)
+        }
+    };
+}
+
 function readVisibleStoredLiveSessions(currentUser) {
     const includeAllUsers = isAdminOrSuperAdmin(currentUser);
     const sessions = includeAllUsers
@@ -338,64 +365,81 @@ function readVisibleStoredLiveSessions(currentUser) {
             ownerUserId: currentUser.uid,
             rawSessionId: session.id
         }));
-    return sessions.map(session => formatVisibleLiveSession(session, currentUser, includeAllUsers));
+
+    const runtime = getLiveRuntime(currentUser.uid);
+    const activeSessionId = runtime?.currentDbSessionId;
+
+    return sessions.map(session => {
+        let finalSession = { ...session };
+        if (activeSessionId && session.id === activeSessionId) {
+            const rtData = getActiveSessionRealtimeData(runtime);
+            if (rtData) {
+                finalSession.summary = rtData.summary;
+            }
+        }
+        return formatVisibleLiveSession(finalSession, currentUser, includeAllUsers);
+    });
 }
 
 function getVisibleStoredLiveSession(currentUser, sessionId) {
     const scopedRef = parseScopedLiveSessionId(sessionId);
+    let session = null;
+    let ownerUserId = currentUser.uid;
+    let isAdminVisible = false;
+
     if (scopedRef) {
         if (scopedRef.ownerUserId !== currentUser.uid && !isAdminOrSuperAdmin(currentUser)) {
             return null;
         }
-        const session = liveSessionStore.getLiveSessionById(scopedRef.ownerUserId, scopedRef.sessionId);
-        return session ? formatVisibleLiveSession({
-            ...session,
-            ownerUserId: scopedRef.ownerUserId,
-            rawSessionId: session.id
-        }, currentUser, isAdminOrSuperAdmin(currentUser)) : null;
-    }
-
-    // Try own sessions first (SQLite user-specific)
-    const ownSession = liveSessionStore.getLiveSessionById(currentUser.uid, sessionId);
-    if (ownSession) {
-        return formatVisibleLiveSession({
-            ...ownSession,
-            ownerUserId: currentUser.uid,
-            rawSessionId: ownSession.id
-        }, currentUser, isAdminOrSuperAdmin(currentUser));
-    }
-
-    // Fallback: search SQLite directly for non-scoped session (handles unsynchronized scoped ids)
-    try {
-        const db = getDb();
-        const row = db.prepare('SELECT * FROM live_sessions WHERE id = ?').get(sessionId);
-        if (row && row.user_id === currentUser.uid) {
-            const orders = db.prepare('SELECT * FROM orders WHERE session_id = ? ORDER BY created_at').all(row.id);
-            const session = liveSessionStore.rowToSession(row);
-            session.orders = orders.map(liveSessionStore.rowToOrder);
-            return formatVisibleLiveSession({
-                ...session,
-                ownerUserId: currentUser.uid,
-                rawSessionId: row.id
-            }, currentUser, isAdminOrSuperAdmin(currentUser));
+        session = liveSessionStore.getLiveSessionById(scopedRef.ownerUserId, scopedRef.sessionId);
+        ownerUserId = scopedRef.ownerUserId;
+        isAdminVisible = scopedRef.ownerUserId !== currentUser.uid;
+    } else {
+        // Try own sessions first (SQLite user-specific)
+        session = liveSessionStore.getLiveSessionById(currentUser.uid, sessionId);
+        if (!session) {
+            // Fallback: search SQLite directly for non-scoped session
+            try {
+                const db = getDb();
+                const row = db.prepare('SELECT * FROM live_sessions WHERE id = ?').get(sessionId);
+                if (row && row.user_id === currentUser.uid) {
+                    const orders = db.prepare('SELECT * FROM orders WHERE session_id = ? ORDER BY created_at').all(row.id);
+                    session = liveSessionStore.rowToSession(row);
+                    session.orders = orders.map(liveSessionStore.rowToOrder);
+                }
+            } catch (err) {
+                if (err instanceof TypeError || err instanceof ReferenceError) {
+                    console.error('[getVisibleStoredLiveSession] Lỗi code trong SQLite fallback:', err.stack || err);
+                }
+            }
         }
-        // row không tìm thấy hoặc thuộc user khác — đây là "not found", không phải lỗi code
-    } catch (err) {
-        // Phân biệt: TypeError/ReferenceError là lỗi code (phải biết ngay), SQLiteError là lỗi DB
-        if (err instanceof TypeError || err instanceof ReferenceError) {
-            console.error('[getVisibleStoredLiveSession] Lỗi code trong SQLite fallback — kiểm tra export của liveSessionStore:', err.stack || err);
-        } else {
-            console.error('[getVisibleStoredLiveSession] SQLite fallback error:', err.stack || err.message || err);
+        if (!session && isAdminOrSuperAdmin(currentUser)) {
+            const matched = readAllStoredLiveSessions().find(s => s.rawSessionId === sessionId || s.id === sessionId);
+            if (matched) {
+                session = matched;
+                ownerUserId = matched.ownerUserId;
+                isAdminVisible = true;
+            }
         }
-        // Không return null ngay — tiếp tục thử admin fallback bên dưới
     }
 
-    // Admin can search all sessions
-    if (isAdminOrSuperAdmin(currentUser)) {
-        const matched = readAllStoredLiveSessions().find(session => session.rawSessionId === sessionId || session.id === sessionId);
-        return matched ? formatVisibleLiveSession(matched, currentUser, true) : null;
+    if (!session) return null;
+
+    // Ghi đè summary và orders realtime từ RAM nếu là active session
+    const runtime = getLiveRuntime(ownerUserId);
+    if (runtime && runtime.currentDbSessionId === session.id) {
+        const rtData = getActiveSessionRealtimeData(runtime);
+        if (rtData) {
+            session.summary = rtData.summary;
+            session.orders = rtData.orders;
+        }
     }
-    return null;
+
+    return formatVisibleLiveSession({
+        ...session,
+        ownerUserId,
+        rawSessionId: session.id
+    }, currentUser, isAdminVisible || isAdminOrSuperAdmin(currentUser));
 }
 
 function deleteVisibleStoredLiveSession(currentUser, sessionId) {
@@ -473,7 +517,21 @@ app.post('/api/live-sessions/merged', requireApiAuth, (req, res) => {
             summary: result.summary
         });
 
-        console.log(`>>> Đã lưu phiên gộp "${newSession.liveName}" cho user ${user.uid} (${newSession.summary.totalOrders} đơn)`);
+        // ── DỌN DẸP PHIÊN NGUỒN SAU KHI GỘP THÀNH CÔNG ───────────────────────
+        for (const sid of sessionIds) {
+            try {
+                if (String(sid || '').startsWith('legacy:')) {
+                    deleteLegacyHistorySession(user.uid, sid, { includeSharedLegacy, includeAllUserLegacy });
+                } else {
+                    deleteVisibleStoredLiveSession(user, sid);
+                }
+                console.log(`>>> [Merge Cleanup] Đã xóa phiên nguồn ${sid} thành công`);
+            } catch (err) {
+                console.warn(`>>> [Merge Cleanup Warning] Lỗi khi xóa phiên nguồn ${sid}:`, err.message);
+            }
+        }
+
+        console.log(`>>> Đã lưu phiên gộp "${newSession.liveName}" cho user ${user.uid} (${newSession.summary.totalOrders} đơn) và dọn dẹp các phiên nguồn.`);
         res.json({ success: true, session: newSession });
     } catch (error) {
         console.error('Lỗi lưu phiên gộp:', error);
@@ -568,6 +626,26 @@ app.delete('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
     }
 });
 
+// PATCH /api/live-sessions/:sessionId/name — Đổi tên phiên live
+app.patch('/api/live-sessions/:sessionId/name', requireApiAuth, (req, res) => {
+    try {
+        const user = req.session.user;
+        const { newName } = req.body;
+        if (!newName || !newName.trim()) {
+            return res.status(400).json({ error: 'Tên phiên không được để trống' });
+        }
+        const success = liveSessionStore.renameLiveSession(user.uid, req.params.sessionId, newName.trim());
+        if (!success) {
+            return res.status(404).json({ error: 'Không tìm thấy phiên live hoặc không có quyền đổi tên' });
+        }
+        console.log(`>>> Đã đổi tên phiên live ${req.params.sessionId} thành "${newName.trim()}" bởi user ${user.uid}`);
+        res.json({ success: true, liveName: newName.trim() });
+    } catch (error) {
+        console.error('Lỗi đổi tên phiên live:', error);
+        res.status(500).json({ error: 'Lỗi server' });
+    }
+});
+
 // POST /api/live-sessions/merge-summary — Gộp nhiều phiên
 //
 // MANUAL TEST CASE (Step 5 — Bug fix verification):
@@ -658,6 +736,17 @@ app.get('/api/customers', requireApiAuth, (req, res) => {
     } catch (error) {
         console.error('Lỗi lấy danh sách khách hàng:', error);
         res.status(500).json({ error: 'Lỗi server khi tải khách hàng' });
+    }
+});
+
+app.get('/api/customers/audit', requireApiAuth, (req, res) => {
+    try {
+        const userId = req.session.user.uid;
+        const auditReport = customerAuditor.auditUserCustomers(userId);
+        res.json(auditReport);
+    } catch (error) {
+        console.error('Lỗi chạy audit khách hàng:', error);
+        res.status(500).json({ error: 'Lỗi server khi chạy audit dữ liệu khách hàng' });
     }
 });
 
@@ -767,16 +856,26 @@ app.post('/api/customers', requireApiAuth, (req, res) => {
     try {
         const userId = req.session.user.uid;
         if (!String(req.body?.displayName || '').trim()) {
-            return res.status(400).json({ error: 'Tên người nhận là bắt buộc' });
+            return res.status(400).json({ error: 'Tên người nhận là bắt buộc.' });
         }
 
         const customer = customerStore.createCustomer(userId, req.body || {});
         const warnings = [];
         if (!String(customer.phone || '').trim()) {
-            warnings.push('Khách hàng chưa có số điện thoại');
+            warnings.push('Chưa nhập số điện thoại khách hàng');
         }
+        if (!String(customer.tiktokUsername || '').trim()) {
+            warnings.push('Chưa cấu hình tài khoản TikTok username');
+        }
+        if (!customer.addressDetail || !customer.ward || !customer.district || !customer.province) {
+            warnings.push('Địa chỉ khách hàng chưa đầy đủ');
+        }
+
         res.status(201).json({ success: true, customer, warnings });
     } catch (error) {
+        if (error.message && (error.message.includes('bắt buộc') || error.message.includes('đã tồn tại') || error.message.includes('được sử dụng') || error.message.includes('không hợp lệ'))) {
+            return res.status(400).json({ error: error.message });
+        }
         console.error('Lỗi tạo khách hàng:', error);
         res.status(500).json({ error: 'Lỗi server khi tạo khách hàng' });
     }
@@ -791,10 +890,20 @@ app.patch('/api/customers/:id', requireApiAuth, (req, res) => {
         }
         const warnings = [];
         if (!String(customer.phone || '').trim()) {
-            warnings.push('Khách hàng chưa có số điện thoại');
+            warnings.push('Chưa nhập số điện thoại khách hàng');
         }
+        if (!String(customer.tiktokUsername || '').trim()) {
+            warnings.push('Chưa cấu hình tài khoản TikTok username');
+        }
+        if (!customer.addressDetail || !customer.ward || !customer.district || !customer.province) {
+            warnings.push('Địa chỉ khách hàng chưa đầy đủ');
+        }
+
         res.json({ success: true, customer, warnings });
     } catch (error) {
+        if (error.message && (error.message.includes('bắt buộc') || error.message.includes('đã tồn tại') || error.message.includes('được sử dụng') || error.message.includes('không hợp lệ'))) {
+            return res.status(400).json({ error: error.message });
+        }
         console.error('Lỗi cập nhật khách hàng:', error);
         res.status(500).json({ error: 'Lỗi server khi cập nhật khách hàng' });
     }
@@ -1049,49 +1158,149 @@ function saveSessionDataForUser(userId) {
     fs.writeFileSync(fileName, JSON.stringify(runtime.confirmedOrders, null, 2));
 }
 
-function internalSaveLiveSession(userId, runtime) {
+/**
+ * Tạo session record trong DB ngay khi live bắt đầu.
+ * Gọi 1 lần duy nhất khi TikTok connect thành công.
+ */
+function initLiveSession(userId, runtime, broadcasterId) {
+    if (!broadcasterId) return null;
     const now = new Date();
-    const broadcasterId = runtime.currentBroadcasterId;
-    if (!broadcasterId) return;
-
-    // Chuyển đổi confirmedOrders sang format orders[]
-    const orders = Object.values(runtime.confirmedOrders || {}).flatMap(customer =>
-        (customer.items || []).map(item => ({
-            id: `order_${item.id || Date.now() + '_' + Math.random().toString(36).slice(2, 8)}`,
-            customerName: customer.nickname || customer.username,
-            customerUsername: customer.username,
-            profilePictureUrl: customer.profilePictureUrl || '',
-            productName: item.text || '',
-            quantity: 1,
-            price: item.price || 0,
-            total: item.price || 0,
-            note: '',
-            time: item.time || '',
-            createdAt: now.toISOString()
-        }))
-    );
-
-    if (orders.length === 0) return;
-
-    const liveName = `Live @${broadcasterId} ${now.toLocaleDateString('vi-VN')} (tự động)`;
+    // Tên rõ ràng theo giờ bắt đầu, không có chữ "tự động"
+    const liveName = `Live @${broadcasterId} ${now.toLocaleString('vi-VN', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+    }).replace(',', '')}`;
     const sessionData = {
-        id: `session_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
         userId,
         liveName,
         tiktokUsername: broadcasterId,
         startedAt: runtime.sessionStartedAt || now.toISOString(),
         endedAt: now.toISOString(),
-        createdAt: now.toISOString(),
-        orders,
-        summary: {
-            totalOrders: orders.length,
-            totalQuantity: orders.length,
-            totalRevenue: orders.reduce((s, o) => s + (o.price || 0), 0)
-        }
+        orders: [],
+        summary: { totalOrders: 0, totalQuantity: 0, totalRevenue: 0 }
     };
+    try {
+        const session = liveSessionStore.createLiveSession(userId, sessionData);
+        runtime.currentDbSessionId = session?.id;
+        console.log(`>>> initLiveSession: đã tạo session [${session?.id}] cho user ${userId}: ${liveName}`);
+        return session;
+    } catch (err) {
+        console.error('>>> [ERROR] initLiveSession failed:', err.message);
+        return null;
+    }
+}
 
-    liveSessionStore.createLiveSession(userId, sessionData);
-    console.log(`>>> Auto-saved live session for user ${userId}: ${liveName}`);
+/**
+ * Cập nhật session trong DB với dữ liệu đơn hiện tại.
+ * Gọi theo debounce sau mỗi mutation (confirm/delete/edit)
+ * và một lần cuối khi session kết thúc.
+ */
+function flushSessionToDb(userId, runtime) {
+    const sessionId = runtime.currentDbSessionId;
+    if (!sessionId || !userId) return;
+    const now = new Date();
+    const orders = Object.values(runtime.confirmedOrders || {}).flatMap(customer =>
+        (customer.items || []).map(item => ({
+            customerName: customer.nickname || customer.username,
+            customerUsername: customer.username,
+            profilePictureUrl: customer.profilePictureUrl || '',
+            productName: item.text || '',
+            quantity: 1,
+            price: Number(item.price || 0),
+            total: Number(item.price || 0),
+            time: item.time || '',
+            createdAt: item.createdAt || now.toISOString()
+        }))
+    );
+    // Nếu không có đơn nào thì xóa phiên rỗng, tránh rác trong danh sách lịch sử
+    if (orders.length === 0) {
+        try {
+            liveSessionStore.deleteLiveSession(userId, sessionId);
+            console.log(`>>> flushSessionToDb: xóa phiên rỗng [${sessionId}] vì không có đơn nào.`);
+        } catch (err) {
+            console.warn(`>>> flushSessionToDb: không xóa được phiên rỗng [${sessionId}]:`, err.message);
+        }
+        runtime.currentDbSessionId = null;
+        return;
+    }
+
+    try {
+        liveSessionStore.updateLiveSession(userId, sessionId, {
+            orders,
+            summary: {
+                totalOrders: orders.length,
+                totalQuantity: orders.length,
+                totalRevenue: orders.reduce((s, o) => s + o.price, 0)
+            }
+        });
+    } catch (err) {
+        console.error(`>>> [ERROR] flushSessionToDb failed for session ${sessionId}:`, err.message);
+    }
+}
+
+/**
+ * Sync confirmedOrders về session gốc sau mỗi thao tác thêm/sửa/xóa.
+ * Hỗ trợ cả DB sessions (session_xxx) và legacy JSON file sessions (legacy:xxx).
+ */
+function syncSessionOrders(userId, sessionId, confirmedOrders) {
+    if (!sessionId || !userId) return;
+
+    // ── Legacy session: ghi thẳng vào JSON file ──────────────────────────────
+    if (sessionId.startsWith('legacy:')) {
+        try {
+            const ref = parseLegacySessionRef(sessionId);
+            const safeFileName = safeLegacyHistoryFileName(ref.fileName);
+            if (!safeFileName) return;
+
+            let historyDir;
+            if (ref.scope === 'shared') {
+                historyDir = HISTORY_ROOT_DIR;
+            } else {
+                const ownerUid = ref.ownerUserId || userId;
+                historyDir = path.join(HISTORY_ROOT_DIR, safeStorageId(ownerUid));
+            }
+            const filePath = path.join(historyDir, safeFileName);
+            if (!fs.existsSync(filePath)) {
+                console.warn(`>>> syncSessionOrders: legacy file không tồn tại: ${filePath}`);
+                return;
+            }
+            // Ghi lại confirmedOrders (dạng { username: { items, total, ... } })
+            fs.writeFileSync(filePath, JSON.stringify(sanitizeConfirmedOrders(confirmedOrders), null, 2));
+            const totalItems = Object.values(confirmedOrders).reduce((s, c) => s + (c.items?.length || 0), 0);
+            console.log(`>>> syncSessionOrders [legacy]: đã lưu ${totalItems} orders vào ${safeFileName}`);
+        } catch (err) {
+            console.error(`>>> [ERROR] syncSessionOrders legacy failed for ${sessionId}:`, err.message);
+        }
+        return;
+    }
+
+    // ── DB session: cập nhật qua liveSessionStore ─────────────────────────────
+    const orders = Object.values(confirmedOrders || {}).flatMap(customer =>
+        (customer.items || []).map(item => ({
+            customerName: customer.nickname || customer.username,
+            customerUsername: customer.username,
+            profilePictureUrl: customer.profilePictureUrl || '',
+            productName: item.text || '',
+            quantity: 1,
+            price: Number(item.price || 0),
+            total: Number(item.price || 0),
+            time: item.time || '',
+            createdAt: item.createdAt || new Date().toISOString()
+        }))
+    );
+    try {
+        liveSessionStore.updateLiveSession(userId, sessionId, {
+            orders,
+            summary: {
+                totalOrders: orders.length,
+                totalQuantity: orders.length,
+                totalRevenue: orders.reduce((s, o) => s + o.price, 0)
+            }
+        });
+        console.log(`>>> syncSessionOrders [db]: đã lưu ${orders.length} orders vào session ${sessionId}`);
+    } catch (err) {
+        console.error(`>>> [ERROR] syncSessionOrders failed for session ${sessionId}:`, err.message);
+    }
 }
 
 if (fs.existsSync(CONFIG_FILE)) {
@@ -2166,7 +2375,91 @@ function buildOverviewDataset(currentUser, range) {
         .sort((a, b) => b.qty - a.qty)
         .slice(0, 5);
 
+    // Calculate New vs Returning customers
+    const db = getDb();
+    const firstOrders = db.prepare(`
+        SELECT customer_username, MIN(created_at) as first_order
+        FROM orders
+        WHERE user_id = ? AND customer_username != ''
+        GROUP BY customer_username
+    `).all(currentUser.uid);
+
+    const customerFirstOrderMap = new Map();
+    firstOrders.forEach(row => {
+        const normUser = customerStore.normalizeTikTokUsername(row.customer_username);
+        if (normUser && row.first_order) {
+            let dateStr = '';
+            try {
+                const d = new Date(row.first_order);
+                if (!isNaN(d.getTime())) {
+                    dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+                } else {
+                    dateStr = String(row.first_order).split(/[T ]/)[0];
+                }
+            } catch (e) {
+                dateStr = String(row.first_order).split(/[T ]/)[0];
+            }
+            if (dateStr) {
+                if (!customerFirstOrderMap.has(normUser) || dateStr < customerFirstOrderMap.get(normUser)) {
+                    customerFirstOrderMap.set(normUser, dateStr);
+                }
+            }
+        }
+    });
+
+    let newCount = 0;
+    let newRevenue = 0;
+    let returningCount = 0;
+    let returningRevenue = 0;
+
+    const uniqueCustomersInPeriod = new Set();
+    rows.forEach(row => {
+        const normUser = customerStore.normalizeTikTokUsername(row.customerUsername || row.customer);
+        if (!normUser) return;
+        uniqueCustomersInPeriod.add(normUser);
+    });
+
+    const periodCustomersMap = {};
+    rows.forEach(row => {
+        const normUser = customerStore.normalizeTikTokUsername(row.customerUsername || row.customer);
+        if (!normUser) return;
+        periodCustomersMap[normUser] = (periodCustomersMap[normUser] || 0) + Number(row.value || 0);
+    });
+
+    uniqueCustomersInPeriod.forEach(username => {
+        const firstDate = customerFirstOrderMap.get(username);
+        const revenue = periodCustomersMap[username] || 0;
+        
+        // If they had an order before the start of the current period, they are returning
+        if (firstDate && firstDate < range.start) {
+            returningCount++;
+            returningRevenue += revenue;
+        } else {
+            newCount++;
+            newRevenue += revenue;
+        }
+    });
+
+    const totalCustomers = uniqueCustomersInPeriod.size;
+    const newPct = totalCustomers > 0 ? Math.round((newCount / totalCustomers) * 100) : 0;
+    const returningPct = totalCustomers > 0 ? Math.round((returningCount / totalCustomers) * 100) : 0;
+
+    const customerRetention = {
+        newCustomers: {
+            count: newCount,
+            revenue: newRevenue,
+            percentage: newPct
+        },
+        returningCustomers: {
+            count: returningCount,
+            revenue: returningRevenue,
+            percentage: returningPct
+        },
+        totalCustomers
+    };
+
     return {
+        customerRetention,
         summary: {
             orders: totalOrders,
             revenue: totalRevenue,
@@ -2180,7 +2473,7 @@ function buildOverviewDataset(currentUser, range) {
         hourly,
         topShops: Object.values(topCustomerMap)
             .sort((a, b) => b.revenue - a.revenue)
-            .slice(0, 5),
+            .slice(0, 8),
         latestOrders: rows
             .slice()
             .sort((a, b) => b.timestamp - a.timestamp)
@@ -2409,6 +2702,8 @@ const liveContext = {
     printerInterface,
     tiktokSignApiKey,
     generateSessionId,
-    internalSaveLiveSession
+    initLiveSession,
+    flushSessionToDb,
+    syncSessionOrders
 };
 setupLiveHandler(io, liveContext);

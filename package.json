@@ -5,7 +5,8 @@
   "scripts": {
     "start": "node server.js",
     "set-super-admin": "node scripts/setSuperAdmin.js",
-    "test": "node -e \"const http = require('http'); http.get('http://localhost:3000/app', (res) => { console.log('HTTP verification status:', res.statusCode); process.exit(res.statusCode === 302 || res.statusCode === 200 ? 0 : 1); }).on('error', (e) => { console.error(e); process.exit(1); })\""
+    "test": "npm run test:audit",
+    "test:audit": "node tests/customer-auditor.test.js"
   },
   "keywords": [],
   "author": "",

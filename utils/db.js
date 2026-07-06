@@ -84,6 +84,7 @@ function initTables() {
         CREATE INDEX IF NOT EXISTS idx_orders_session ON orders(session_id);
         CREATE INDEX IF NOT EXISTS idx_orders_user ON orders(user_id);
         CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders(user_id, customer_username);
+        CREATE INDEX IF NOT EXISTS idx_orders_customer_created ON orders(user_id, customer_username, created_at);
 
         CREATE TABLE IF NOT EXISTS debts (
             id TEXT PRIMARY KEY,
@@ -316,8 +317,22 @@ function migrateFromJson() {
                     const data = JSON.parse(fs.readFileSync(path.join(customerDir, file), 'utf-8'));
                     const customers = Array.isArray(data?.customers) ? data.customers : [];
                     for (const c of customers) {
-                        const exists = getDb().prepare('SELECT id FROM customers WHERE id = ?').get(c.id);
-                        if (exists) continue;
+                        const exists = getDb().prepare('SELECT id, phone, address_detail FROM customers WHERE id = ?').get(c.id);
+                        if (exists) {
+                            // Nếu trong DB chưa có SĐT/địa chỉ nhưng trong file JSON có thì cập nhật bổ sung
+                            const hasNewPhone = !exists.phone && c.phone;
+                            const hasNewAddress = !exists.address_detail && c.addressDetail;
+                            if (hasNewPhone || hasNewAddress) {
+                                getDb().prepare(`
+                                    UPDATE customers
+                                    SET phone = CASE WHEN phone = '' OR phone IS NULL THEN ? ELSE phone END,
+                                        address_detail = CASE WHEN address_detail = '' OR address_detail IS NULL THEN ? ELSE address_detail END,
+                                        updated_at = ?
+                                    WHERE id = ?
+                                `).run(c.phone || '', c.addressDetail || '', new Date().toISOString(), c.id);
+                            }
+                            continue;
+                        }
                         getDb().prepare(`
                             INSERT OR IGNORE INTO customers (id, user_id, tiktok_username, display_name, phone, province, district, ward, address_detail, address_note, postal_code, customer_code, delivery_note, default_weight_kg, allow_try_on, view_only_no_try, partial_delivery, created_at, updated_at)
                             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)

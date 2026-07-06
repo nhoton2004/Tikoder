@@ -291,10 +291,94 @@ function getUserSessionFile(userId) {
     return '';
 }
 
+/**
+ * Cập nhật session đã có: xóa orders cũ và insert lại orders mới.
+ * Dùng cho sync sau mỗi thao tác thêm/sửa/xóa khi user đang chỉnh sửa session lịch sử.
+ */
+function updateLiveSession(userId, sessionId, patch) {
+    const db = getDb();
+    const existing = db.prepare('SELECT id FROM live_sessions WHERE id = ? AND user_id = ?').get(sessionId, userId);
+    if (!existing) throw new Error(`Session ${sessionId} không tồn tại hoặc không thuộc user ${userId}`);
+
+    let orders = patch.orders;
+    if (!orders) {
+        // Không cập nhật orders nếu không truyền vào
+        if (patch.summary) {
+            db.prepare('UPDATE live_sessions SET summary = ? WHERE id = ? AND user_id = ?')
+                .run(JSON.stringify(patch.summary), sessionId, userId);
+        }
+        return getLiveSessionById(userId, sessionId);
+    }
+
+    if (!Array.isArray(orders)) {
+        orders = flattenConfirmedOrders(orders);
+    }
+
+    const now = new Date().toISOString();
+    const calculatedSummary = calculateSessionSummary(orders);
+    const summary = patch.summary
+        ? { ...patch.summary, ...calculatedSummary }
+        : calculatedSummary;
+
+    const orderStmt = db.prepare(`
+        INSERT INTO orders (id, session_id, user_id, customer_name, customer_username, profile_picture_url, product_name, quantity, price, total, note, item_time, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+
+    db.transaction(() => {
+        // Xóa orders cũ của session này
+        db.prepare('DELETE FROM orders WHERE session_id = ?').run(sessionId);
+        // Insert orders mới
+        for (const o of orders) {
+            const newOrderId = `order_${sessionId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+            orderStmt.run(
+                newOrderId, sessionId, userId,
+                o.customerName || '', o.customerUsername || '',
+                o.profilePictureUrl || '', o.productName || '',
+                o.quantity || 1, o.price || 0, o.total || o.price || 0,
+                o.note || '', o.time || '', o.createdAt || now
+            );
+        }
+        // Cập nhật summary
+        db.prepare('UPDATE live_sessions SET summary = ?, ended_at = ? WHERE id = ? AND user_id = ?')
+            .run(JSON.stringify(summary), now, sessionId, userId);
+    })();
+
+    return getLiveSessionById(userId, sessionId);
+}
+
+/**
+ * Upsert session: nếu sessionId đã tồn tại thì update, không thì create mới.
+ * Trả về { session, isNew }
+ */
+function upsertLiveSession(userId, sessionId, data) {
+    const db = getDb();
+    const existing = sessionId
+        ? db.prepare('SELECT id FROM live_sessions WHERE id = ? AND user_id = ?').get(sessionId, userId)
+        : null;
+
+    if (existing) {
+        const session = updateLiveSession(userId, sessionId, data);
+        return { session, isNew: false };
+    }
+    const session = createLiveSession(userId, data);
+    return { session, isNew: true };
+}
+
+function renameLiveSession(userId, sessionId, newName) {
+    const db = getDb();
+    const result = db.prepare(
+        'UPDATE live_sessions SET live_name = ? WHERE id = ? AND user_id = ?'
+    ).run(newName, sessionId, userId);
+    return result.changes > 0;
+}
+
 module.exports = {
     readUserSessions,
     writeUserSessions,
     createLiveSession,
+    updateLiveSession,
+    upsertLiveSession,
     getLiveSessionById,
     deleteLiveSession,
     mergeLiveSessions,
@@ -303,5 +387,7 @@ module.exports = {
     flattenConfirmedOrders,
     getUserSessionFile,
     rowToSession,
-    rowToOrder
+    rowToOrder,
+    renameLiveSession
 };
+

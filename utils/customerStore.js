@@ -38,6 +38,29 @@ function normalizeTikTokUsername(username) {
     return normalizeDisplayText(username).replace(/^@+/, '').replace(/\s+/g, '').toLowerCase();
 }
 
+function normalizePhone(phone) {
+    if (!phone) return '';
+    let cleaned = String(phone).trim().replace(/[\s\.\-\(\)]/g, '');
+    if (cleaned.startsWith('+84')) {
+        cleaned = '0' + cleaned.slice(3);
+    } else if (cleaned.startsWith('84') && cleaned.length > 9) {
+        cleaned = '0' + cleaned.slice(2);
+    }
+    return cleaned.replace(/[^\d\+]/g, '');
+}
+
+function findCustomerByPhone(userId, phone) {
+    const normalized = normalizePhone(phone);
+    if (!normalized) return null;
+    return rowToCustomer(getDb().prepare('SELECT * FROM customers WHERE user_id = ? AND phone = ?').get(userId, normalized));
+}
+
+function findCustomerByCode(userId, code) {
+    const normalized = normalizeDisplayText(code);
+    if (!normalized) return null;
+    return rowToCustomer(getDb().prepare('SELECT * FROM customers WHERE user_id = ? AND customer_code = ?').get(userId, normalized));
+}
+
 function listCustomers(userId, query = '') {
     const q = normalizeTextForDisplay(query).toLowerCase();
     if (!q) {
@@ -96,6 +119,8 @@ function pickCustomerFields(data) {
                 result[field] = cleanDisplayText(data[field]);
             } else if (field === 'tiktokUsername') {
                 result[field] = normalizeTikTokUsername(data[field]);
+            } else if (field === 'phone') {
+                result[field] = normalizePhone(data[field]);
             } else {
                 result[field] = typeof data[field] === 'string' ? normalizeDisplayText(data[field]) : data[field];
             }
@@ -109,6 +134,32 @@ function createCustomer(userId, data = {}) {
     const now = new Date().toISOString();
     const id = `customer_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const fields = pickCustomerFields(data);
+
+    if (!fields.displayName) {
+        throw new Error('Tên người nhận là bắt buộc.');
+    }
+    if (fields.tiktokUsername) {
+        const existing = findCustomerByTikTok(userId, fields.tiktokUsername);
+        if (existing) {
+            throw new Error(`Tài khoản TikTok @${fields.tiktokUsername} đã tồn tại trên hệ thống.`);
+        }
+    }
+    if (fields.phone) {
+        if (fields.phone.length < 9 || fields.phone.length > 13 || /[^\d\+]/.test(fields.phone)) {
+            throw new Error(`Số điện thoại không hợp lệ (phải có từ 9 đến 13 số).`);
+        }
+        const existing = findCustomerByPhone(userId, fields.phone);
+        if (existing) {
+            throw new Error(`Số điện thoại ${fields.phone} đã tồn tại cho khách hàng "${existing.displayName}".`);
+        }
+    }
+    if (fields.customerCode) {
+        const existing = findCustomerByCode(userId, fields.customerCode);
+        if (existing) {
+            throw new Error(`Mã khách hàng ${fields.customerCode} đã được sử dụng.`);
+        }
+    }
+
     db.prepare(`
         INSERT INTO customers (id, user_id, tiktok_username, display_name, phone, province, district, ward, address_detail, address_note, postal_code, customer_code, delivery_note, default_weight_kg, allow_try_on, view_only_no_try, partial_delivery, created_at, updated_at)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
@@ -125,11 +176,37 @@ function createCustomer(userId, data = {}) {
 }
 
 function updateCustomer(userId, customerId, patch = {}) {
-    const existing = getDb().prepare('SELECT id FROM customers WHERE id = ? AND user_id = ?').get(customerId, userId);
-    if (!existing) return null;
+    const existingCust = getDb().prepare('SELECT id FROM customers WHERE id = ? AND user_id = ?').get(customerId, userId);
+    if (!existingCust) return null;
 
     const now = new Date().toISOString();
     const fields = pickCustomerFields(patch);
+
+    if (fields.displayName !== undefined && !fields.displayName) {
+        throw new Error('Tên người nhận là bắt buộc.');
+    }
+    if (fields.tiktokUsername) {
+        const existing = findCustomerByTikTok(userId, fields.tiktokUsername);
+        if (existing && existing.id !== customerId) {
+            throw new Error(`Tài khoản TikTok @${fields.tiktokUsername} đã tồn tại trên hệ thống.`);
+        }
+    }
+    if (fields.phone) {
+        if (fields.phone.length < 9 || fields.phone.length > 13 || /[^\d\+]/.test(fields.phone)) {
+            throw new Error(`Số điện thoại không hợp lệ (phải có từ 9 đến 13 số).`);
+        }
+        const existing = findCustomerByPhone(userId, fields.phone);
+        if (existing && existing.id !== customerId) {
+            throw new Error(`Số điện thoại ${fields.phone} đã tồn tại cho khách hàng "${existing.displayName}".`);
+        }
+    }
+    if (fields.customerCode) {
+        const existing = findCustomerByCode(userId, fields.customerCode);
+        if (existing && existing.id !== customerId) {
+            throw new Error(`Mã khách hàng ${fields.customerCode} đã được sử dụng.`);
+        }
+    }
+
     const setClauses = ['updated_at = ?'];
     const values = [now];
     for (const [snake, camel] of Object.entries(SNAKE_TO_CAMEL)) {
@@ -154,9 +231,12 @@ module.exports = {
     listCustomers,
     getCustomerById,
     findCustomerByTikTok,
+    findCustomerByPhone,
+    findCustomerByCode,
     createCustomer,
     updateCustomer,
     deleteCustomer,
     normalizeTikTokUsername,
+    normalizePhone,
     getUserCustomerFile: () => ''
 };
