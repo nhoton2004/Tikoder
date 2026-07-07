@@ -241,6 +241,9 @@
                         <div class="live-connect-bar">
                             <span class="live-status-chip"><span></span> TikTok Live</span>
                             <div class="live-quick-actions" style="margin-left: auto;">
+                                <button type="button" id="btn-connect" class="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1">
+                                    ⚡ Kết nối
+                                </button>
                                 <button type="button" class="live-orders-toggle" data-live-orders-toggle aria-expanded="true" onclick="toggleLiveOrdersPanel()">
                                     <span class="material-symbols-outlined">keyboard_double_arrow_right</span>
                                     <span data-live-orders-toggle-label>Thu gọn</span>
@@ -1020,6 +1023,31 @@
             <div class="px-5 pb-5 flex gap-2">
                 <button onclick="confirmEditItem()" class="flex-1 bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold hover:bg-slate-700 transition-colors">Lưu thay đổi</button>
                 <button onclick="closeEditItemModal()" class="px-4 py-2 border border-gray-300 rounded-xl text-sm font-bold hover:bg-gray-50 transition-colors">Hủy</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Modal chọn phiên live để ghi nhận đơn -->
+    <div id="select-session-modal" class="fixed inset-0 bg-black bg-opacity-50 z-[90] hidden flex items-center justify-center p-4 no-print">
+        <div class="bg-white rounded-xl shadow-2xl w-full max-w-2xl max-h-[80vh] flex flex-col">
+            <div class="p-4 border-b flex justify-between items-center bg-purple-50 rounded-t-xl">
+                <h3 class="font-bold text-lg text-purple-800 flex items-center gap-2">
+                    <span>⚡</span>
+                    <span>Chọn phiên lưu đơn Live</span>
+                </h3>
+                <div class="flex items-center gap-3">
+                    <p class="text-xs text-gray-500">Chọn một phiên cũ để chốt đơn tiếp, hoặc tạo phiên mới:</p>
+                    <button id="btn-select-session-cancel" class="text-gray-500 hover:text-black text-xl">✕</button>
+                </div>
+            </div>
+            <!-- Danh sách phiên gần đây -->
+            <div id="select-session-list" class="overflow-y-auto p-4 space-y-2 flex-1">
+                <!-- Render động bằng JS -->
+            </div>
+            <div class="p-4 border-t bg-gray-50 rounded-b-xl">
+                <button id="btn-select-session-new" class="w-full px-4 py-2.5 bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-sm font-bold transition-colors">
+                    ➕ Tạo phiên mới hoàn toàn
+                </button>
             </div>
         </div>
     </div>
