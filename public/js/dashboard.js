@@ -657,16 +657,22 @@
             const total = Number(order.total || items.reduce((sum, item) => sum + Number(item.price || 0), 0));
             const avatarSrc = isAvatarUrl(order.profilePictureUrl) ? order.profilePictureUrl : buildInitialAvatarDataUri(customerLabel);
             const itemRows = items.map(item => buildItemRowHtml(item, usernameArg)).join('');
+            const isChecked = (window.selectedOrderUsernames && window.selectedOrderUsernames.has(username)) ? 'checked' : '';
 
             return `
                 <article class="live-order-card" data-username="${escapeHtml(username)}">
                     <div class="live-order-card-head">
-                        <img src="${escapeHtml(avatarSrc)}" alt="">
-                        <div>
-                            <h4>${escapeHtml(customerName)}</h4>
-                            <p>${escapeHtml(handle || username)}</p>
+                        <div class="flex items-center gap-2 mr-1">
+                            <input type="checkbox" class="order-select-checkbox rounded border-gray-300 dark:border-zinc-700 text-red-600 focus:ring-red-500 cursor-pointer" 
+                                   data-username="${escapeHtml(username)}" ${isChecked} 
+                                   onclick="toggleOrderSelect(event, ${usernameArg})">
                         </div>
-                        <div class="live-order-card-actions">
+                        <img src="${escapeHtml(avatarSrc)}" alt="">
+                        <div class="min-w-0 flex-1">
+                            <h4 class="truncate">${escapeHtml(customerName)}</h4>
+                            <p class="truncate">${escapeHtml(handle || username)}</p>
+                        </div>
+                        <div class="live-order-card-actions shrink-0">
                             <button type="button" class="icon-btn add" title="Thêm bình luận" onclick="addOrderItem(${usernameArg})"><span class="material-symbols-outlined">add</span></button>
                             <button type="button" class="icon-btn danger" title="Xóa khách" onclick="deleteCustomer(${usernameArg})"><span class="material-symbols-outlined">close</span></button>
                         </div>
@@ -778,6 +784,9 @@
                 empty.classList.add('hidden');
             }
             grid.innerHTML = orders.map(order => buildOrderCardHtml(order)).join('');
+            if (typeof window.updateSelectAllCheckboxState === 'function') {
+                window.updateSelectAllCheckboxState();
+            }
         }
 
         // ─── Bước 1 (Live): renderLiveCurrentOrders ─
@@ -809,6 +818,9 @@
                 empty.classList.add('hidden');
             }
             grid.innerHTML = orders.map(order => buildOrderCardHtml(order)).join('');
+            if (typeof window.updateSelectAllCheckboxState === 'function') {
+                window.updateSelectAllCheckboxState();
+            }
             updateLiveOrdersToggleLabel();
         }
 
@@ -1474,6 +1486,12 @@
             if (view === 'settings') {
                 // Đợi DOM hiển thị xong rồi load settings UI
                 setTimeout(() => loadSettingsUI(), 50);
+            }
+            if (typeof window.updateSelectAllCheckboxState === 'function') {
+                window.updateSelectAllCheckboxState();
+            }
+            if (typeof window.updateBatchActionBar === 'function') {
+                window.updateBatchActionBar();
             }
         }
         window.switchView = switchView;
@@ -2803,10 +2821,105 @@
             closeCustomerDetail();
         };
 
+        function parseVietnameseAddress(raw) {
+            let text = raw.trim();
+            
+            // 1. Trích xuất Số điện thoại chuẩn xác bằng Regex ranh giới từ \b
+            let phone = '';
+            const phoneMatch = text.match(/\b(?:\+84|84|0)(?:\d[\s.-]?){8,10}\b/);
+            if (phoneMatch) {
+                phone = phoneMatch[0].replace(/[\s.-]/g, '');
+                text = text.replace(phoneMatch[0], '');
+            }
+            
+            // 2. Làm sạch các từ khoá tiền tố nhiễu thường gặp khi copy paste
+            text = text.replace(/(?:sđt|sdt|đt|dt|phone|tel|địa chỉ|dc|d\/c|khách hàng|tên|giao hàng)[:\-\s]*/gi, '');
+            
+            let parts = text.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean);
+            parts = parts.map(p => p.replace(/^[!:\-\s.]+|[!:\-\s.]+$/g, '')).filter(Boolean);
+            
+            if (parts.length === 0) return { phone, province: '', district: '', ward: '', addressDetail: '' };
+            
+            let province = '';
+            let district = '';
+            let ward = '';
+            
+            const provinces = [
+                'hà nội', 'ha noi', 'hồ chí minh', 'ho chi minh', 'hcm', 'tphcm', 'sài gòn', 'sai gon',
+                'hải phòng', 'hai phong', 'đà nẵng', 'da nang', 'cần thơ', 'can tho',
+                'an giang', 'bà rịa - vũng tàu', 'ba ria vung tau', 'vũng tàu', 'vung tau', 'bắc giang', 'bac giang', 'bắc kạn', 'bac kan', 'bạc liêu', 'bac lieu', 'bắc ninh', 'bac ninh', 'bến tre', 'ben tre', 'bình định', 'binh dinh', 'bình dương', 'binh duong', 'bình phước', 'binh phuoc', 'bình thuận', 'binh thuan', 'cà mau', 'ca mau', 'cao bằng', 'cao bang', 'đắk lắk', 'dak lak', 'đắk nông', 'dak nong', 'điện biên', 'dien bien', 'đồng nai', 'dong nai', 'đồng tháp', 'dong thap', 'gia lai', 'hà giang', 'ha giang', 'hà nam', 'ha nam', 'hà tĩnh', 'ha tinh', 'hải dương', 'hai duong', 'hậu giang', 'hau giang', 'hòa bình', 'hoa binh', 'hưng yên', 'hung yen', 'khánh hòa', 'khanh hoa', 'nha trang', 'kiên giang', 'kien giang', 'kon tum', 'lai châu', 'lai chau', 'lâm đồng', 'lam dong', 'đà lạt', 'da lat', 'lạng sơn', 'lang son', 'lào cai', 'lao cai', 'long an', 'nam định', 'nam dinh', 'nghệ an', 'nghe an', 'ninh bình', 'ninh binh', 'ninh thuận', 'ninh thuan', 'phú thọ', 'phu tho', 'phú yên', 'phu yen', 'quảng bình', 'quang binh', 'quảng nam', 'quang nam', 'quảng ngãi', 'quang ngai', 'quảng ninh', 'quang ninh', 'quảng trị', 'quang tri', 'sóc trăng', 'soc trang', 'sơn la', 'son la', 'tây ninh', 'tay ninh', 'thái bình', 'thai binh', 'thái nguyên', 'thai nguyen', 'thanh hóa', 'thanh hoa', 'thừa thiên huế', 'thừa thiên - huế', 'huế', 'hue', 'tiền giang', 'tien giang', 'trà vinh', 'tra vinh', 'tuyên quang', 'tuyen quang', 'vĩnh long', 'vinh long', 'vĩnh phúc', 'vinh phuc', 'yên bái', 'yen bai'
+            ];
+            
+            const normalize = s => s.toLowerCase().normalize('NFC').replace(/\s+/g, ' ').trim();
+            
+            function isWard(s) {
+                const norm = normalize(s);
+                return /(?:^|\s)(phường|phuong|xã|xa|thị trấn|thi tran)(?:\s|$)/i.test(norm) || /^(p|x|tt)\.?\s/i.test(norm);
+            }
+            
+            function isDistrict(s) {
+                const norm = normalize(s);
+                return /(?:^|\s)(quận|quan|huyện|huyen|thị xã|thi xa)(?:\s|$)/i.test(norm) || /^(q|h|tx)\.?\s/i.test(norm);
+            }
+            
+            // Tìm kiếm ngược từ dưới lên
+            if (parts.length > 0) {
+                const lastPart = parts[parts.length - 1];
+                const normalizedLast = normalize(lastPart);
+                
+                // Kiểm tra xem phần tử cuối cùng có chứa tỉnh thành nào không
+                const matchedProvince = provinces.find(p => normalizedLast === p || normalizedLast.endsWith(' ' + p) || normalizedLast.startsWith(p + ' '));
+                if (matchedProvince) {
+                    province = lastPart;
+                    parts.pop();
+                } else {
+                    const provinceKeywords = ['tỉnh', 'tp', 'thành phố', 'city', 'tinh', 'thanh pho', 'hà nội', 'hồ chí minh', 'đà nẵng', 'hải phòng', 'cần thơ', 'ha noi', 'ho chi minh', 'hcm', 'da nang', 'hai phong', 'can tho', 'bình dương', 'đồng nai', 'long an'];
+                    if (provinceKeywords.some(k => normalizedLast.includes(k))) {
+                        province = lastPart;
+                        parts.pop();
+                    }
+                }
+            }
+            
+            // Duyệt ngược các phần tử còn lại (chừa lại index 0 cho addressDetail)
+            while (parts.length > 1) {
+                const currentPart = parts[parts.length - 1];
+                
+                if (isWard(currentPart)) {
+                    if (!ward) {
+                        ward = currentPart;
+                        parts.pop();
+                        continue;
+                    }
+                }
+                
+                if (isDistrict(currentPart)) {
+                    if (!district) {
+                        district = currentPart;
+                        parts.pop();
+                        continue;
+                    }
+                }
+                
+                // Nếu không có keyword rõ ràng
+                if (!district && !ward) {
+                    district = currentPart;
+                    parts.pop();
+                } else if (district && !ward) {
+                    ward = currentPart;
+                    parts.pop();
+                } else {
+                    break;
+                }
+            }
+            
+            const addressDetail = parts.join(', ');
+            return { phone, province, district, ward, addressDetail };
+        }
+
         window.autoFillCustomerForm = async () => {
             const raw = (document.getElementById('customer-auto-input')?.value || '').trim();
             if (!raw) {
-                // Try to read from clipboard if textarea is empty
                 try {
                     const text = await navigator.clipboard.readText();
                     if (text) document.getElementById('customer-auto-input').value = text.trim();
@@ -2814,46 +2927,14 @@
                 return;
             }
 
-            // Normalize: split by comma, newline, or semicolon
-            const parts = raw.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean);
-            if (parts.length === 0) return;
+            const { phone, province, district, ward, addressDetail } = parseVietnameseAddress(raw);
 
-            let phone = '';
-            let province = '';
-            let district = '';
-            let ward = '';
-            let addressParts = [];
-
-            // Phone pattern: 10-11 digits, may start with 0 or +84
-            const phoneRe = /^(\+84|84|0)[0-9]{8,10}$/;
-
-            // Vietnamese address keywords
-            const provinceKws = ['tỉnh', 'tp', 'tp.', 'thành phố', 'city', 'tinh'];
-            const districtKws = ['quận', 'quan', 'huyện', 'huyen', 'q.', 'h.', 'tx', 'thị xã'];
-            const wardKws = ['phường', 'phuong', 'xã', 'xa', 'thị trấn', 'thi tran', 'p.', 'x.'];
-
-            const normalize = s => s.toLowerCase().normalize('NFC');
-
-            parts.forEach(part => {
-                const n = normalize(part);
-                if (phoneRe.test(part.replace(/\s/g, ''))) { phone = part.replace(/\s/g, ''); return; }
-                if (provinceKws.some(k => n.startsWith(k) || n.includes(' ' + k + ' '))) { province = part; return; }
-                if (districtKws.some(k => n.startsWith(k) || n.includes(' ' + k + ' '))) { district = part; return; }
-                if (wardKws.some(k => n.startsWith(k) || n.includes(' ' + k + ' '))) { ward = part; return; }
-                // Everything else → address detail
-                addressParts.push(part);
-            });
-
-            const addressDetail = addressParts.join(', ');
-
-            // Fill into form (không điền tên)
             if (phone) document.getElementById('customer-phone').value = phone;
             if (province) document.getElementById('customer-province').value = province;
             if (district) document.getElementById('customer-district').value = district;
             if (ward) document.getElementById('customer-ward').value = ward;
             if (addressDetail) document.getElementById('customer-address-detail').value = addressDetail;
 
-            // Status feedback
             const status = document.getElementById('customer-form-status');
             if (status) {
                 const filled = [phone && 'SĐT', province && 'Tỉnh', district && 'Huyện', ward && 'Xã/Phường', addressDetail && 'Địa chỉ'].filter(Boolean);
@@ -2960,6 +3041,160 @@
 
 
 
+        // ─── Batch Actions for Orders ──────────────────────────────────────────────
+        window.selectedOrderUsernames = new Set();
+
+        window.toggleOrderSelect = (event, username) => {
+            event.stopPropagation();
+            const norm = normalizeTikTokUsername(username);
+            const chk = event.currentTarget;
+            if (chk.checked) {
+                window.selectedOrderUsernames.add(norm);
+            } else {
+                window.selectedOrderUsernames.delete(norm);
+            }
+            window.updateSelectAllCheckboxState();
+            window.updateBatchActionBar();
+        };
+
+        window.toggleAllOrdersSelect = (event) => {
+            const chk = event.currentTarget;
+            const isManual = (currentView === 'orders' || currentView === 'customers');
+            const gridSelector = isManual ? '#section-current-orders [data-current-orders-grid]' : '#live-current-orders-panel [data-current-orders-grid]';
+            const grid = document.querySelector(gridSelector);
+            if (!grid) return;
+
+            const cards = grid.querySelectorAll('.live-order-card');
+            cards.forEach(card => {
+                const username = card.getAttribute('data-username');
+                if (!username) return;
+                const norm = normalizeTikTokUsername(username);
+                const cardChk = card.querySelector('.order-select-checkbox');
+                if (cardChk) cardChk.checked = chk.checked;
+                
+                if (chk.checked) {
+                    window.selectedOrderUsernames.add(norm);
+                } else {
+                    window.selectedOrderUsernames.delete(norm);
+                }
+            });
+            window.updateBatchActionBar();
+        };
+
+        window.updateSelectAllCheckboxState = () => {
+            const isManual = (currentView === 'orders' || currentView === 'customers');
+            const gridSelector = isManual ? '#section-current-orders [data-current-orders-grid]' : '#live-current-orders-panel [data-current-orders-grid]';
+            const grid = document.querySelector(gridSelector);
+            if (!grid) return;
+
+            const cards = grid.querySelectorAll('.live-order-card');
+            const chkId = isManual ? 'manual-select-all-orders-checkbox' : 'live-select-all-orders-checkbox';
+            const selectAllChk = document.getElementById(chkId);
+            if (!selectAllChk) return;
+
+            if (cards.length === 0) {
+                selectAllChk.checked = false;
+                return;
+            }
+
+            const allChecked = Array.from(cards).every(card => {
+                const username = card.getAttribute('data-username');
+                return username && window.selectedOrderUsernames.has(normalizeTikTokUsername(username));
+            });
+            selectAllChk.checked = allChecked;
+        };
+
+        window.updateBatchActionBar = () => {
+            const bar = document.getElementById('batch-action-bar');
+            const countSpan = document.getElementById('batch-action-count');
+            if (!bar) return;
+
+            const count = window.selectedOrderUsernames.size;
+            if (countSpan) countSpan.textContent = `Đã chọn ${count} đơn`;
+
+            if (count > 0) {
+                bar.classList.remove('translate-y-24', 'opacity-0');
+                bar.classList.add('translate-y-0', 'opacity-100');
+            } else {
+                bar.classList.remove('translate-y-0', 'opacity-100');
+                bar.classList.add('translate-y-24', 'opacity-0');
+            }
+        };
+
+        window.clearAllSelectedOrders = () => {
+            window.selectedOrderUsernames.clear();
+            
+            // Reset all card checkboxes
+            document.querySelectorAll('.order-select-checkbox').forEach(chk => chk.checked = false);
+            
+            // Reset select all checkboxes
+            const liveAll = document.getElementById('live-select-all-orders-checkbox');
+            if (liveAll) liveAll.checked = false;
+            const manualAll = document.getElementById('manual-select-all-orders-checkbox');
+            if (manualAll) manualAll.checked = false;
+
+            window.updateBatchActionBar();
+        };
+
+        window.batchPrintSelectedOrders = () => {
+            const count = window.selectedOrderUsernames.size;
+            if (count === 0) return;
+            const isManual = (currentView === 'orders' || currentView === 'customers');
+
+            window.selectedOrderUsernames.forEach(username => {
+                socket.emit('reprint-total', { username, isManual });
+            });
+
+            showLiveToast(currentLang === 'en' ? `Printing ${count} order summaries...` : `Đang gửi lệnh in ${count} đơn...`, 'success');
+            window.clearAllSelectedOrders();
+        };
+
+        window.batchDeleteSelectedOrders = () => {
+            const count = window.selectedOrderUsernames.size;
+            if (count === 0) return;
+            const isManual = (currentView === 'orders' || currentView === 'customers');
+
+            const msg = currentLang === 'en' 
+                ? `Are you sure you want to delete all ${count} selected orders?` 
+                : `Bạn có chắc chắn muốn xóa toàn bộ ${count} đơn đã chọn?`;
+
+            if (confirm(msg)) {
+                const dataTarget = isManual ? ordersData : liveOrdersData;
+                const gridSelector = isManual ? '#section-current-orders [data-current-orders-grid]' : '#live-current-orders-panel [data-current-orders-grid]';
+                const grid = document.querySelector(gridSelector);
+
+                window.selectedOrderUsernames.forEach(username => {
+                    const norm = normalizeTikTokUsername(username);
+                    delete dataTarget[norm];
+                    if (grid) {
+                        grid.querySelector(`[data-username="${CSS.escape(norm)}"]`)?.remove();
+                    }
+                    socket.emit('delete-customer', { username: norm, isManual });
+                });
+
+                if (grid) {
+                    const panel = grid.closest('[data-current-orders-panel]');
+                    if (panel) {
+                        const empty = panel.querySelector('[data-current-orders-empty]');
+                        const hasCards = grid.querySelector('[data-username]');
+                        if (empty) {
+                            empty.hidden = !!hasCards;
+                            empty.classList.toggle('hidden', !!hasCards);
+                        }
+                    }
+                }
+
+                if (isManual) {
+                    updateManualKpiCounters();
+                } else {
+                    updateLiveKpiCounters();
+                    updateLiveOrdersToggleLabel();
+                }
+
+                showLiveToast(currentLang === 'en' ? `Deleted ${count} orders.` : `Đã xóa ${count} đơn.`, 'success');
+                window.clearAllSelectedOrders();
+            }
+        };
         window.reprintItem = (username, itemId) => {
             const isManual = (currentView === 'orders' || currentView === 'customers');
             socket.emit('reprint-item', { username: normalizeTikTokUsername(username), itemId, isManual });
@@ -4395,7 +4630,7 @@
             if (warningBanner) {
                 if (missingCount > 0) {
                     warningBanner.classList.remove('hidden');
-                    warningBanner.querySelector('b').textContent = `Phát hiện ${missingCount} khách hàng đang chọn thiếu thông tin vận chuyển.`;
+                    warningBanner.querySelector('.font-bold').textContent = `Phát hiện ${missingCount} khách hàng đang chọn thiếu thông tin vận chuyển.`;
                 } else {
                     warningBanner.classList.add('hidden');
                 }
@@ -4522,7 +4757,7 @@
             if (warningBanner) {
                 if (missingCount > 0) {
                     warningBanner.classList.remove('hidden');
-                    warningBanner.querySelector('b').textContent = `Phát hiện ${missingCount} khách hàng đang chọn thiếu thông tin vận chuyển.`;
+                    warningBanner.querySelector('.font-bold').textContent = `Phát hiện ${missingCount} khách hàng đang chọn thiếu thông tin vận chuyển.`;
                 } else {
                     warningBanner.classList.add('hidden');
                 }
@@ -4608,32 +4843,7 @@
                 return;
             }
 
-            const parts = raw.split(/[,;\n]+/).map(s => s.trim()).filter(Boolean);
-            if (parts.length === 0) return;
-
-            let phone = '';
-            let province = '';
-            let district = '';
-            let ward = '';
-            let addressParts = [];
-
-            const phoneRe = /^(\+84|84|0)[0-9]{8,10}$/;
-            const provinceKws = ['tỉnh', 'tp', 'tp.', 'thành phố', 'city', 'tinh'];
-            const districtKws = ['quận', 'quan', 'huyện', 'huyen', 'q.', 'h.', 'tx', 'thị xã'];
-            const wardKws = ['phường', 'phuong', 'xã', 'xa', 'thị trấn', 'thi tran', 'p.', 'x.'];
-
-            const normalize = s => s.toLowerCase().normalize('NFC');
-
-            parts.forEach(part => {
-                const n = normalize(part);
-                if (phoneRe.test(part.replace(/\s/g, ''))) { phone = part.replace(/\s/g, ''); return; }
-                if (provinceKws.some(k => n.startsWith(k) || n.includes(' ' + k + ' '))) { province = part; return; }
-                if (districtKws.some(k => n.startsWith(k) || n.includes(' ' + k + ' '))) { district = part; return; }
-                if (wardKws.some(k => n.startsWith(k) || n.includes(' ' + k + ' '))) { ward = part; return; }
-                addressParts.push(part);
-            });
-
-            const addressDetail = addressParts.join(', ');
+            const { phone, province, district, ward, addressDetail } = parseVietnameseAddress(raw);
 
             if (phone) document.getElementById('delivery-edit-cust-phone').value = phone;
             if (province) document.getElementById('delivery-edit-cust-province').value = province;

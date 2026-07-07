@@ -256,7 +256,10 @@
                         </section>
                         <section id="live-current-orders-panel" class="live-panel live-orders-panel live-current-orders-panel" data-current-orders-panel>
                             <div class="live-panel-head">
-                                <h3 data-i18n="orders.current"><span class="material-symbols-outlined">local_mall</span> Đơn đang chốt</h3>
+                                <div class="flex items-center gap-2">
+                                    <input type="checkbox" id="live-select-all-orders-checkbox" onclick="toggleAllOrdersSelect(event)" class="rounded border-gray-300 dark:border-zinc-700 text-red-600 focus:ring-red-500 cursor-pointer">
+                                    <h3 data-i18n="orders.current"><span class="material-symbols-outlined">local_mall</span> Đơn đang chốt</h3>
+                                </div>
                                 <div class="live-panel-actions">
                                     <span class="live-count-pill" data-current-orders-count>0 đơn - 0đ</span>
                                     <button type="button" class="live-orders-refresh bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold" onclick="refreshCurrentOrders()" title="Làm mới đơn chốt">
@@ -302,7 +305,10 @@
                         <div class="p-3 space-y-3">
                             <section id="section-current-orders" class="live-panel live-orders-panel orders-current-panel" data-current-orders-panel>
                                 <div class="live-panel-head">
-                                    <h3 data-i18n="orders.current"><span class="material-symbols-outlined">local_mall</span> Đơn đang chốt</h3>
+                                    <div class="flex items-center gap-2">
+                                        <input type="checkbox" id="manual-select-all-orders-checkbox" onclick="toggleAllOrdersSelect(event)" class="rounded border-gray-300 dark:border-zinc-700 text-red-600 focus:ring-red-500 cursor-pointer">
+                                        <h3 data-i18n="orders.current"><span class="material-symbols-outlined">local_mall</span> Đơn đang chốt</h3>
+                                    </div>
                                     <div class="flex items-center gap-2">
                                         <div style="position:relative; display:flex; align-items:center;">
                                             <span class="material-symbols-outlined" style="position:absolute; left:10px; font-size:16px; color:#9ca3af; pointer-events:none;">search</span>
@@ -1060,5 +1066,22 @@
             });
         })();
     </script>
+    <div id="batch-action-bar" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-4 rounded-xl shadow-2xl flex items-center gap-4 z-50 transition-all transform translate-y-24 opacity-0 border border-slate-700 no-print">
+        <div class="flex items-center gap-2 border-r border-slate-700 pr-4">
+            <span class="material-symbols-outlined text-red-500 font-bold">check_box</span>
+            <span id="batch-action-count" class="font-bold text-sm">Đã chọn 0 đơn</span>
+        </div>
+        <div class="flex items-center gap-2">
+            <button onclick="batchPrintSelectedOrders()" class="bg-red-600 hover:bg-red-700 text-white font-bold text-xs px-4 py-2 rounded-lg flex items-center gap-1.5 transition-colors">
+                <span class="material-symbols-outlined text-sm">print</span> In hàng loạt
+            </button>
+            <button onclick="batchDeleteSelectedOrders()" class="bg-slate-700 hover:bg-slate-600 text-white font-bold text-xs px-4 py-2 rounded-lg flex items-center gap-1.5 transition-colors">
+                <span class="material-symbols-outlined text-sm">delete</span> Xóa hàng loạt
+            </button>
+            <button onclick="clearAllSelectedOrders()" class="text-gray-400 hover:text-white text-xs font-semibold px-2 py-2">
+                Hủy
+            </button>
+        </div>
+    </div>
 </body>
 </html>

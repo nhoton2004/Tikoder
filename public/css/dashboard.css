@@ -1541,7 +1541,7 @@
 
         .live-order-card-head {
             display: grid;
-            grid-template-columns: 32px minmax(0, 1fr) auto;
+            grid-template-columns: auto 32px minmax(0, 1fr) auto;
             gap: 7px;
             align-items: center;
             padding: 8px 9px;

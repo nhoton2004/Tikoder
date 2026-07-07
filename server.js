@@ -27,8 +27,7 @@ const DEV_SKIP_AUTH = process.env.NODE_ENV === 'development'
     && String(process.env.VITE_DEV_SKIP_AUTH || 'false').toLowerCase() === 'true';
 
 if (DEV_SKIP_AUTH) {
-    console.warn('⚠️  WARNING: DEV_SKIP_AUTH is ENABLED. This bypasses Firebase authentication.');
-    console.warn('⚠️  This should NEVER be enabled in production.');
+    console.log('⚡ Dev Mode: Auth bypass active.');
 }
 const DEV_USER = {
     uid: 'dev-user',
@@ -951,10 +950,19 @@ app.post('/api/orders/export-delivery-excel', requireApiAuth, async (req, res) =
             return res.status(400).json({ error: 'Không có đơn hàng để xuất Excel' });
         }
 
+        console.log('>>> [EXPORT DEBUG] Total orders received:', orders.length);
+        console.log('>>> [EXPORT DEBUG] First order sample:', JSON.stringify(orders[0]));
+
         const result = await orderExcelExporter.exportDeliveryExcel({
             userId,
             orders,
             options: req.body?.options || {}
+        });
+
+        console.log('>>> [EXPORT DEBUG] Export result:', {
+            totalCustomers: result.totalCustomers,
+            totalOrders: result.totalOrders,
+            missingCustomersCount: result.missingCustomers?.length
         });
 
         const missingHeader = Buffer.from(JSON.stringify(result.missingCustomers || []), 'utf-8').toString('base64');
