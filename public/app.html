@@ -241,6 +241,9 @@
                         <div class="live-connect-bar">
                             <span class="live-status-chip"><span></span> TikTok Live</span>
                             <div class="live-quick-actions" style="margin-left: auto;">
+                                <button type="button" onclick="printAllSummary()" class="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1">
+                                    <span class="material-symbols-outlined text-sm">receipt_long</span> In tổng kết
+                                </button>
                                 <button type="button" id="btn-connect" class="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1">
                                     ⚡ Kết nối
                                 </button>
@@ -304,6 +307,9 @@
                                     <p class="text-xs text-gray-500" data-i18n="orders.subtitle">Quản lý toàn bộ đơn hàng theo tài khoản, shop và thời gian.</p>
                                 </div>
                                 <div class="flex flex-wrap gap-2 no-print">
+                                    <button onclick="printAllSummary()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-sm font-bold transition-colors flex items-center gap-1">
+                                        <span class="material-symbols-outlined text-sm">receipt_long</span> In tổng kết
+                                    </button>
                                     <button onclick="downloadBackup('excel')" class="bg-emerald-600 text-white px-3 py-2 rounded-lg text-sm font-bold">Excel</button>
                                     <button onclick="downloadBackup('csv')" class="bg-slate-800 text-white px-3 py-2 rounded-lg text-sm font-bold">CSV</button>
                                 </div>

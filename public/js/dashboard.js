@@ -3324,27 +3324,28 @@
 
         window.printAllSummary = () => {
             const dataTarget = currentView === 'live' ? liveOrdersData : ordersData;
-            let html = `<div style="font-family: 'Times New Roman', Times, serif; width: 80mm; margin: 0 auto; color: black;">`;
-            html += `<div style="text-align:center;"><h2 style="margin: 0;">TONG KET PHIEN LIVE</h2><hr style="border: 1px solid black;"></div>`;
+            let html = `<div style="font-family: 'Times New Roman', Times, serif; width: 80mm; margin: 0 auto; color: black; padding: 10px;">`;
+            html += `<div style="text-align:center; margin-bottom: 15px;"><h2 style="margin: 0; font-size: 18px; font-weight: bold;">TỔNG KẾT PHIÊN ĐƠN</h2><hr style="border: 1px solid black; margin-top: 5px;"></div>`;
             let totalOverall = 0;
+            let index = 1;
+            
             Object.values(dataTarget).forEach(o => {
                 totalOverall += o.total;
                 const username = normalizeTikTokUsername(o.username || o.customerUsername || '');
                 const customerLabel = buildCustomerLabel(o.nickname || o.displayName || '', username);
-                html += `<div style="margin-bottom: 10px; border-bottom: 1px dashed black; padding-bottom: 5px;">`;
-                html += `<div style="font-weight: bold; font-size: 16px;">${escapeHtml(customerLabel)}</div>`;
-                o.items.forEach(i => {
-                    html += `<div style="display: flex; justify-content: space-between; font-size: 13px; margin-top: 2px;">`;
-                    html += `<span style="flex: 1;">- ${escapeHtml(normalizeDisplayText(i.text || i.productName || ''))} <small>(${escapeHtml(normalizeDisplayText(i.time || ''))})</small></span>`;
-                    html += `<span style="font-weight: bold;">${formatMoney(i.price)}</span>`;
-                    html += `</div>`;
-                });
-                html += `<div style="text-align:right; font-weight: bold; font-size: 14px; margin-top: 5px;">Cong: ${formatMoney(o.total)}</div>`;
+                
+                html += `<div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px dashed #ccc; padding: 6px 0; font-size: 14px;">`;
+                html += `<span style="font-weight: bold; flex: 1; padding-right: 10px; word-break: break-word;">${index}. ${escapeHtml(customerLabel)}</span>`;
+                html += `<span style="font-weight: 900; white-space: nowrap;">${formatMoney(o.total)}</span>`;
                 html += `</div>`;
+                index++;
             });
-            html += `<div style="text-align:right; margin-top: 15px; border-top: 2px solid black; padding-top: 5px;">`;
-            html += `<h3 style="margin: 0;">TONG CONG: ${formatMoney(totalOverall)}</h3>`;
+            
+            html += `<div style="display: flex; justify-content: space-between; align-items: center; margin-top: 15px; border-top: 2px solid black; padding-top: 8px;">`;
+            html += `<span style="font-size: 15px; font-weight: bold;">TỔNG CỘNG:</span>`;
+            html += `<strong style="font-size: 18px; font-weight: 950; color: black;">${formatMoney(totalOverall)}</strong>`;
             html += `</div></div>`;
+            
             document.getElementById('print-section').innerHTML = html;
             window.print();
         };
