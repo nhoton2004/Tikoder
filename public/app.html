@@ -457,6 +457,13 @@
                                         
                                         <div class="space-y-3">
                                             <div>
+                                                <label class="block text-xs font-bold text-gray-600 mb-1">CHỌN LOẠI ĐỊA CHỈ SPX</label>
+                                                <select id="delivery-opt-address-system" onchange="renderDeliveryPreviewTable()" class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm font-semibold bg-white">
+                                                    <option value="new" selected>Địa chỉ MỚI (2 cấp)</option>
+                                                    <option value="old">Địa chỉ CŨ (3 cấp)</option>
+                                                </select>
+                                            </div>
+                                            <div>
                                                 <label class="block text-xs font-bold text-gray-600 mb-1">PHÍ VẬN CHUYỂN THU KHÁCH (đ)</label>
                                                 <input type="number" id="delivery-opt-ship" class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm font-semibold" placeholder="Mặc định 0đ">
                                             </div>
@@ -522,6 +529,13 @@
                                     <div>
                                         <label class="block text-xs font-bold text-gray-600 mb-1">Chiều cao (cm)</label>
                                         <input type="number" id="delivery-def-height" class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm" placeholder="10">
+                                    </div>
+                                    <div>
+                                        <label class="block text-xs font-bold text-gray-600 mb-1">Loại địa chỉ mặc định</label>
+                                        <select id="delivery-def-address-system" class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm bg-white">
+                                            <option value="new" selected>Địa chỉ MỚI (2 cấp)</option>
+                                            <option value="old">Địa chỉ CŨ (3 cấp)</option>
+                                        </select>
                                     </div>
                                     <div>
                                         <label class="block text-xs font-bold text-gray-600 mb-1">Phương thức thanh toán mặc định</label>
@@ -1085,7 +1099,9 @@
                 if (!text) return;
                 if (!Number.isNaN(price) && price >= 0) {
                     const uname = typeof normalizeTikTokUsername === 'function' ? normalizeTikTokUsername(state.username) : state.username;
-                    socket.emit('edit-item', { username: uname, itemId: state.itemId, text, price });
+                    const ordersSection = document.getElementById('section-orders');
+                    const isManual = ordersSection && !ordersSection.hasAttribute('hidden');
+                    socket.emit('edit-item', { username: uname, itemId: state.itemId, text, price, isManual });
                 }
                 closeEditItemModal();
             };

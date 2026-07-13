@@ -13,6 +13,16 @@ const SPX_PROVINCES = [
     "AN GIANG","BÀ RỊA - VŨNG TÀU","BẮC GIANG","BẮC KẠN","BẠC LIÊU","BẮC NINH","BẾN TRE","BÌNH ĐỊNH","BÌNH DƯƠNG","BÌNH PHƯỚC","BÌNH THUẬN","CÀ MAU","CẦN THƠ","CAO BẰNG","ĐÀ NẴNG","ĐẮK LẮK","ĐẮK NÔNG","ĐIỆN BIÊN","ĐỒNG NAI","ĐỒNG THÁP","GIA LAI","HÀ GIANG","HÀ NAM","HÀ NỘI","HÀ TĨNH","HẢI DƯƠNG","HẢI PHÒNG","HẬU GIANG","HÒA BÌNH","HƯNG YÊN","KHÁNH HÒA","KIÊN GIANG","KON TUM","LAI CHÂU","LÂM ĐỒNG","LẠNG SƠN","LÀO CAI","LONG AN","NAM ĐỊNH","NGHỆ AN","NINH BÌNH","NINH THUẬN","PHÚ THỌ","PHÚ YÊN","QUẢNG BÌNH","QUẢNG NAM","QUẢNG NGÃI","QUẢNG NINH","QUẢNG TRỊ","SÓC TRĂNG","SƠN LA","TÂY NINH","THÁI BÌNH","THÁI NGUYÊN","THANH HÓA","THỪA THIÊN HUẾ","TIỀN GIANG","TP. HỒ CHÍ MINH","TRÀ VINH","TUYÊN QUANG","VĨNH LONG","VĨNH PHÚC","YÊN BÁI"
 ];
 
+const SPX_NEW_STATES = [
+    'Tỉnh Lạng Sơn', 'Tỉnh Ninh Bình', 'Tỉnh Đồng Tháp', 'Tỉnh Tây Ninh', 'Thành phố Hà Nội', 
+    'Tỉnh Cà Mau', 'Thành phố Hải Phòng', 'Tỉnh Phú Thọ', 'Tỉnh Gia Lai', 'Tỉnh Tuyên Quang', 
+    'Tỉnh Lai Châu', 'Tỉnh Quảng Ngãi', 'Tỉnh Lâm Đồng', 'Tỉnh Thanh Hóa', 'Tỉnh Khánh Hòa', 
+    'Tỉnh Hà Tĩnh', 'Thành phố Hồ Chí Minh', 'Thành phố Cần Thơ', 'Tỉnh Hưng Yên', 'Tỉnh Đắk Lắk', 
+    'Tỉnh Quảng Ninh', 'Tỉnh Vĩnh Long', 'Tỉnh Đồng Nai', 'Thành phố Huế', 'Tỉnh Lào Cai', 
+    'Tỉnh Sơn La', 'Tỉnh Thái Nguyên', 'Tỉnh Quảng Trị', 'Tỉnh Cao Bằng', 'Tỉnh Điện Biên', 
+    'Tỉnh Bắc Ninh', 'Tỉnh Nghệ An', 'Tỉnh An Giang', 'Thành phố Đà Nẵng'
+];
+
 function removeVietnameseTones(str) {
     if (!str) return "";
     str = str.replace(/à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g, "a");
@@ -188,7 +198,6 @@ function toNumber(value, fallback = 0) {
 }
 
 function normalizeOrders(input) {
-    // SECURITY & ROBUSTNESS: Comprehensive input validation
     if (!input) return [];
     if (Array.isArray(input)) return input;
     if (typeof input !== 'object') return [];
@@ -260,8 +269,11 @@ function groupOrdersByCustomer(orders) {
     return Array.from(groups.values());
 }
 
-function getMissingFields(customer) {
-    return REQUIRED_ADDRESS_FIELDS.filter(field => !String(customer?.[field] || '').trim());
+function getMissingFields(customer, addressSystem = 'new') {
+    const fields = addressSystem === 'new'
+        ? ['phone', 'province', 'ward', 'addressDetail']
+        : ['phone', 'province', 'district', 'ward', 'addressDetail'];
+    return fields.filter(field => !String(customer?.[field] || '').trim());
 }
 
 function copyStyle(sourceRow, targetRow) {
@@ -290,35 +302,146 @@ function clearOrderRows(sheet) {
     }
 }
 
-function setOrderRow(row, data) {
-    row.getCell(1).value = data.orderCode;
-    row.getCell(2).value = data.receiverName;
-    row.getCell(3).value = data.phone;
-    row.getCell(4).value = data.province;
-    row.getCell(5).value = data.district;
-    row.getCell(6).value = data.ward;
-    row.getCell(7).value = data.addressDetail;
-    row.getCell(8).value = data.addressNote;
-    row.getCell(9).value = data.postalCode;
-    row.getCell(10).value = data.productName;
-    row.getCell(11).value = data.quantity;
-    row.getCell(12).value = data.price;
-    row.getCell(13).value = data.weightKg;
-    row.getCell(14).value = data.lengthCm;
-    row.getCell(15).value = data.widthCm;
-    row.getCell(16).value = data.heightCm;
-    row.getCell(17).value = data.customerCode;
-    row.getCell(18).value = data.orderValue;
-    row.getCell(19).value = data.partialDelivery;
-    row.getCell(20).value = data.allowTryOn;
-    row.getCell(21).value = data.viewOnlyNoTry;
-    row.getCell(22).value = data.rejectionFeeEnabled;
-    row.getCell(23).value = data.rejectionFeeAmount;
-    row.getCell(24).value = data.collectCod;
-    row.getCell(25).value = data.codAmount;
-    row.getCell(26).value = data.highValue;
-    row.getCell(27).value = data.paymentMethod;
-    row.getCell(28).value = data.deliveryNote;
+function findBestStateMatch(input, stateList) {
+    if (!input) return "";
+    const normInput = removeVietnameseTones(input.trim().toLowerCase())
+        .replace(/^(tỉnh|thành phố|tp\.?|city)\s+/gi, "")
+        .replace(/\s+(tỉnh|thành phố|tp\.?|city)$/gi, "")
+        .replace(/\s+/g, "");
+
+    if (["hcm", "saigon", "hochiminh", "tphcm"].includes(normInput)) {
+        return "Thành phố Hồ Chí Minh";
+    }
+    if (["hn", "hanoi"].includes(normInput)) {
+        return "Thành phố Hà Nội";
+    }
+    if (["dn", "danang"].includes(normInput)) {
+        return "Thành phố Đà Nẵng";
+    }
+    if (["ct", "cantho"].includes(normInput)) {
+        return "Thành phố Cần Thơ";
+    }
+    if (["hp", "haiphong"].includes(normInput)) {
+        return "Thành phố Hải Phòng";
+    }
+    if (["hue", "thuathienhue"].includes(normInput)) {
+        return "Thành phố Huế";
+    }
+
+    for (const s of stateList) {
+        const normS = removeVietnameseTones(s.toLowerCase())
+            .replace(/^(tỉnh|thành phố|tp\.?)\s+/gi, "")
+            .replace(/\s+/g, "");
+        if (normInput === normS || normInput.includes(normS) || normS.includes(normInput)) {
+            return s;
+        }
+    }
+    return "";
+}
+
+function findBestWardMatch(wardInput, districtInput, wardList) {
+    if (!wardInput) return "";
+    const normWard = removeVietnameseTones(wardInput.trim().toLowerCase())
+        .replace(/^(xã|phường|thị trấn|p\.?|x\.?)\s+/gi, "")
+        .replace(/\s+/g, "");
+
+    // 1. Exact core match
+    for (const w of wardList) {
+        const normW = removeVietnameseTones(w.toLowerCase())
+            .replace(/^(xã|phường|thị trấn)\s+/gi, "")
+            .replace(/\s+/g, "");
+        if (normWard === normW) {
+            return w;
+        }
+    }
+
+    // 2. Substring core match
+    for (const w of wardList) {
+        const normW = removeVietnameseTones(w.toLowerCase())
+            .replace(/^(xã|phường|thị trấn)\s+/gi, "")
+            .replace(/\s+/g, "");
+        if (normWard.includes(normW) || normW.includes(normWard)) {
+            return w;
+        }
+    }
+
+    // 3. Match with district fallback
+    if (districtInput) {
+        const normDistrict = removeVietnameseTones(districtInput.trim().toLowerCase())
+            .replace(/^(quận|huyện|thị xã|q\.?|h\.?)\s+/gi, "")
+            .replace(/\s+/g, "");
+        for (const w of wardList) {
+            const normW = removeVietnameseTones(w.toLowerCase())
+                .replace(/^(xã|phường|thị trấn)\s+/gi, "")
+                .replace(/\s+/g, "");
+            if (normDistrict === normW || normDistrict.includes(normW) || normW.includes(normDistrict)) {
+                return w;
+            }
+        }
+    }
+
+    return wardInput;
+}
+
+function setOrderRow(row, data, addressSystem = 'new') {
+    if (addressSystem === 'new') {
+        row.getCell(1).value = data.orderCode;
+        row.getCell(2).value = data.receiverName;
+        row.getCell(3).value = data.phone;
+        row.getCell(4).value = data.province;
+        row.getCell(5).value = data.ward; // Column 5 is ward in new system
+        row.getCell(6).value = data.addressDetail;
+        row.getCell(7).value = data.addressNote;
+        row.getCell(8).value = data.postalCode;
+        row.getCell(9).value = data.productName;
+        row.getCell(10).value = data.quantity;
+        row.getCell(11).value = data.price;
+        row.getCell(12).value = data.weightKg;
+        row.getCell(13).value = data.lengthCm;
+        row.getCell(14).value = data.widthCm;
+        row.getCell(15).value = data.heightCm;
+        row.getCell(16).value = data.customerCode;
+        row.getCell(17).value = data.orderValue;
+        row.getCell(18).value = data.partialDelivery;
+        row.getCell(19).value = data.allowTryOn;
+        row.getCell(20).value = data.viewOnlyNoTry;
+        row.getCell(21).value = data.rejectionFeeEnabled;
+        row.getCell(22).value = data.rejectionFeeAmount;
+        row.getCell(23).value = data.collectCod;
+        row.getCell(24).value = data.codAmount;
+        row.getCell(25).value = data.highValue;
+        row.getCell(26).value = data.paymentMethod;
+        row.getCell(27).value = data.deliveryNote;
+    } else {
+        row.getCell(1).value = data.orderCode;
+        row.getCell(2).value = data.receiverName;
+        row.getCell(3).value = data.phone;
+        row.getCell(4).value = data.province;
+        row.getCell(5).value = data.district; // Column 5 is district in old system
+        row.getCell(6).value = data.ward;     // Column 6 is ward in old system
+        row.getCell(7).value = data.addressDetail;
+        row.getCell(8).value = data.addressNote;
+        row.getCell(9).value = data.postalCode;
+        row.getCell(10).value = data.productName;
+        row.getCell(11).value = data.quantity;
+        row.getCell(12).value = data.price;
+        row.getCell(13).value = data.weightKg;
+        row.getCell(14).value = data.lengthCm;
+        row.getCell(15).value = data.widthCm;
+        row.getCell(16).value = data.heightCm;
+        row.getCell(17).value = data.customerCode;
+        row.getCell(18).value = data.orderValue;
+        row.getCell(19).value = data.partialDelivery;
+        row.getCell(20).value = data.allowTryOn;
+        row.getCell(21).value = data.viewOnlyNoTry;
+        row.getCell(22).value = data.rejectionFeeEnabled;
+        row.getCell(23).value = data.rejectionFeeAmount;
+        row.getCell(24).value = data.collectCod;
+        row.getCell(25).value = data.codAmount;
+        row.getCell(26).value = data.highValue;
+        row.getCell(27).value = data.paymentMethod;
+        row.getCell(28).value = data.deliveryNote;
+    }
     row.commit();
 }
 
@@ -331,11 +454,48 @@ async function exportDeliveryExcel({ userId, orders, options = {}, now = new Dat
         throw error;
     }
 
+    const addressSystem = options.addressSystem || 'new';
+    const sheetName = addressSystem === 'new' ? 'Tạo đơn (địa chỉ mới)' : 'Tạo đơn (địa chỉ cũ)';
+
     const workbook = new ExcelJS.Workbook();
     await workbook.xlsx.readFile(TEMPLATE_FILE);
-    const sheet = workbook.getWorksheet(ORDER_SHEET_NAME);
+    const sheet = workbook.getWorksheet(sheetName);
     if (!sheet) {
-        throw new Error(`Không tìm thấy sheet "${ORDER_SHEET_NAME}" trong file mẫu`);
+        throw new Error(`Không tìm thấy sheet "${sheetName}" trong file mẫu`);
+    }
+
+    // Load matching tables dynamically from the workbook sheets if addressSystem === 'new'
+    const newStates = [];
+    const stateToWardsMap = {};
+    
+    if (addressSystem === 'new') {
+        const stateListSheet = workbook.getWorksheet('State_list(2)');
+        if (stateListSheet) {
+            stateListSheet.eachRow((row, rowNumber) => {
+                if (rowNumber > 1) {
+                    const val = row.getCell(1).value;
+                    if (val) newStates.push(String(val).trim());
+                }
+            });
+        }
+        
+        const cityListSheet = workbook.getWorksheet('City_list(2)');
+        if (cityListSheet) {
+            cityListSheet.eachRow((row, rowNumber) => {
+                if (rowNumber > 1) {
+                    const state = row.getCell(1).value;
+                    const ward = row.getCell(2).value;
+                    if (state && ward) {
+                        const trimmedState = String(state).trim();
+                        const trimmedWard = String(ward).trim();
+                        if (!stateToWardsMap[trimmedState]) {
+                            stateToWardsMap[trimmedState] = [];
+                        }
+                        stateToWardsMap[trimmedState].push(trimmedWard);
+                    }
+                }
+            });
+        }
     }
 
     const customerGroups = groupOrdersByCustomer(orders);
@@ -347,12 +507,10 @@ async function exportDeliveryExcel({ userId, orders, options = {}, now = new Dat
 
     let rowNumber = 2;
     customerGroups.forEach((group, groupIndex) => {
-        // Cố gắng tìm khách hàng theo TikTok Username
         let savedCustomer = group.customerUsername && !group.customerUsername.startsWith('offline_')
             ? customerStore.findCustomerByTikTok(userId, group.customerUsername)
             : null;
 
-        // Nếu không tìm thấy, cố gắng tìm theo Display Name (phục vụ khách offline hoặc trùng tên)
         if (!savedCustomer && group.customerName) {
             const list = customerStore.listCustomers(userId, group.customerName);
             const match = list.find(c => String(c.displayName || '').trim().toLowerCase() === String(group.customerName).trim().toLowerCase());
@@ -388,7 +546,7 @@ async function exportDeliveryExcel({ userId, orders, options = {}, now = new Dat
             ward: cleanedAddr.ward
         };
 
-        const missingFields = getMissingFields(customerForCheck);
+        const missingFields = getMissingFields(customerForCheck, addressSystem);
         if (missingFields.length > 0) {
             missingCustomers.push({
                 customerName: normalizeDisplayName(group.customerName || customer.displayName || '', group.customerUsername ? `@${group.customerUsername}` : undefined),
@@ -398,7 +556,6 @@ async function exportDeliveryExcel({ userId, orders, options = {}, now = new Dat
             });
         }
 
-        // Tạo tên sản phẩm tổng hợp: "Sản phẩm A (x2), Sản phẩm B"
         const productNames = group.orders.map(o => {
             const name = o.productName || 'Sản phẩm';
             return o.quantity > 1 ? `${name} (x${o.quantity})` : name;
@@ -409,14 +566,27 @@ async function exportDeliveryExcel({ userId, orders, options = {}, now = new Dat
             mergedProductName = mergedProductName.substring(0, 97) + '...';
         }
 
-        // Tính tổng tiền COD & Giá trị đơn hàng (Cộng thêm phí ship nếu có)
         const shippingFee = Number(options.shippingFee || 0);
         const totalValue = group.total + shippingFee;
 
-        // Trọng lượng
         let weight = parseFloat(customer.defaultWeightKg || options.defaultWeightKg || 0.5);
         if (Number.isNaN(weight) || weight <= 0) {
             weight = 0.5;
+        }
+
+        let provinceVal = cleanedAddr.province;
+        let wardVal = cleanedAddr.ward;
+        
+        if (addressSystem === 'new') {
+            const matchedState = findBestStateMatch(provinceVal, newStates);
+            if (matchedState) {
+                provinceVal = matchedState;
+                const wardsInState = stateToWardsMap[matchedState] || [];
+                const matchedWard = findBestWardMatch(wardVal, cleanedAddr.district, wardsInState);
+                if (matchedWard) {
+                    wardVal = matchedWard;
+                }
+            }
         }
 
         const orderCode = `TK-${dateKey}-${String(groupIndex + 1).padStart(3, '0')}`;
@@ -427,15 +597,15 @@ async function exportDeliveryExcel({ userId, orders, options = {}, now = new Dat
             orderCode,
             receiverName: normalizeDisplayName(customer.displayName, fallbackName),
             phone: customer.phone || '',
-            province: cleanedAddr.province,
+            province: provinceVal,
             district: cleanedAddr.district,
-            ward: cleanedAddr.ward,
+            ward: wardVal,
             addressDetail: customer.addressDetail || '',
             addressNote: customer.addressNote || '',
             postalCode: customer.postalCode || '',
             productName: mergedProductName,
-            quantity: 1, // Để là 1 đơn kiện tổng hợp
-            price: totalValue, // Đơn giá bằng tổng tiền COD
+            quantity: 1,
+            price: totalValue,
             weightKg: weight,
             lengthCm: Number(options.defaultLengthCm || 20),
             widthCm: Number(options.defaultWidthCm || 10),
@@ -452,7 +622,7 @@ async function exportDeliveryExcel({ userId, orders, options = {}, now = new Dat
             highValue: totalValue >= 3000000 ? 'Y' : 'N',
             paymentMethod: options.paymentMethod || 'Người gửi trả',
             deliveryNote: customer.deliveryNote || options.defaultDeliveryNote || ''
-        });
+        }, addressSystem);
         rowNumber += 1;
     });
 

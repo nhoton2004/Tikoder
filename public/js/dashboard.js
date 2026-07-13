@@ -4288,7 +4288,8 @@
                 payment: 'Người gửi trả',
                 rejectionEnabled: 'N',
                 rejectionAmount: 0,
-                deliveryNote: ''
+                deliveryNote: '',
+                addressSystem: 'new'
             };
             if (!saved) return standard;
             try {
@@ -4313,6 +4314,9 @@
             document.getElementById('delivery-def-rejection-enabled').value = defaults.rejectionEnabled;
             document.getElementById('delivery-def-rejection-amount').value = defaults.rejectionAmount;
             document.getElementById('delivery-def-delivery-note').value = defaults.deliveryNote;
+            
+            const defAddressSystem = document.getElementById('delivery-def-address-system');
+            if (defAddressSystem) defAddressSystem.value = defaults.addressSystem || 'new';
 
             toggleRejectionFeeDisplay(defaults.rejectionEnabled);
 
@@ -4323,6 +4327,7 @@
             const optWidth = document.getElementById('delivery-opt-width');
             const optHeight = document.getElementById('delivery-opt-height');
             const optPayment = document.getElementById('delivery-opt-payment');
+            const optAddressSystem = document.getElementById('delivery-opt-address-system');
 
             if (optShip) optShip.value = defaults.ship;
             if (optWeight) optWeight.value = defaults.weight;
@@ -4330,6 +4335,7 @@
             if (optWidth) optWidth.value = defaults.width;
             if (optHeight) optHeight.value = defaults.height;
             if (optPayment) optPayment.value = defaults.payment;
+            if (optAddressSystem) optAddressSystem.value = defaults.addressSystem || 'new';
         };
 
         window.saveDeliveryDefaultsForm = (event) => {
@@ -4346,7 +4352,8 @@
                 payment: document.getElementById('delivery-def-payment').value || 'Người gửi trả',
                 rejectionEnabled: document.getElementById('delivery-def-rejection-enabled').value || 'N',
                 rejectionAmount: parseFloat(document.getElementById('delivery-def-rejection-amount').value) || 0,
-                deliveryNote: document.getElementById('delivery-def-delivery-note').value.trim()
+                deliveryNote: document.getElementById('delivery-def-delivery-note').value.trim(),
+                addressSystem: document.getElementById('delivery-def-address-system').value || 'new'
             };
 
             const key = `delivery_defaults_${currentUserUid || 'global'}`;
@@ -4586,7 +4593,10 @@
 
         function isCustomerMissingInfo(c) {
             if (!c) return true;
-            const required = ['phone', 'province', 'district', 'ward', 'addressDetail'];
+            const addressSystem = document.getElementById('delivery-opt-address-system')?.value || 'new';
+            const required = addressSystem === 'new'
+                ? ['phone', 'province', 'ward', 'addressDetail']
+                : ['phone', 'province', 'district', 'ward', 'addressDetail'];
             return required.some(field => !String(c[field] || '').trim());
         }
 
@@ -4648,10 +4658,14 @@
                 
                 let addressStr = '<span class="text-red-500 font-bold">Chưa có địa chỉ</span>';
                 if (g.customer) {
-                    const parts = [g.customer.addressDetail, g.customer.ward, g.customer.district, g.customer.province].filter(Boolean);
+                    const addressSystem = document.getElementById('delivery-opt-address-system')?.value || 'new';
+                    const parts = addressSystem === 'new'
+                        ? [g.customer.addressDetail, g.customer.ward, g.customer.province].filter(Boolean)
+                        : [g.customer.addressDetail, g.customer.ward, g.customer.district, g.customer.province].filter(Boolean);
+                    const minParts = addressSystem === 'new' ? 3 : 4;
                     if (parts.length > 0) {
                         addressStr = escapeHtml(parts.join(', '));
-                        if (parts.length < 4) {
+                        if (parts.length < minParts) {
                             addressStr += ' <span class="text-amber-500 font-bold">(Thiếu chi tiết)</span>';
                         }
                     }
@@ -4952,6 +4966,7 @@
             const defaultWidthCm = parseInt(document.getElementById('delivery-opt-width').value) || 10;
             const defaultHeightCm = parseInt(document.getElementById('delivery-opt-height').value) || 10;
             const paymentMethod = document.getElementById('delivery-opt-payment').value || 'Người gửi trả';
+            const addressSystem = document.getElementById('delivery-opt-address-system')?.value || 'new';
 
             const defaults = getDeliveryDefaults();
 
@@ -4969,6 +4984,7 @@
                             defaultWidthCm,
                             defaultHeightCm,
                             paymentMethod,
+                            addressSystem,
                             // Pass persistent defaults to exporter
                             allowTryOn: defaults.allowTry,
                             viewOnlyNoTry: defaults.viewOnly,
