@@ -1,24 +1,35 @@
-node_modules
-.env
-firebase-service-account.json
-node_modules
+# Dependencies
+node_modules/
+DebtTracker/node_modules/
+
+# Secrets & Environment
 .env
 .env.example
-data/
+config.local.json
+config.json
+firebase-service-account.json
+
+# Database & Runtime Data
 history/
+data/
+data/reports/
+*.db
 *.json.bak
 2026-*.json
 
-# Config with potential secrets
-config.local.json
-config.json
+# Logs & Temp Files
+.tmp/
+*.log
+*.recovered_*
+*.pyc
+
+# Docker & Meta
 .dockerignore
 Dockerfile
 .clinerules
 SECURITY.md
 LEARNING_GUIDE.md
-NOTION_IMPORT_GUIDE.txt
-PR_SUMMARY.md
 package-lock.json
+
 # CocoIndex Code (ccc)
 /.cocoindex_code/

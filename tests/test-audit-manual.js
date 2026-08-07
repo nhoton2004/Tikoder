@@ -2,7 +2,7 @@
  * Script kiểm thử logic customerAuditor.js với dữ liệu giả lập.
  */
 
-const { auditUserCustomers } = require('/home/nho/TikTokOrderApp/utils/customerAuditor');
+const { auditUserCustomers } = require('../utils/customerAuditor');
 
 const testCustomers = [
     // 1. Bản ghi hoàn hảo làm chuẩn (completenessScore = 100)
