@@ -641,13 +641,10 @@
             const printBtnTitle = isPrinted 
                 ? (currentLang === 'en' ? 'Already printed (Click to reprint)' : 'Đã in đơn (Bấm để in lại)') 
                 : (currentLang === 'en' ? 'Print item' : 'In dòng này');
-            const printBadge = isPrinted 
-                ? `<span class="printed-pill bg-amber-800/10 text-amber-800 dark:text-amber-300 dark:bg-amber-900/30 text-[9px] px-1.5 py-0.5 rounded font-bold ml-1.5 border border-amber-600/30">Đã in</span>` 
-                : '';
             return `
                 <div class="live-order-item live-order-comment-row${printedClass}" data-item-id="${safeItemId}">
                     <div class="live-order-comment-main">
-                        <strong>${escapeHtml(normalizeDisplayText(item.text || item.productName || 'Sản phẩm'))}${printBadge}</strong>
+                        <strong>${escapeHtml(normalizeDisplayText(item.text || item.productName || 'Sản phẩm'))}</strong>
                         <span>${escapeHtml(normalizeDisplayText(item.time || 'Vừa chốt'))}</span>
                     </div>
                     <strong class="live-order-comment-price">${formatMoney(price)}</strong>
@@ -2134,6 +2131,86 @@
             renderEmptyCommentState();
         }
 
+        function createPrintedBadge(username) {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'badge bg-amber-900 hover:bg-amber-800 text-white text-[10px] font-black px-2.5 py-1 rounded uppercase flex items-center gap-1 border border-amber-800 shadow-sm transition-colors cursor-pointer';
+            btn.innerHTML = `<span class="material-symbols-outlined text-[14px]">check_circle</span> ${currentLang === 'en' ? 'PRINTED' : 'ĐÃ IN'}`;
+            btn.dataset.printedBadge = '1';
+            if (username) {
+                btn.dataset.username = username;
+            }
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const targetUser = btn.dataset.username || username;
+                const confirmMsg = currentLang === 'en'
+                    ? 'Orders for this customer have ALREADY been printed. Do you want to print again?'
+                    : 'Đơn của khách này ĐÃ IN rồi. Bạn có muốn in lại lần nữa không?';
+                if (confirm(confirmMsg)) {
+                    if (targetUser) {
+                        reprintTotal(targetUser);
+                    }
+                }
+            });
+            return btn;
+        }
+
+        function updateCommentRowPrintedStatus(username) {
+            if (!username) return;
+            const norm = normalizeTikTokUsername(username);
+            const rows = document.querySelectorAll(`.chat-row[data-comment-userid="${CSS.escape(norm)}"]`);
+            rows.forEach(row => {
+                const actions = row.querySelector('.flex.items-center.gap-2');
+                if (!actions) return;
+                const confirmBtn = actions.querySelector('button:not([data-printed-badge="1"])');
+                if (confirmBtn) {
+                    confirmBtn.remove();
+                }
+                if (!actions.querySelector('[data-printed-badge="1"]')) {
+                    actions.appendChild(createPrintedBadge(norm));
+                }
+            });
+        }
+
+        function revertCommentRowPrintedStatus(username) {
+            if (!username) return;
+            const norm = normalizeTikTokUsername(username);
+            const rows = document.querySelectorAll(`.chat-row[data-comment-userid="${CSS.escape(norm)}"]`);
+            rows.forEach(row => {
+                const actions = row.querySelector('.flex.items-center.gap-2');
+                if (!actions) return;
+                const badge = actions.querySelector('[data-printed-badge="1"]');
+                if (badge) {
+                    badge.remove();
+                    if (!actions.querySelector('button')) {
+                        const confirmBtn = document.createElement('button');
+                        confirmBtn.type = 'button';
+                        confirmBtn.className = 'bg-red-500 text-white text-[10px] font-black px-3 py-1 rounded uppercase transition-colors';
+                        confirmBtn.textContent = currentLang === 'en' ? 'CONFIRM' : 'CHỐT';
+                        confirmBtn.addEventListener('click', () => {
+                            if (confirmBtn.disabled) return;
+                            confirmBtn.disabled = true;
+                            confirmBtn.textContent = currentLang === 'en' ? '✔ CONFIRMED' : '✔ Đã chốt';
+                            confirmBtn.classList.remove('bg-red-500');
+                            confirmBtn.classList.add('bg-green-500');
+                            
+                            const rawNickname = row.querySelector('.customer-display-name')?.textContent || norm;
+                            const avatarUrl = row.querySelector('img')?.src || '';
+                            const commentText = row.querySelector('p.text-gray-700')?.textContent || '';
+                            const ok = manualConfirm(norm, rawNickname, avatarUrl, commentText, 0);
+                            if (!ok) {
+                                confirmBtn.disabled = false;
+                                confirmBtn.textContent = currentLang === 'en' ? 'CONFIRM' : 'CHỐT';
+                                confirmBtn.classList.remove('bg-green-500');
+                                confirmBtn.classList.add('bg-red-500');
+                            }
+                        });
+                        actions.appendChild(confirmBtn);
+                    }
+                }
+            });
+        }
+
         function renderChatRow(data) {
             const msgId = data.msgId || `${data.nickname || ''}_${data.comment || ''}_${data.timestamp || ''}`;
             if (seenChatMsgIds.has(msgId)) return;
@@ -2151,8 +2228,9 @@
                 : new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             const row = document.createElement('div');
             row.dataset.chatRow = '1';
-            row.className = 'chat-row border border-gray-100 rounded-xl p-3 flex gap-3 items-start';
             const commenterId = normalizeTikTokUsername(data.uniqueId || data.username || '');
+            row.dataset.commentUserid = commenterId;
+            row.className = 'chat-row border border-gray-100 rounded-xl p-3 flex gap-3 items-start';
             const rawNickname = cleanDisplayText(data.nickname || data.displayName || '');
             const nickname = getDisplayName(rawNickname, commenterId);
             const comment = normalizeDisplayText(data.comment || '');
@@ -2192,27 +2270,36 @@
                 priceTag.textContent = formatMoney(data.suggestedPrice);
                 actions.appendChild(priceTag);
             }
-            const confirmBtn = document.createElement('button');
-            confirmBtn.type = 'button';
-            confirmBtn.className = 'bg-red-500 text-white text-[10px] font-black px-3 py-1 rounded uppercase transition-colors';
-            confirmBtn.textContent = currentLang === 'en' ? 'CONFIRM' : 'CHỐT';
-            confirmBtn.addEventListener('click', () => {
-                if (confirmBtn.disabled) return;
-                confirmBtn.disabled = true;
-                confirmBtn.textContent = currentLang === 'en' ? '✔ CONFIRMED' : '✔ Đã chốt';
-                confirmBtn.classList.remove('bg-red-500');
-                confirmBtn.classList.add('bg-green-500');
-                
-                manualConfirm(commenterId, rawNickname, profilePictureUrl, comment, data.suggestedPrice);
-                
-                setTimeout(() => {
-                    confirmBtn.disabled = false;
-                    confirmBtn.textContent = currentLang === 'en' ? 'CONFIRM' : 'CHỐT';
-                    confirmBtn.classList.remove('bg-green-500');
-                    confirmBtn.classList.add('bg-red-500');
-                }, 1000); // Khóa 1 giây chống bấm đúp
-            });
-            actions.appendChild(confirmBtn);
+
+            const isUserPrinted = Boolean(
+                (liveOrdersData[commenterId]?.items?.length > 0) || 
+                (ordersData[commenterId]?.items?.length > 0)
+            );
+
+            if (isUserPrinted) {
+                actions.appendChild(createPrintedBadge(commenterId));
+            } else {
+                const confirmBtn = document.createElement('button');
+                confirmBtn.type = 'button';
+                confirmBtn.className = 'bg-red-500 text-white text-[10px] font-black px-3 py-1 rounded uppercase transition-colors';
+                confirmBtn.textContent = currentLang === 'en' ? 'CONFIRM' : 'CHỐT';
+                confirmBtn.addEventListener('click', () => {
+                    if (confirmBtn.disabled) return;
+                    confirmBtn.disabled = true;
+                    confirmBtn.textContent = currentLang === 'en' ? '✔ CONFIRMED' : '✔ Đã chốt';
+                    confirmBtn.classList.remove('bg-red-500');
+                    confirmBtn.classList.add('bg-green-500');
+                    
+                    const ok = manualConfirm(commenterId, rawNickname, profilePictureUrl, comment, data.suggestedPrice);
+                    if (!ok) {
+                        confirmBtn.disabled = false;
+                        confirmBtn.textContent = currentLang === 'en' ? 'CONFIRM' : 'CHỐT';
+                        confirmBtn.classList.remove('bg-green-500');
+                        confirmBtn.classList.add('bg-red-500');
+                    }
+                });
+                actions.appendChild(confirmBtn);
+            }
 
             body.append(header, commentEl, actions);
             row.appendChild(body);
@@ -2474,7 +2561,9 @@
                     comment: normalizeDisplayText(comment),
                     price
                 });
+                return true;
             }
+            return false;
         };
 
         // ─── Bước 4: Dùng patchOrderCard thay vì calculateKpis toàn bộ ──────────────
@@ -2487,6 +2576,7 @@
                 liveOrdersData[norm].total = liveOrdersData[norm].items.reduce((s, i) => s + Number(i.price || 0), 0);
                 if (liveOrdersData[norm].items.length === 0) {
                     delete liveOrdersData[norm];
+                    revertCommentRowPrintedStatus(norm);
                 }
                 patchLiveOrderCard(norm);
             } else {
@@ -2497,6 +2587,7 @@
         socket.on('order-customer-deleted', ({ username }) => {
             const norm = normalizeTikTokUsername(username);
             delete liveOrdersData[norm];
+            revertCommentRowPrintedStatus(norm);
             const grid = document.querySelector('#live-current-orders-panel [data-current-orders-grid]');
             if (grid) {
                 grid.querySelector(`[data-username="${CSS.escape(norm)}"]`)?.remove();
@@ -2536,6 +2627,7 @@
             patchLiveOrderCard(username);
             updateLiveKpiCounters();
             refreshCommentUserTooltips();
+            updateCommentRowPrintedStatus(username);
         });
 
         // ─── LẮNG NGHE CẬP NHẬT MANUAL WORKSPACE TỪ SERVER ────────────────────────
@@ -2553,6 +2645,7 @@
                 ordersData[norm].total = ordersData[norm].items.reduce((s, i) => s + Number(i.price || 0), 0);
                 if (ordersData[norm].items.length === 0) {
                     delete ordersData[norm];
+                    revertCommentRowPrintedStatus(norm);
                 }
                 patchManualOrderCard(norm);
             } else {
@@ -2563,6 +2656,7 @@
         socket.on('manual-order-customer-deleted', ({ username }) => {
             const norm = normalizeTikTokUsername(username);
             delete ordersData[norm];
+            revertCommentRowPrintedStatus(norm);
             const grid = document.querySelector('#section-current-orders [data-current-orders-grid]');
             if (grid) {
                 grid.querySelector(`[data-username="${CSS.escape(norm)}"]`)?.remove();
@@ -2600,6 +2694,7 @@
             };
             patchManualOrderCard(username);
             refreshCommentUserTooltips();
+            updateCommentRowPrintedStatus(username);
         });
 
         function formatMoney(amount) {
