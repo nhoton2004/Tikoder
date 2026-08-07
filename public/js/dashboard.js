@@ -12,6 +12,8 @@
         const btnConnect = document.getElementById('btn-connect');
         const statusMsg = document.getElementById('status-msg');
         const printerIpInput = document.getElementById('printer-ip');
+        const printerTypeSelect = document.getElementById('printer-type');
+        const printerHintEl = document.getElementById('printer-hint');
         const tiktokApiKeyInput = document.getElementById('tiktok-api-key');
         const systemStatusMsg = document.getElementById('system-status-msg');
         const settingsPanel = document.getElementById('settings-panel');
@@ -132,7 +134,9 @@
                 'settings.integrationTitle': 'Kết nối & Tích hợp',
                 'settings.integrationDesc': 'Cấu hình TikTok Live, máy in và API.',
                 'settings.printer': 'Máy in hóa đơn',
-                'settings.printerDesc': 'Địa chỉ IP hoặc cổng kết nối máy in.',
+                'settings.printerDesc': 'Địa chỉ IP, cổng thiết bị, hoặc tên máy in hệ thống.',
+                'settings.printerType': 'Loại kết nối máy in',
+                'settings.printerTypeDesc': 'Chọn TCP (Wi‑Fi/LAN), USB/cổng trực tiếp, hoặc máy in hệ thống.',
                 'settings.apiKey': 'TikTok Sign API Key',
                 'settings.apiKeyDesc': 'Khóa bảo mật đồng bộ với hệ thống TikTok.',
                 'settings.save': 'Lưu cấu hình hệ thống',
@@ -256,7 +260,9 @@
                 'settings.integrationTitle': 'Connections & Integrations',
                 'settings.integrationDesc': 'Configure TikTok Live, printer and API.',
                 'settings.printer': 'Invoice printer',
-                'settings.printerDesc': 'Printer IP address or connection port.',
+                'settings.printerDesc': 'IP address, device port, or system printer name.',
+                'settings.printerType': 'Printer connection type',
+                'settings.printerTypeDesc': 'Choose TCP (Wi‑Fi/LAN), USB/direct port, or system printer.',
                 'settings.apiKey': 'TikTok Sign API Key',
                 'settings.apiKeyDesc': 'Security key to sync with TikTok services.',
                 'settings.save': 'Save system configuration',
@@ -630,15 +636,23 @@
             const itemTextArg = escapeHtml(JSON.stringify(normalizeDisplayText(item.text || item.productName || '')));
             const price = Number(item.price || 0);
             const safeItemId = escapeHtml(String(item.id ?? ''));
+            const isPrinted = Boolean(item.printed || item.printedAt);
+            const printedClass = isPrinted ? ' is-printed' : '';
+            const printBtnTitle = isPrinted 
+                ? (currentLang === 'en' ? 'Already printed (Click to reprint)' : 'Đã in đơn (Bấm để in lại)') 
+                : (currentLang === 'en' ? 'Print item' : 'In dòng này');
+            const printBadge = isPrinted 
+                ? `<span class="printed-pill bg-amber-800/10 text-amber-800 dark:text-amber-300 dark:bg-amber-900/30 text-[9px] px-1.5 py-0.5 rounded font-bold ml-1.5 border border-amber-600/30">Đã in</span>` 
+                : '';
             return `
-                <div class="live-order-item live-order-comment-row" data-item-id="${safeItemId}">
+                <div class="live-order-item live-order-comment-row${printedClass}" data-item-id="${safeItemId}">
                     <div class="live-order-comment-main">
-                        <strong>${escapeHtml(normalizeDisplayText(item.text || item.productName || 'Sản phẩm'))}</strong>
+                        <strong>${escapeHtml(normalizeDisplayText(item.text || item.productName || 'Sản phẩm'))}${printBadge}</strong>
                         <span>${escapeHtml(normalizeDisplayText(item.time || 'Vừa chốt'))}</span>
                     </div>
                     <strong class="live-order-comment-price">${formatMoney(price)}</strong>
                     <div class="live-order-item-actions">
-                        <button type="button" class="icon-btn" title="In lại dòng này" onclick="reprintItem(${usernameArg}, ${itemIdArg})"><span class="material-symbols-outlined">print</span></button>
+                        <button type="button" class="icon-btn${isPrinted ? ' btn-printed' : ''}" title="${escapeHtml(printBtnTitle)}" onclick="reprintItem(${usernameArg}, ${itemIdArg})"><span class="material-symbols-outlined">print</span></button>
                         <button type="button" class="icon-btn" title="Sửa bình luận" onclick="editItem(${usernameArg}, ${itemIdArg}, ${itemTextArg}, ${price})"><span class="material-symbols-outlined">edit</span></button>
                         <button type="button" class="icon-btn danger" title="Xóa bình luận" onclick="deleteItem(${usernameArg}, ${itemIdArg})"><span class="material-symbols-outlined">delete</span></button>
                     </div>
@@ -658,9 +672,11 @@
             const avatarSrc = isAvatarUrl(order.profilePictureUrl) ? order.profilePictureUrl : buildInitialAvatarDataUri(customerLabel);
             const itemRows = items.map(item => buildItemRowHtml(item, usernameArg)).join('');
             const isChecked = (window.selectedOrderUsernames && window.selectedOrderUsernames.has(username)) ? 'checked' : '';
+            const allPrinted = items.length > 0 && items.every(i => i.printed || i.printedAt);
+            const cardPrintedClass = allPrinted ? ' is-card-printed' : '';
 
             return `
-                <article class="live-order-card" data-username="${escapeHtml(username)}">
+                <article class="live-order-card${cardPrintedClass}" data-username="${escapeHtml(username)}">
                     <div class="live-order-card-head">
                         <div class="flex items-center gap-2 mr-1">
                             <input type="checkbox" class="order-select-checkbox rounded border-gray-300 dark:border-zinc-700 text-red-600 focus:ring-red-500 cursor-pointer" 
@@ -684,7 +700,7 @@
                     <div class="live-order-items">${itemRows}</div>
                     <div class="live-order-card-foot">
                         <div><span>Tổng đơn</span><strong>${formatMoney(total)}</strong></div>
-                        <button type="button" onclick="reprintTotal(${usernameArg})">In lại tổng</button>
+                        <button type="button" class="${allPrinted ? 'btn-printed-total' : ''}" onclick="reprintTotal(${usernameArg})">${allPrinted ? (currentLang === 'en' ? 'Reprint total' : 'In lại tổng') : (currentLang === 'en' ? 'Print total' : 'In tổng')}</button>
                     </div>
                 </article>
             `;
@@ -1509,6 +1525,95 @@
             }
         };
 
+
+        const PRINTER_HINTS = {
+            tcp: {
+                placeholder: 'tcp://192.168.1.9:9100',
+                vi: 'Ví dụ: tcp://192.168.1.9:9100 (Wi‑Fi/LAN port 9100)',
+                en: 'Example: tcp://192.168.1.9:9100 (Wi‑Fi/LAN port 9100)'
+            },
+            usb: {
+                placeholder: '/dev/usb/lp0',
+                vi: 'Linux: /dev/usb/lp0 · Windows: COM3 hoặc \.\COM3',
+                en: 'Linux: /dev/usb/lp0 · Windows: COM3 or \.\COM3'
+            },
+            printer: {
+                placeholder: 'EPSON TM-T82',
+                vi: 'Tên máy in hệ thống (hoặc để trống = auto)',
+                en: 'System printer name (blank = auto)'
+            }
+        };
+
+        function detectPrinterType(iface) {
+            const value = String(iface || '').trim();
+            if (!value) return 'tcp';
+            if (/^printer:/i.test(value)) return 'printer';
+            if (
+                value.startsWith('/dev/') ||
+                value.startsWith('\\\\.\\') ||
+                value.startsWith('//./') ||
+                /^COM\d+$/i.test(value) ||
+                /^LPT\d+$/i.test(value)
+            ) return 'usb';
+            return 'tcp';
+        }
+
+        function buildPrinterInterfaceFromUi() {
+            const type = printerTypeSelect?.value || 'tcp';
+            let value = (printerIpInput?.value || '').trim();
+            if (!value) return '';
+
+            if (type === 'tcp') {
+                if (!/^tcp:\/\//i.test(value)) value = `tcp://${value.replace(/^\/+/, '')}`;
+                try {
+                    const u = new URL(value);
+                    if (!u.port) {
+                        u.port = '9100';
+                        value = u.toString().replace(/\/$/, '');
+                    }
+                } catch (_) {}
+                return value;
+            }
+
+            if (type === 'usb') {
+                if (/^COM\d+$/i.test(value) || /^LPT\d+$/i.test(value)) {
+                    return `\\\\.\\${value.toUpperCase()}`;
+                }
+                return value;
+            }
+
+            // system printer
+            if (/^printer:/i.test(value)) return value;
+            return `printer:${value || 'auto'}`;
+        }
+
+        function applyPrinterUiFromInterface(iface) {
+            const type = detectPrinterType(iface);
+            if (printerTypeSelect) printerTypeSelect.value = type;
+            if (printerIpInput) {
+                let display = String(iface || '');
+                if (type === 'printer') display = display.replace(/^printer:/i, '');
+                printerIpInput.value = display;
+            }
+            updatePrinterHint();
+        }
+
+        function updatePrinterHint() {
+            const type = printerTypeSelect?.value || 'tcp';
+            const hint = PRINTER_HINTS[type] || PRINTER_HINTS.tcp;
+            if (printerIpInput) printerIpInput.placeholder = hint.placeholder;
+            if (printerHintEl) printerHintEl.textContent = currentLang === 'en' ? hint.en : hint.vi;
+        }
+
+        if (printerTypeSelect && !printerTypeSelect.dataset.bound) {
+            printerTypeSelect.dataset.bound = 'true';
+            printerTypeSelect.addEventListener('change', () => {
+                updatePrinterHint();
+                // clear value when switching type to avoid mixing formats
+                if (printerIpInput) printerIpInput.value = '';
+            });
+        }
+
         window.toggleSettings = () => switchView('settings');
         window.saveSettings = () => {
             const defaultTikTokIdInput = document.getElementById('default-tiktok-id');
@@ -1517,7 +1622,7 @@
             const autoConnectEnabled = autoConnectCheckbox?.checked || false;
 
             socket.emit('update-settings', {
-                printerInterface: printerIpInput.value.trim(),
+                printerInterface: buildPrinterInterfaceFromUi(),
                 tiktokSignApiKey: tiktokApiKeyInput.value.trim()
             });
 
@@ -1544,13 +1649,14 @@
             // Cập nhật panel trạng thái hệ thống
             const printerStatusText = document.getElementById('status-printer-text');
             const printerStatusIcon = document.getElementById('status-printer-icon');
+            const builtPrinter = buildPrinterInterfaceFromUi();
             if (printerStatusText) {
-                printerStatusText.textContent = printerIpInput.value.trim()
-                    ? printerIpInput.value.trim()
+                printerStatusText.textContent = builtPrinter
+                    ? builtPrinter
                     : (currentLang === 'en' ? 'Not configured' : 'Chưa cấu hình');
             }
             if (printerStatusIcon) {
-                printerStatusIcon.style.color = printerIpInput.value.trim() ? '#22c55e' : '#94a3b8';
+                printerStatusIcon.style.color = builtPrinter ? '#22c55e' : '#94a3b8';
             }
 
             const msg = document.getElementById('system-status-msg');
@@ -1756,10 +1862,10 @@
 
         window.testPrinterConnection = () => {
             const badge = document.getElementById('printer-status-badge');
-            const printerIp = document.getElementById('printer-ip');
-            if (!printerIp || !printerIp.value.trim()) {
+            const iface = buildPrinterInterfaceFromUi();
+            if (!iface) {
                 if (badge) {
-                    badge.textContent = currentLang === 'en' ? 'No IP' : 'Chưa có IP';
+                    badge.textContent = currentLang === 'en' ? 'No target' : 'Chưa có máy in';
                     badge.style.borderColor = '#f59e0b';
                     badge.style.color = '#f59e0b';
                 }
@@ -1770,15 +1876,7 @@
                 badge.style.borderColor = '#3b82f6';
                 badge.style.color = '#3b82f6';
             }
-            // TODO: Gửi socket event 'test-printer' khi backend hỗ trợ
-            // socket.emit('test-printer', { interface: printerIp.value.trim() });
-            setTimeout(() => {
-                if (badge) {
-                    badge.textContent = currentLang === 'en' ? 'Unavailable' : 'Chưa hỗ trợ';
-                    badge.style.borderColor = '#64748b';
-                    badge.style.color = '#64748b';
-                }
-            }, 1500);
+            socket.emit('test-printer', { interface: iface });
         }
         document.addEventListener('DOMContentLoaded', () => {
             const testBtn = document.getElementById('btn-test-printer');
@@ -1889,7 +1987,7 @@
         });
 
         socket.on('system-config', (config) => {
-            printerIpInput.value = config.printerInterface;
+            applyPrinterUiFromInterface(config.printerInterface || '');
             tiktokApiKeyInput.value = config.tiktokSignApiKey;
             // Cập nhật UI trạng thái sau khi nhận config từ server
             updateApiKeyStatus();
@@ -1904,6 +2002,25 @@
             setTimeout(() => systemStatusMsg.innerText = '', 3000);
         });
         socket.on('printer-error', (msg) => { alert(msg); });
+        socket.on('printer-test-result', (res) => {
+            const badge = document.getElementById('printer-status-badge');
+            const ok = !!res?.ok;
+            const message = res?.message || (ok ? 'OK' : 'Failed');
+            if (badge) {
+                badge.textContent = ok
+                    ? (currentLang === 'en' ? 'Connected' : 'Kết nối OK')
+                    : (currentLang === 'en' ? 'Failed' : 'Lỗi');
+                badge.style.borderColor = ok ? '#22c55e' : '#ef4444';
+                badge.style.color = ok ? '#22c55e' : '#ef4444';
+                badge.style.background = ok ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)';
+            }
+            const msg = document.getElementById('system-status-msg');
+            if (msg) {
+                msg.textContent = message;
+                msg.style.color = ok ? '#16a34a' : '#dc2626';
+                setTimeout(() => { if (msg.textContent === message) msg.textContent = ''; }, 4000);
+            }
+        });
 
         socket.on('all-confirmed-orders', (allOrders) => {
             liveOrdersData = normalizeOrdersMap(allOrders);
@@ -2670,10 +2787,184 @@
             }
         }
 
+        window.selectedCustomerIds = new Set();
+
+        window.toggleCustomerSelect = (customerId, checked) => {
+            if (checked) {
+                window.selectedCustomerIds.add(customerId);
+            } else {
+                window.selectedCustomerIds.delete(customerId);
+            }
+            updateCustomerSelectState();
+        };
+
+        window.toggleSelectAllCustomers = (checked) => {
+            const checkboxes = customersTableBody?.querySelectorAll('.customer-select-checkbox');
+            checkboxes?.forEach(cb => {
+                cb.checked = checked;
+                if (checked) {
+                    window.selectedCustomerIds.add(cb.dataset.id);
+                } else {
+                    window.selectedCustomerIds.delete(cb.dataset.id);
+                }
+            });
+            updateCustomerSelectState();
+        };
+
+        function updateCustomerSelectState() {
+            const count = window.selectedCustomerIds.size;
+            const btnMerge = document.getElementById('btn-merge-customers');
+            const countBadge = document.getElementById('selected-customers-count');
+            const selectAllCb = document.getElementById('customer-select-all');
+
+            if (btnMerge) {
+                btnMerge.disabled = count < 2;
+            }
+            if (countBadge) {
+                countBadge.textContent = count;
+                countBadge.classList.toggle('hidden', count === 0);
+            }
+            if (selectAllCb && customersTableBody) {
+                const totalCbs = customersTableBody.querySelectorAll('.customer-select-checkbox').length;
+                selectAllCb.checked = totalCbs > 0 && count === totalCbs;
+            }
+        }
+
+        window.openMergeSelectedCustomersModal = () => {
+            const selectedIds = Array.from(window.selectedCustomerIds);
+            if (selectedIds.length < 2) {
+                return alert(currentLang === 'en' ? 'Please select at least 2 customers to merge.' : 'Vui lòng tích chọn ít nhất 2 khách hàng để gộp.');
+            }
+            showMergeCustomersModal(selectedIds);
+        };
+
+        window.openMergeCustomerWithOthers = (customerId) => {
+            window.selectedCustomerIds.add(customerId);
+            updateCustomerSelectState();
+            if (window.selectedCustomerIds.size < 2) {
+                const cust = customersData.find(c => c.id === customerId);
+                if (cust) {
+                    const match = customersData.find(c => c.id !== customerId && ((c.phone && c.phone === cust.phone) || (c.displayName && c.displayName.toLowerCase() === cust.displayName.toLowerCase())));
+                    if (match) window.selectedCustomerIds.add(match.id);
+                }
+            }
+            if (window.selectedCustomerIds.size < 2) {
+                return alert(currentLang === 'en' ? 'Please tick checkboxes for at least 2 customers to merge.' : 'Vui lòng tích chọn thêm ít nhất 1 khách hàng nữa để gộp.');
+            }
+            updateCustomerSelectState();
+            showMergeCustomersModal(Array.from(window.selectedCustomerIds));
+        };
+
+        function showMergeCustomersModal(customerIds) {
+            const modal = document.getElementById('merge-customers-modal');
+            const primaryContainer = document.getElementById('merge-primary-select-container');
+            const handlesPreview = document.getElementById('merge-tiktok-preview');
+            const summaryPreview = document.getElementById('merge-customer-summary-preview');
+            if (!modal || !primaryContainer) return;
+
+            const targetCustomers = customersData.filter(c => customerIds.includes(c.id));
+            if (targetCustomers.length < 2) return;
+
+            let defaultPrimaryId = targetCustomers.find(c => c.phone && c.addressDetail)?.id || targetCustomers[0].id;
+
+            function renderPrimaryOptions() {
+                primaryContainer.innerHTML = targetCustomers.map(c => {
+                    const isSelected = c.id === defaultPrimaryId;
+                    const handles = String(c.tiktokUsername || '').split(/[\s,]+/).filter(Boolean).map(h => `@${h.replace(/^@+/, '')}`).join(', ');
+                    const address = [c.addressDetail, c.ward, c.district, c.province].filter(Boolean).join(', ');
+                    return `
+                        <label class="flex items-start gap-2.5 p-2.5 rounded-xl border transition-all cursor-pointer ${isSelected ? 'border-purple-500 bg-purple-50 dark:bg-purple-950/30' : 'border-gray-200 dark:border-zinc-700 bg-white dark:bg-zinc-900'}">
+                            <input type="radio" name="primary-customer-radio" value="${escapeHtml(c.id)}" ${isSelected ? 'checked' : ''} class="mt-1 text-purple-600 focus:ring-purple-500" onchange="window.selectPrimaryCustomerForMerge('${escapeHtml(c.id)}')">
+                            <div class="min-w-0 flex-1 text-xs">
+                                <div class="flex items-center justify-between">
+                                    <strong class="text-sm font-black ${isSelected ? 'text-purple-900 dark:text-purple-200' : 'text-gray-900 dark:text-gray-100'}">${escapeHtml(c.displayName || 'Khách hàng')}</strong>
+                                    ${isSelected ? '<span class="text-[10px] bg-purple-600 text-white px-2 py-0.5 rounded-full font-bold">Khách chính</span>' : ''}
+                                </div>
+                                <p class="text-purple-700 dark:text-purple-400 font-bold mt-0.5">${escapeHtml(handles || 'Chưa có TikTok handle')}</p>
+                                <p class="text-gray-500 dark:text-gray-400 mt-0.5">SĐT: ${escapeHtml(c.phone || 'Chưa có')} | Địa chỉ: ${escapeHtml(address || 'Chưa có')}</p>
+                            </div>
+                        </label>
+                    `;
+                }).join('');
+
+                const allHandlesSet = new Set();
+                targetCustomers.forEach(c => {
+                    String(c.tiktokUsername || '').split(/[\s,]+/).forEach(h => {
+                        const clean = h.replace(/^@+/, '').trim();
+                        if (clean) allHandlesSet.add(clean);
+                    });
+                });
+                handlesPreview.innerHTML = Array.from(allHandlesSet).map(h => `<span class="bg-purple-100 dark:bg-purple-900/40 text-purple-800 dark:text-purple-200 text-xs px-2 py-1 rounded-lg font-bold border border-purple-300 dark:border-purple-700">@${escapeHtml(h)}</span>`).join('');
+
+                const primaryCust = targetCustomers.find(c => c.id === defaultPrimaryId);
+                const finalAddress = [
+                    primaryCust.addressDetail || targetCustomers.find(c => c.addressDetail)?.addressDetail,
+                    primaryCust.ward || targetCustomers.find(c => c.ward)?.ward,
+                    primaryCust.district || targetCustomers.find(c => c.district)?.district,
+                    primaryCust.province || targetCustomers.find(c => c.province)?.province
+                ].filter(Boolean).join(', ');
+
+                summaryPreview.innerHTML = `
+                    <p class="font-bold text-gray-800 dark:text-gray-200">📌 Thông tin sau khi gộp:</p>
+                    <p>• <strong>Hồ sơ chính:</strong> ${escapeHtml(primaryCust.displayName)} (${escapeHtml(primaryCust.phone || targetCustomers.find(c => c.phone)?.phone || 'Chưa có SĐT')})</p>
+                    <p>• <strong>Địa chỉ giao hàng:</strong> ${escapeHtml(finalAddress || 'Chưa có địa chỉ')}</p>
+                    <p>• <strong>Số lượng tài khoản TikTok gộp:</strong> ${allHandlesSet.size} nick TikTok</p>
+                `;
+            }
+
+            window.selectPrimaryCustomerForMerge = (id) => {
+                defaultPrimaryId = id;
+                renderPrimaryOptions();
+            };
+
+            renderPrimaryOptions();
+            modal.classList.remove('hidden');
+        }
+
+        window.closeMergeCustomersModal = () => {
+            const modal = document.getElementById('merge-customers-modal');
+            if (modal) modal.classList.add('hidden');
+        };
+
+        window.executeMergeCustomers = async () => {
+            const primaryRadio = document.querySelector('input[name="primary-customer-radio"]:checked');
+            if (!primaryRadio) return alert('Vui lòng chọn khách hàng chính.');
+
+            const primaryId = primaryRadio.value;
+            const selectedIds = Array.from(window.selectedCustomerIds);
+            const secondaryIds = selectedIds.filter(id => id !== primaryId);
+
+            if (secondaryIds.length === 0) {
+                return alert('Cần có ít nhất 1 khách hàng phụ để gộp.');
+            }
+
+            try {
+                const res = await fetch('/api/customers/merge', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ primaryId, secondaryIds })
+                });
+                const data = await res.json();
+                if (!res.ok) throw new Error(data.error || 'Lỗi khi gộp khách hàng');
+
+                if (typeof showLiveToast === 'function') {
+                    showLiveToast(`✅ Đã gộp thành công ${secondaryIds.length + 1} tài khoản khách hàng!`, 'success');
+                } else {
+                    alert(`✅ Đã gộp thành công ${secondaryIds.length + 1} tài khoản khách hàng!`);
+                }
+                closeMergeCustomersModal();
+                window.selectedCustomerIds.clear();
+                updateCustomerSelectState();
+                await loadCustomers();
+            } catch (err) {
+                alert('❌ Lỗi: ' + err.message);
+            }
+        };
+
         async function loadCustomers() {
             if (!customersTableBody) return;
             const q = customerSearchInput ? customerSearchInput.value.trim() : '';
-            customersTableBody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-gray-400">Đang tải...</td></tr>`;
+            customersTableBody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-gray-400">Đang tải...</td></tr>`;
             try {
                 const res = await fetch('/api/customers?q=' + encodeURIComponent(q));
                 const data = await res.json();
@@ -2682,7 +2973,7 @@
                 renderCustomersTable();
                 updateOverallCustomerStats();
             } catch (error) {
-                customersTableBody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-red-500">${escapeHtml(error.message)}</td></tr>`;
+                customersTableBody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-red-500">${escapeHtml(error.message)}</td></tr>`;
             }
         }
 
@@ -2700,28 +2991,46 @@
             }
 
             if (!filteredData.length) {
-                customersTableBody.innerHTML = `<tr><td colspan="5" class="p-6 text-center text-gray-400">Chưa có khách hàng phù hợp bộ lọc</td></tr>`;
+                customersTableBody.innerHTML = `<tr><td colspan="6" class="p-6 text-center text-gray-400">Chưa có khách hàng phù hợp bộ lọc</td></tr>`;
                 return;
             }
 
             filteredData.forEach(customer => {
                 const address = [customer.addressDetail, customer.ward, customer.district, customer.province].filter(Boolean).join(', ');
-                const username = normalizeTikTokUsername(customer.tiktokUsername || '');
-                const handle = formatTikTokUsername(username);
-                const displayName = getDisplayName(customer.displayName || '', username);
+                const isChecked = window.selectedCustomerIds.has(customer.id);
+                const rawUsernames = String(customer.tiktokUsername || '').split(/[\s,]+/).map(h => h.replace(/^@+/, '').trim()).filter(Boolean);
+                const handles = rawUsernames.map(u => `@${u}`);
+                const displayName = getDisplayName(customer.displayName || '', rawUsernames[0] || '');
 
                 const row = document.createElement('tr');
-                row.className = 'border-b hover:bg-gray-50';
+                row.className = 'border-b hover:bg-gray-50 dark:hover:bg-zinc-800/40';
                 row.style.cursor = 'pointer';
                 row.addEventListener('click', (e) => {
-                    if (e.target.closest('.customer-action-btn')) return;
+                    if (e.target.closest('.customer-action-btn') || e.target.closest('.customer-select-checkbox')) return;
                     showCustomerDetail(customer);
                 });
 
+                // Select Cell
+                const selectCell = document.createElement('td');
+                selectCell.className = 'p-3 text-center customer-table-select';
+                const checkbox = document.createElement('input');
+                checkbox.type = 'checkbox';
+                checkbox.className = 'customer-select-checkbox w-4 h-4 rounded border-gray-300 cursor-pointer text-purple-600 focus:ring-purple-500';
+                checkbox.dataset.id = customer.id;
+                checkbox.checked = isChecked;
+                checkbox.addEventListener('click', (e) => e.stopPropagation());
+                checkbox.addEventListener('change', (e) => {
+                    window.toggleCustomerSelect(customer.id, e.target.checked);
+                });
+                selectCell.appendChild(checkbox);
+
                 const usernameCell = document.createElement('td');
                 usernameCell.className = 'p-3 font-bold customer-table-username';
-                usernameCell.title = handle;
-                usernameCell.textContent = handle || '—';
+                if (handles.length <= 1) {
+                    usernameCell.textContent = handles[0] || '—';
+                } else {
+                    usernameCell.innerHTML = handles.map(h => `<span class="inline-block bg-purple-100 dark:bg-purple-900/30 text-purple-800 dark:text-purple-200 text-[11px] px-2 py-0.5 rounded font-bold mr-1 mb-0.5 border border-purple-200 dark:border-purple-700">${escapeHtml(h)}</span>`).join('');
+                }
 
                 const nameCell = document.createElement('td');
                 nameCell.className = 'p-3 customer-table-name customer-display-name';
@@ -2753,21 +3062,32 @@
 
                 const actionsCell = document.createElement('td');
                 actionsCell.className = 'p-3 text-right customer-table-actions';
+                
+                const mergeBtn = document.createElement('button');
+                mergeBtn.type = 'button';
+                mergeBtn.className = 'customer-action-btn bg-purple-50 text-purple-600 hover:bg-purple-100 font-bold mr-1';
+                mergeBtn.textContent = 'Gộp';
+                mergeBtn.title = 'Gộp khách hàng này';
+                mergeBtn.addEventListener('click', () => window.openMergeCustomerWithOthers(customer.id));
+
                 const editBtn = document.createElement('button');
                 editBtn.type = 'button';
-                editBtn.className = 'customer-action-btn bg-blue-50 text-blue-600';
+                editBtn.className = 'customer-action-btn bg-blue-50 text-blue-600 mr-1';
                 editBtn.textContent = 'Sửa';
                 editBtn.addEventListener('click', () => editCustomer(customer.id));
+
                 const removeBtn = document.createElement('button');
                 removeBtn.type = 'button';
                 removeBtn.className = 'customer-action-btn bg-red-50 text-red-600';
                 removeBtn.textContent = 'Xóa';
                 removeBtn.addEventListener('click', () => removeCustomer(customer.id));
-                actionsCell.append(editBtn, removeBtn);
 
-                row.append(usernameCell, nameCell, phoneCell, addressCell, actionsCell);
+                actionsCell.append(mergeBtn, editBtn, removeBtn);
+
+                row.append(selectCell, usernameCell, nameCell, phoneCell, addressCell, actionsCell);
                 customersTableBody.appendChild(row);
             });
+            updateCustomerSelectState();
         }
 
         async function saveCustomerForm(event) {
@@ -3197,12 +3517,52 @@
         };
         window.reprintItem = (username, itemId) => {
             const isManual = (currentView === 'orders' || currentView === 'customers');
-            socket.emit('reprint-item', { username: normalizeTikTokUsername(username), itemId, isManual });
+            const norm = normalizeTikTokUsername(username);
+            const dataTarget = isManual ? ordersData : liveOrdersData;
+            const item = dataTarget[norm]?.items?.find(i => String(i.id) === String(itemId));
+
+            if (item && (item.printed || item.printedAt)) {
+                const msg = currentLang === 'en' 
+                    ? 'This item was ALREADY printed. Do you want to print it again?' 
+                    : 'Món hàng này ĐÃ IN rồi. Bạn có muốn in lại lần nữa không?';
+                if (!confirm(msg)) return;
+            }
+
+            if (item) {
+                item.printed = true;
+                item.printedAt = new Date().toISOString();
+                if (isManual) patchManualOrderCard(norm);
+                else patchLiveOrderCard(norm);
+            }
+
+            socket.emit('reprint-item', { username: norm, itemId, isManual });
         };
 
         window.reprintTotal = (username) => {
             const isManual = (currentView === 'orders' || currentView === 'customers');
-            socket.emit('reprint-total', { username: normalizeTikTokUsername(username), isManual });
+            const norm = normalizeTikTokUsername(username);
+            const dataTarget = isManual ? ordersData : liveOrdersData;
+            const order = dataTarget[norm];
+            const hasPrinted = order?.items?.some(i => i.printed || i.printedAt);
+
+            if (hasPrinted) {
+                const msg = currentLang === 'en' 
+                    ? 'Orders for this customer have ALREADY been printed. Do you want to print again?' 
+                    : 'Đơn của khách này ĐÃ IN rồi. Bạn có muốn in lại lần nữa không?';
+                if (!confirm(msg)) return;
+            }
+
+            if (order && Array.isArray(order.items)) {
+                const nowIso = new Date().toISOString();
+                order.items.forEach(i => {
+                    i.printed = true;
+                    i.printedAt = nowIso;
+                });
+                if (isManual) patchManualOrderCard(norm);
+                else patchLiveOrderCard(norm);
+            }
+
+            socket.emit('reprint-total', { username: norm, isManual });
         };
 
         window.deleteCustomer = (username) => {

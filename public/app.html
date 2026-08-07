@@ -24,11 +24,15 @@
 
 <!-- Mobile Header -->
 <div class="mobile-header md:hidden">
-    <button id="mobile-menu-toggle" class="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800">
+    <button id="mobile-menu-toggle" class="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800" aria-label="Mở menu">
         <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
     </button>
-    <div class="font-bold text-lg ml-3">TikTok Order</div>
+    <div class="font-bold text-lg ml-2 truncate">TikTok Order</div>
     <div class="flex-1"></div>
+    <button onclick="showLiveSessions()" class="mr-2 px-2.5 py-1 bg-red-500 hover:bg-red-600 active:scale-95 text-white rounded-xl flex items-center gap-1 text-xs font-bold shadow-sm transition-all" title="Lịch sử Phiên Live" aria-label="Lịch sử Phiên Live">
+        <img src="/icons/receipt-text.svg" alt="" width="14" height="14" class="brightness-0 invert">
+        <span>Lịch sử</span>
+    </button>
     <button id="mobile-connect-btn" class="p-2 rounded-lg hover:bg-zinc-100 dark:hover:bg-zinc-800 hidden">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
     </button>
@@ -50,6 +54,7 @@
                 <button class="menu-item w-full text-left" data-view="orders" data-tooltip="Đơn hàng"><span class="nav-key"><img src="/icons/receipt-text.svg" alt=""></span><span class="menu-label" data-i18n="menu.orders">Đơn hàng</span></button>
                 <button class="menu-item w-full text-left" data-view="delivery" data-tooltip="Đi Đơn"><span class="nav-key"><img src="/icons/delivery.svg" alt=""></span><span class="menu-label" data-i18n="menu.delivery">Đi Đơn</span></button>
                 <button class="menu-item w-full text-left" data-view="customers" data-tooltip="Khách hàng"><span class="nav-key"><img src="/icons/users.svg" alt=""></span><span class="menu-label" data-i18n="menu.customers">Khách hàng</span></button>
+                <button class="menu-item w-full text-left" onclick="showLiveSessions()" data-tooltip="Lịch sử phiên"><span class="nav-key"><img src="/icons/receipt-text.svg" alt=""></span><span class="menu-label">Lịch sử Phiên Live</span></button>
                 <button class="menu-item w-full text-left" data-view="settings" data-tooltip="Cài đặt"><span class="nav-key"><img src="/icons/settings.svg" alt=""></span><span class="menu-label" data-i18n="menu.settings">Cài đặt</span></button>
                 <button id="sidebar-admin-item" class="menu-item w-full text-left hidden" data-view="admin" data-tooltip="Admin"><span class="nav-key"><img src="/icons/settings.svg" alt=""></span><span class="menu-label" data-i18n="menu.admin">Admin</span></button>
             </nav>
@@ -723,6 +728,10 @@
                                     <p class="text-sm text-gray-500" data-i18n="customers.subtitle">Lưu địa chỉ theo từng tài khoản để xuất file đi đơn.</p>
                                 </div>
                                 <div class="flex flex-wrap gap-2">
+                                    <button type="button" id="btn-merge-customers" onclick="openMergeSelectedCustomersModal()" disabled class="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-1.5">
+                                        <span>🔀 Gộp khách hàng</span>
+                                        <span id="selected-customers-count" class="bg-purple-800 text-white text-xs px-2 py-0.5 rounded-full hidden">0</span>
+                                    </button>
                                     <button type="button" onclick="importCustomersFromHistory()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl text-sm font-bold" data-i18n="customers.importHistory">Lấy từ lịch sử chốt</button>
                                     <button type="button" onclick="resetCustomerForm()" class="bg-red-500 text-white px-4 py-2 rounded-xl text-sm font-bold" data-i18n="customers.new">Thêm khách</button>
                                 </div>
@@ -738,6 +747,9 @@
                                     <table class="customers-table w-full text-sm">
                                         <thead class="bg-white border-b text-xs text-gray-500">
                                             <tr>
+                                                <th class="p-3 text-center w-10">
+                                                    <input type="checkbox" id="customer-select-all" class="w-4 h-4 rounded border-gray-300 cursor-pointer" onchange="toggleSelectAllCustomers(this.checked)">
+                                                </th>
                                                 <th class="p-3 text-left">TikTok</th>
                                                 <th class="p-3 text-left">Tên</th>
                                                 <th class="p-3 text-left">Số điện thoại</th>
@@ -891,12 +903,26 @@
                                             </div>
                                         </div>
                                         <div class="settings-field">
+                                            <label for="printer-type" data-i18n="settings.printerType">Loại kết nối máy in</label>
+                                            <p data-i18n="settings.printerTypeDesc">Chọn TCP (Wi‑Fi/LAN), USB/cổng trực tiếp, hoặc máy in hệ thống.</p>
+                                            <select id="printer-type" class="settings-select" style="width:100%;margin-bottom:10px;">
+                                                <option value="tcp">TCP (Wi‑Fi / LAN)</option>
+                                                <option value="usb">USB / Cổng trực tiếp</option>
+                                                <option value="printer">Máy in hệ thống</option>
+                                            </select>
                                             <label for="printer-ip" data-i18n="settings.printer">Máy in hóa đơn</label>
-                                            <p data-i18n="settings.printerDesc">Địa chỉ IP hoặc cổng kết nối của máy in.</p>
+                                            <p data-i18n="settings.printerDesc">Địa chỉ IP, cổng thiết bị, hoặc tên máy in hệ thống.</p>
                                             <div class="settings-input-wrap">
                                                 <span>▣</span>
-                                                <input type="text" id="printer-ip" placeholder="tcp://192.168.1.9">
+                                                <input type="text" id="printer-ip" placeholder="tcp://192.168.1.9:9100" autocomplete="off">
                                             </div>
+                                            <div style="display:flex;align-items:center;gap:8px;margin-top:8px;flex-wrap:wrap;">
+                                                <button type="button" id="btn-test-printer" onclick="testPrinterConnection()" style="background:#0f172a;color:#fff;border:1px solid #334155;padding:6px 12px;border-radius:8px;font-size:12px;font-weight:700;cursor:pointer;">
+                                                    Test máy in
+                                                </button>
+                                                <span id="printer-status-badge" style="font-size:12px;font-weight:700;padding:4px 8px;border-radius:999px;border:1px solid #64748b;color:#94a3b8;">Chưa kiểm tra</span>
+                                            </div>
+                                            <p id="printer-hint" style="margin-top:6px;font-size:12px;opacity:.75;">Ví dụ: tcp://192.168.1.9:9100</p>
                                         </div>
                                         <div class="settings-field">
                                             <label for="tiktok-api-key" data-i18n="settings.apiKey">TikTok Sign API Key</label>
@@ -1022,6 +1048,51 @@
                 <button onclick="closeDeliveryWarnings()" class="text-gray-500 hover:text-black text-xl">✕</button>
             </div>
             <div id="delivery-warning-list" class="overflow-y-auto p-4 space-y-2"></div>
+        </div>
+    </div>
+
+    <!-- Modal Gộp Khách Hàng -->
+    <div id="merge-customers-modal" class="fixed inset-0 bg-black bg-opacity-60 z-[65] hidden flex items-center justify-center p-4 no-print">
+        <div class="bg-white dark:bg-zinc-900 rounded-2xl shadow-2xl w-full max-w-xl max-h-[90vh] flex flex-col border border-gray-200 dark:border-zinc-800">
+            <div class="p-4 border-b border-gray-200 dark:border-zinc-800 flex justify-between items-center bg-purple-50 dark:bg-purple-950/40 rounded-t-2xl">
+                <div class="flex items-center gap-2">
+                    <span class="material-symbols-outlined text-purple-600 dark:text-purple-400">join_right</span>
+                    <h3 class="font-black text-lg text-purple-900 dark:text-purple-200">Gộp Khách Hàng (Nhiều Nick TikTok)</h3>
+                </div>
+                <button onclick="closeMergeCustomersModal()" class="text-gray-400 hover:text-gray-600 dark:hover:text-white text-xl">✕</button>
+            </div>
+            
+            <div class="p-5 overflow-y-auto flex-1 space-y-4 text-sm">
+                <div class="bg-purple-50/70 dark:bg-purple-900/20 border border-purple-200 dark:border-purple-800 p-3 rounded-xl text-xs text-purple-900 dark:text-purple-200">
+                    <p class="font-bold">ℹ️ Hướng dẫn gộp khách hàng:</p>
+                    <p class="mt-1">Chọn 1 <strong>Khách hàng chính</strong> (giữ nguyên Tên, SĐT, Địa chỉ). Tất cả nick TikTok của các khách khác sẽ được gộp liên kết vào hồ sơ khách hàng chính này.</p>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-2">1. CHỌN KHÁCH HÀNG CHÍNH (GIỮ LẠI HỒ SƠ)</label>
+                    <div id="merge-primary-select-container" class="space-y-2 max-h-48 overflow-y-auto border border-gray-200 dark:border-zinc-700 rounded-xl p-2 bg-gray-50 dark:bg-zinc-800/50">
+                        <!-- Dynamic primary options -->
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-bold text-gray-700 dark:text-gray-300 mb-2">2. CÁC NICK TIKTOK SẼ ĐƯỢC GỘP LIÊN KẾT</label>
+                    <div id="merge-tiktok-preview" class="flex flex-wrap gap-1.5 p-3 border border-gray-200 dark:border-zinc-700 rounded-xl bg-white dark:bg-zinc-900 min-h-[42px] items-center">
+                        <!-- Dynamic handles preview -->
+                    </div>
+                </div>
+
+                <div id="merge-customer-summary-preview" class="p-3 border border-gray-200 dark:border-zinc-800 rounded-xl bg-gray-50 dark:bg-zinc-800/40 space-y-1 text-xs">
+                    <!-- Dynamic summary preview -->
+                </div>
+            </div>
+
+            <div class="p-4 border-t border-gray-200 dark:border-zinc-800 flex items-center justify-end gap-2 bg-gray-50 dark:bg-zinc-900/80 rounded-b-2xl">
+                <button type="button" onclick="closeMergeCustomersModal()" class="px-4 py-2 border border-gray-300 dark:border-zinc-700 rounded-xl text-xs font-bold text-gray-700 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-zinc-800 transition-all">Hủy bỏ</button>
+                <button type="button" onclick="executeMergeCustomers()" class="px-5 py-2 bg-purple-600 hover:bg-purple-700 active:scale-95 text-white rounded-xl text-xs font-bold shadow-md transition-all flex items-center gap-1.5">
+                    <span>🔀 Xác nhận Gộp khách hàng</span>
+                </button>
+            </div>
         </div>
     </div>
 

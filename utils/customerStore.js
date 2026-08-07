@@ -76,10 +76,28 @@ function getCustomerById(userId, customerId) {
     return rowToCustomer(getDb().prepare('SELECT * FROM customers WHERE id = ? AND user_id = ?').get(customerId, userId));
 }
 
+function parseTikTokUsernames(input) {
+    if (!input) return [];
+    if (Array.isArray(input)) {
+        return Array.from(new Set(input.map(h => normalizeTikTokUsername(h)).filter(Boolean)));
+    }
+    return Array.from(new Set(String(input).split(/[\s,;]+/).map(h => normalizeTikTokUsername(h)).filter(Boolean)));
+}
+
 function findCustomerByTikTok(userId, tiktokUsername) {
     const normalized = normalizeTikTokUsername(tiktokUsername);
     if (!normalized) return null;
-    return rowToCustomer(getDb().prepare('SELECT * FROM customers WHERE user_id = ? AND LOWER(tiktok_username) = ?').get(userId, normalized));
+    const exact = getDb().prepare('SELECT * FROM customers WHERE user_id = ? AND LOWER(tiktok_username) = ?').get(userId, normalized);
+    if (exact) return rowToCustomer(exact);
+
+    const candidates = getDb().prepare('SELECT * FROM customers WHERE user_id = ? AND LOWER(tiktok_username) LIKE ?').all(userId, `%${normalized}%`);
+    for (const row of candidates) {
+        const handles = parseTikTokUsernames(row.tiktok_username);
+        if (handles.includes(normalized)) {
+            return rowToCustomer(row);
+        }
+    }
+    return null;
 }
 
 function readUserCustomers(userId) {
@@ -118,7 +136,8 @@ function pickCustomerFields(data) {
             if (field === 'displayName') {
                 result[field] = cleanDisplayText(data[field]);
             } else if (field === 'tiktokUsername') {
-                result[field] = normalizeTikTokUsername(data[field]);
+                const list = parseTikTokUsernames(data[field]);
+                result[field] = list.map(u => `@${u}`).join(', ');
             } else if (field === 'phone') {
                 result[field] = normalizePhone(data[field]);
             } else {
@@ -225,6 +244,63 @@ function deleteCustomer(userId, customerId) {
     return result.changes > 0;
 }
 
+function mergeCustomers(userId, primaryCustomerId, secondaryCustomerIds) {
+    const db = getDb();
+    const primary = getCustomerById(userId, primaryCustomerId);
+    if (!primary) {
+        throw new Error('Không tìm thấy khách hàng chính.');
+    }
+
+    if (!Array.isArray(secondaryCustomerIds) || secondaryCustomerIds.length === 0) {
+        throw new Error('Danh sách khách hàng phụ cần gộp không được để trống.');
+    }
+
+    const secondaryCustomers = secondaryCustomerIds
+        .filter(id => id !== primaryCustomerId)
+        .map(id => getCustomerById(userId, id))
+        .filter(Boolean);
+
+    if (secondaryCustomers.length === 0) {
+        throw new Error('Không tìm thấy các khách hàng phụ để gộp.');
+    }
+
+    // 1. Gộp tất cả các tài khoản TikTok username duy nhất
+    const allUsernames = new Set(parseTikTokUsernames(primary.tiktokUsername));
+    secondaryCustomers.forEach(c => {
+        parseTikTokUsernames(c.tiktokUsername).forEach(u => allUsernames.add(u));
+    });
+    const combinedTikTok = Array.from(allUsernames).map(u => `@${u}`).join(', ');
+
+    // 2. Điền bù các trường thông tin còn thiếu từ khách phụ sang khách chính
+    const newPhone = primary.phone || secondaryCustomers.find(c => Boolean(c.phone))?.phone || '';
+    const newProvince = primary.province || secondaryCustomers.find(c => Boolean(c.province))?.province || '';
+    const newDistrict = primary.district || secondaryCustomers.find(c => Boolean(c.district))?.district || '';
+    const newWard = primary.ward || secondaryCustomers.find(c => Boolean(c.ward))?.ward || '';
+    const newAddressDetail = primary.addressDetail || secondaryCustomers.find(c => Boolean(c.addressDetail))?.addressDetail || '';
+    
+    const notes = [primary.addressNote, ...secondaryCustomers.map(c => c.addressNote)].filter(Boolean);
+    const newAddressNote = Array.from(new Set(notes)).join('; ');
+
+    const now = new Date().toISOString();
+
+    db.prepare(`
+        UPDATE customers 
+        SET tiktok_username = ?, phone = ?, province = ?, district = ?, ward = ?, address_detail = ?, address_note = ?, updated_at = ?
+        WHERE id = ? AND user_id = ?
+    `).run(
+        combinedTikTok, newPhone, newProvince, newDistrict, newWard, newAddressDetail, newAddressNote,
+        now, primaryCustomerId, userId
+    );
+
+    // 3. Xóa các bản ghi khách hàng phụ
+    const deleteStmt = db.prepare('DELETE FROM customers WHERE id = ? AND user_id = ?');
+    secondaryCustomers.forEach(c => {
+        deleteStmt.run(c.id, userId);
+    });
+
+    return getCustomerById(userId, primaryCustomerId);
+}
+
 module.exports = {
     readUserCustomers,
     writeUserCustomers,
@@ -236,6 +312,8 @@ module.exports = {
     createCustomer,
     updateCustomer,
     deleteCustomer,
+    mergeCustomers,
+    parseTikTokUsernames,
     normalizeTikTokUsername,
     normalizePhone,
     getUserCustomerFile: () => ''

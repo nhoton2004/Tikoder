@@ -922,6 +922,22 @@ app.delete('/api/customers/:id', requireApiAuth, (req, res) => {
     }
 });
 
+app.post('/api/customers/merge', requireApiAuth, (req, res) => {
+    try {
+        const userId = req.session.user.uid;
+        const { primaryId, secondaryIds } = req.body || {};
+        if (!primaryId || !Array.isArray(secondaryIds) || secondaryIds.length === 0) {
+            return res.status(400).json({ error: 'Vui lòng chọn khách hàng chính và ít nhất 1 khách hàng phụ để gộp' });
+        }
+        const mergedCustomer = customerStore.mergeCustomers(userId, primaryId, secondaryIds);
+        console.log(`>>> [Customer Merge] Đã gộp thành công khách hàng cho user ${userId}:`, mergedCustomer.id, mergedCustomer.tiktokUsername);
+        res.json({ success: true, customer: mergedCustomer });
+    } catch (error) {
+        console.error('Lỗi gộp khách hàng:', error);
+        res.status(400).json({ error: error.message || 'Lỗi server khi gộp khách hàng' });
+    }
+});
+
 // ============================================================
 // === XUẤT EXCEL ĐI ĐƠN ===
 // ============================================================
@@ -1357,15 +1373,82 @@ function sanitizeConfirmedOrders(orders) {
     }, {});
 }
 
+function normalizePrinterInterface(raw) {
+    const value = String(raw || '').trim();
+    if (!value) return '';
+
+    // System printer: printer:Name or printer:auto
+    if (/^printer:/i.test(value)) {
+        const name = value.slice('printer:'.length).trim() || 'auto';
+        return `printer:${name}`;
+    }
+
+    // Direct device/port (USB / COM / LPT / /dev/*)
+    if (
+        value.startsWith('/dev/') ||
+        value.startsWith('\\\\.\\') ||
+        value.startsWith('//./') ||
+        /^COM\d+$/i.test(value) ||
+        /^LPT\d+$/i.test(value)
+    ) {
+        if (/^COM\d+$/i.test(value) || /^LPT\d+$/i.test(value)) {
+            return `\\\\.\\${value.toUpperCase()}`;
+        }
+        return value;
+    }
+
+    // Network / TCP
+    let iface = value;
+    if (!/^tcp:\/\//i.test(iface)) {
+        // Accept bare IP or host:port
+        iface = `tcp://${iface.replace(/^\/+/, '')}`;
+    }
+    // Default raw printing port 9100 when missing
+    try {
+        const u = new URL(iface);
+        if (!u.port) {
+            u.port = '9100';
+            iface = u.toString().replace(/\/$/, '');
+        }
+    } catch (_) {
+        // keep as-is if URL parse fails
+    }
+    return iface;
+}
+
 function initPrinter(newInterface) {
-    printerInterface = newInterface;
-    printer = new ThermalPrinter({
+    const normalized = normalizePrinterInterface(newInterface);
+    printerInterface = normalized || newInterface;
+    const opts = {
         type: PrinterTypes.EPSON,
         interface: printerInterface,
         characterSet: CharacterSet.TCVN_VIETNAMESE,
         removeSpecialCharacters: false,
         width: 48,
-    });
+        options: { timeout: 5000 },
+    };
+
+    // System printer needs OS driver package
+    if (String(printerInterface).startsWith('printer:')) {
+        try {
+            // eslint-disable-next-line global-require
+            opts.driver = require('printer');
+        } catch (err) {
+            console.error('>>> Printer system driver missing. Run: npm install printer');
+            console.error('>>> Fallback: only tcp:// and direct /dev|COM interfaces work without driver.');
+            printer = null;
+            saveConfig();
+            return;
+        }
+    }
+
+    try {
+        printer = new ThermalPrinter(opts);
+        console.log(`>>> Printer ready: ${printerInterface}`);
+    } catch (err) {
+        console.error('>>> initPrinter failed:', err.message);
+        printer = null;
+    }
     saveConfig();
 }
 initPrinter(printerInterface);
@@ -2707,11 +2790,14 @@ const liveContext = {
     safeStorageId,
     safeLegacyHistoryFileName,
     HISTORY_ROOT_DIR,
-    printerInterface,
-    tiktokSignApiKey,
     generateSessionId,
     initLiveSession,
     flushSessionToDb,
-    syncSessionOrders
+    syncSessionOrders,
+    // Live getters so socket handlers always see current values
+    get printer() { return printer; },
+    get printerInterface() { return printerInterface; },
+    get tiktokSignApiKey() { return tiktokSignApiKey; },
+    set tiktokSignApiKey(v) { tiktokSignApiKey = v; },
 };
 setupLiveHandler(io, liveContext);

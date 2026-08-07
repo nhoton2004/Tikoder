@@ -126,6 +126,36 @@ function setupLiveHandler(io, ctx) {
                 ctx.saveConfig();
             }
             socket.emit('system-status', "Đã cập nhật cấu hình hệ thống!");
+            socket.emit('system-config', { printerInterface: ctx.printerInterface, tiktokSignApiKey: ctx.tiktokSignApiKey });
+        });
+
+        socket.on('test-printer', async (payload = {}) => {
+            const iface = payload.interface || ctx.printerInterface;
+            try {
+                if (iface && iface !== ctx.printerInterface) {
+                    ctx.initPrinter(iface);
+                }
+                if (!ctx.printer) {
+                    socket.emit('printer-test-result', { ok: false, message: 'Máy in chưa sẵn sàng. Kiểm tra cấu hình / driver.' });
+                    return;
+                }
+                const connected = await ctx.printer.isPrinterConnected();
+                if (!connected) {
+                    socket.emit('printer-test-result', { ok: false, message: `Không kết nối được: ${iface}` });
+                    return;
+                }
+                // In bill test ngắn
+                ctx.printer.clear();
+                ctx.printer.alignCenter();
+                ctx.printer.println('TEST PRINTER OK');
+                ctx.printer.println(String(iface || ''));
+                ctx.printer.cut();
+                await ctx.printer.execute();
+                socket.emit('printer-test-result', { ok: true, message: `Kết nối OK: ${iface}` });
+            } catch (err) {
+                console.error('>>> test-printer failed:', err.message);
+                socket.emit('printer-test-result', { ok: false, message: err.message || 'Lỗi test máy in' });
+            }
         });
 
         socket.on('get-chat-buffer', ({ broadcasterId } = {}) => {
@@ -414,7 +444,16 @@ function setupLiveHandler(io, ctx) {
             if (!runtime[target][username]) {
                 runtime[target][username] = { username, nickname, profilePictureUrl, items: [], total: 0 };
             }
-             const newItem = { id: Date.now() + Math.random(), text: comment, price, time: new Date().toLocaleTimeString('vi-VN'), createdAt: new Date().toISOString() };
+            const nowIso = new Date().toISOString();
+            const newItem = { 
+                id: Date.now() + Math.random(), 
+                text: comment, 
+                price, 
+                time: new Date().toLocaleTimeString('vi-VN'), 
+                createdAt: nowIso,
+                printed: true,
+                printedAt: nowIso
+            };
             runtime[target][username].items.push(newItem);
             runtime[target][username].total += price;
 
@@ -564,7 +603,20 @@ function setupLiveHandler(io, ctx) {
 
             if (runtime[target][normalizedUsername]) {
                 const item = runtime[target][normalizedUsername].items.find(i => String(i.id) === String(itemId));
-                if (item) printBill(item, runtime[target][normalizedUsername], userId);
+                if (item) {
+                    const printNowIso = new Date().toISOString();
+                    item.printed = true;
+                    item.printedAt = printNowIso;
+                    printBill(item, runtime[target][normalizedUsername], userId);
+                    if (!isManual) {
+                        saveSessionDataForUser(userId);
+                        scheduleDebouncedSave(userId, runtime, ctx);
+                        emitToUser(userId, 'order-confirmed', runtime[target][normalizedUsername]);
+                    } else {
+                        scheduleDebouncedSave(userId, runtime, ctx);
+                        emitToUser(userId, 'manual-order-confirmed', runtime[target][normalizedUsername]);
+                    }
+                }
             }
         });
 
@@ -575,7 +627,20 @@ function setupLiveHandler(io, ctx) {
             const target = isManual ? 'manualConfirmedOrders' : 'confirmedOrders';
 
             if (runtime[target][normalizedUsername]) {
+                const printNowIso = new Date().toISOString();
+                (runtime[target][normalizedUsername].items || []).forEach(i => {
+                    i.printed = true;
+                    i.printedAt = printNowIso;
+                });
                 printDetailedBill(runtime[target][normalizedUsername], userId);
+                if (!isManual) {
+                    saveSessionDataForUser(userId);
+                    scheduleDebouncedSave(userId, runtime, ctx);
+                    emitToUser(userId, 'order-confirmed', runtime[target][normalizedUsername]);
+                } else {
+                    scheduleDebouncedSave(userId, runtime, ctx);
+                    emitToUser(userId, 'manual-order-confirmed', runtime[target][normalizedUsername]);
+                }
             }
         });
 

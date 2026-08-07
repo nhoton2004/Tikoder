@@ -3160,3 +3160,71 @@ body[data-view="live"] .live-current-orders-panel .live-count-pill {
     color: #34d399;
     border-color: rgba(5, 150, 105, 0.25);
 }
+
+/* =================================
+   Printed Items & Cards (Brown Theme)
+   ================================= */
+
+/* Printed Item Row (Light Mode) */
+.live-order-item.is-printed {
+    background: rgba(180, 83, 9, 0.09) !important;
+    border-left: 3px solid #b45309 !important;
+    border-color: rgba(180, 83, 9, 0.25) !important;
+    transition: all 0.25s ease;
+}
+
+.live-order-item.is-printed strong {
+    color: #78350f !important;
+}
+
+.live-order-item.is-printed .live-order-comment-price {
+    color: #92400e !important;
+}
+
+.live-order-item.is-printed .btn-printed {
+    background: rgba(180, 83, 9, 0.18) !important;
+    border-color: #b45309 !important;
+    color: #78350f !important;
+}
+
+.live-order-item.is-printed .btn-printed:hover {
+    background: rgba(180, 83, 9, 0.3) !important;
+}
+
+/* Printed Card Footer Button & Card */
+.live-order-card .btn-printed-total {
+    background: #92400e !important;
+    border-color: #78350f !important;
+    color: #ffffff !important;
+}
+
+.live-order-card.is-card-printed {
+    border-color: rgba(180, 83, 9, 0.4) !important;
+    box-shadow: 0 4px 14px rgba(120, 53, 15, 0.12) !important;
+}
+
+/* Dark Mode Overrides for Printed Items */
+[data-theme="dark"] .live-order-item.is-printed {
+    background: rgba(120, 53, 15, 0.28) !important;
+    border-left: 3px solid #d97706 !important;
+    border-color: rgba(217, 119, 6, 0.35) !important;
+}
+
+[data-theme="dark"] .live-order-item.is-printed strong {
+    color: #fde68a !important;
+}
+
+[data-theme="dark"] .live-order-item.is-printed .live-order-comment-price {
+    color: #fef3c7 !important;
+}
+
+[data-theme="dark"] .live-order-item.is-printed .btn-printed {
+    background: rgba(217, 119, 6, 0.25) !important;
+    border-color: #d97706 !important;
+    color: #fde68a !important;
+}
+
+[data-theme="dark"] .live-order-card.is-card-printed {
+    border-color: rgba(217, 119, 6, 0.45) !important;
+    box-shadow: 0 4px 16px rgba(120, 53, 15, 0.25) !important;
+}
