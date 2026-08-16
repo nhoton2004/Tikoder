@@ -3228,3 +3228,83 @@ body[data-view="live"] .live-current-orders-panel .live-count-pill {
     border-color: rgba(217, 119, 6, 0.45) !important;
     box-shadow: 0 4px 16px rgba(120, 53, 15, 0.25) !important;
 }
+
+/* Sidebar Dropdown / Submenu Styling */
+.menu-group {
+    width: 100%;
+}
+
+.menu-group-toggle {
+    cursor: pointer;
+    user-select: none;
+}
+
+.menu-group-toggle .menu-arrow {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: transform 0.25s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.2s ease;
+    font-size: 10px;
+    margin-left: auto;
+    width: 16px;
+    height: 16px;
+}
+
+.menu-group-toggle.open .menu-arrow {
+    transform: rotate(180deg);
+}
+
+.menu-submenu {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    padding-left: 12px;
+    margin-left: 12px;
+    border-left: 2px solid rgba(226, 232, 240, 0.8);
+    overflow: hidden;
+    max-height: 500px;
+    opacity: 1;
+    transition: max-height 0.3s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.25s ease, margin 0.25s ease, padding 0.25s ease;
+}
+
+[data-theme="dark"] .menu-submenu {
+    border-left-color: rgba(51, 65, 85, 0.6);
+}
+
+.menu-submenu.collapsed {
+    max-height: 0;
+    opacity: 0;
+    margin-top: 0 !important;
+    margin-bottom: 0 !important;
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
+    pointer-events: none;
+}
+
+.menu-sub-item {
+    min-height: 38px !important;
+    font-size: 0.85rem;
+}
+
+/* Parent active state when child is active */
+.menu-group-toggle.has-active-child {
+    color: #1e293b !important;
+    font-weight: 600;
+}
+
+[data-theme="dark"] .menu-group-toggle.has-active-child {
+    color: #f8fafc !important;
+}
+
+/* Collapsed Sidebar Mode handling */
+.app-shell[data-sidebar-collapsed="true"] .menu-group-toggle .menu-arrow {
+    display: none !important;
+    opacity: 0 !important;
+    max-width: 0 !important;
+}
+
+.app-shell[data-sidebar-collapsed="true"] .menu-submenu {
+    padding-left: 0 !important;
+    margin-left: 0 !important;
+    border-left: none !important;
+}

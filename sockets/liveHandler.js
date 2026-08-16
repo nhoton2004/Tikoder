@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const { cleanDisplayText, normalizeDisplayText } = require('../utils/displayName');
 const liveSessionStore = require('../utils/liveSessionStore');
+const ChatConfirm = require('../public/js/chat-confirm');
 
 const liveRuntimeByUser = new Map();
 const CHAT_BUFFER_LIMIT = 300;
@@ -26,11 +27,69 @@ function getLiveRuntime(userId) {
             gracePeriodTimer: null,
             processedMsgIds: new Set(),
             chatBufferByBroadcaster: new Map(),
+            chatSeqByBroadcaster: new Map(), // Sequence per broadcaster cho fallback msgId
             sockets: new Set(),
             recentConfirmKeys: new Map() // Lưu dedup key -> timestamp
         });
     }
     return liveRuntimeByUser.get(userId);
+}
+
+/**
+ * Xử lý 1 comment chat đến: gán msgId ổn định, dedup theo stableMsgId,
+ * đẩy vào buffer và broadcast raw-chat về client.
+ */
+function processIncomingChat(runtime, ctx, userConnection, broadcasterId, userId, data) {
+    const {
+        emitToUser, parsePrice, customerStore
+    } = ctx;
+    const clean = data;
+
+    // Gán msgId ổn định + sequence fallback
+    const seqMap = runtime.chatSeqByBroadcaster;
+    let seq = seqMap.get(broadcasterId) || 0;
+    seq += 1;
+    seqMap.set(broadcasterId, seq);
+
+    const stableMsg = {
+        ...clean,
+        uniqueId: clean.uniqueId || clean.username || '',
+        username: clean.username || clean.uniqueId || '',
+        nickname: clean.nickname || clean.displayName || '',
+        comment: clean.comment || clean.text || '',
+        createTime: clean.createTime || clean.timestamp || Date.now(),
+        seq
+    };
+    const stableMsgId = ChatConfirm.ensureChatMessageId(stableMsg);
+
+    // Dedup theo stableMsgId (không dùng raw msgId có thể rỗng/"0")
+    if (runtime.processedMsgIds.has(stableMsgId)) return;
+    runtime.processedMsgIds.add(stableMsgId);
+    setTimeout(() => runtime.processedMsgIds.delete(stableMsgId), 120000);
+    if (typeof runtime.resetIdleTimer === 'function') runtime.resetIdleTimer();
+
+    const commenterUsername = customerStore.normalizeTikTokUsername(clean.uniqueId || clean.username || '');
+    const nickname = cleanDisplayText(clean.nickname || clean.displayName || '');
+    const commentText = normalizeDisplayText(clean.comment || '');
+    const chatPayload = {
+        ...clean,
+        broadcasterId,
+        uniqueId: commenterUsername || normalizeDisplayText(clean.uniqueId || clean.username || ''),
+        username: commenterUsername || normalizeDisplayText(clean.username || clean.uniqueId || ''),
+        nickname,
+        comment: commentText,
+        msgId: stableMsgId,
+        sourceMsgId: stableMsgId,
+        suggestedPrice: parsePrice(commentText),
+        timestamp: Date.now()
+    };
+
+    const currentBuffer = runtime.chatBufferByBroadcaster.get(broadcasterId) || [];
+    currentBuffer.push(chatPayload);
+    if (currentBuffer.length > CHAT_BUFFER_LIMIT) currentBuffer.shift();
+    runtime.chatBufferByBroadcaster.set(broadcasterId, currentBuffer);
+
+    emitToUser(userId, 'raw-chat', chatPayload);
 }
 
 /**
@@ -347,32 +406,7 @@ function setupLiveHandler(io, ctx) {
 
             userConnection.on('chat', (data) => {
                 if (runtime.tiktokConnection !== userConnection) return;
-                if (runtime.processedMsgIds.has(data.msgId)) return;
-                runtime.processedMsgIds.add(data.msgId);
-                setTimeout(() => runtime.processedMsgIds.delete(data.msgId), 120000);
-                if (typeof runtime.resetIdleTimer === 'function') runtime.resetIdleTimer();
-
-                const commenterUsername = customerStore.normalizeTikTokUsername(data.uniqueId || data.username || '');
-                const nickname = cleanDisplayText(data.nickname || data.displayName || '');
-                const commentText = normalizeDisplayText(data.comment || '');
-                const chatPayload = {
-                    ...data,
-                    broadcasterId,
-                    uniqueId: commenterUsername || normalizeDisplayText(data.uniqueId || data.username || ''),
-                    username: commenterUsername || normalizeDisplayText(data.username || data.uniqueId || ''),
-                    nickname,
-                    comment: commentText,
-                    msgId: data.msgId || `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-                    suggestedPrice: parsePrice(commentText),
-                    timestamp: Date.now()
-                };
-
-                const currentBuffer = runtime.chatBufferByBroadcaster.get(broadcasterId) || [];
-                currentBuffer.push(chatPayload);
-                if (currentBuffer.length > CHAT_BUFFER_LIMIT) currentBuffer.shift();
-                runtime.chatBufferByBroadcaster.set(broadcasterId, currentBuffer);
-
-                emitToUser(userId, 'raw-chat', chatPayload);
+                processIncomingChat(runtime, ctx, userConnection, broadcasterId, userId, data);
             });
 
             // Lắng nghe sự kiện stream kết thúc (khách xuống live)
@@ -415,6 +449,7 @@ function setupLiveHandler(io, ctx) {
             const comment = normalizeDisplayText(data.comment || '');
             const price = Number(data.price || 0);
             const isManual = !!data.isManual;
+            const sourceMsgId = data.sourceMsgId || data.msgId || '';
 
             const target = isManual ? 'manualConfirmedOrders' : 'confirmedOrders';
 
@@ -452,7 +487,8 @@ function setupLiveHandler(io, ctx) {
                 time: new Date().toLocaleTimeString('vi-VN'), 
                 createdAt: nowIso,
                 printed: true,
-                printedAt: nowIso
+                printedAt: nowIso,
+                sourceMsgId
             };
             runtime[target][username].items.push(newItem);
             runtime[target][username].total += price;
@@ -461,12 +497,12 @@ function setupLiveHandler(io, ctx) {
                 // Live: Lưu JSON ngay, flush DB sau 1.5s
                 saveSessionDataForUser(userId);
                 scheduleDebouncedSave(userId, runtime, ctx);
-                emitToUser(userId, 'order-confirmed', runtime[target][username]);
+                emitToUser(userId, 'order-confirmed', { ...runtime[target][username], sourceMsgId, item: newItem, itemId: String(newItem.id) });
                 printBill(newItem, runtime[target][username], userId);
             } else {
                 // Manual: flush DB sau 1.5s (syncSessionOrders sẽ ghi đè)
                 scheduleDebouncedSave(userId, runtime, ctx);
-                emitToUser(userId, 'manual-order-confirmed', runtime[target][username]);
+                emitToUser(userId, 'manual-order-confirmed', { ...runtime[target][username], sourceMsgId, item: newItem, itemId: String(newItem.id) });
                 printBill(newItem, runtime[target][username], userId);
             }
         });

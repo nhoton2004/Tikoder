@@ -50,12 +50,41 @@
 
             <nav class="mt-3 space-y-1">
                 <button class="menu-item active w-full text-left" data-view="overview" data-tooltip="Tổng quan"><span class="nav-key"><img src="/icons/layout-dashboard.svg" alt=""></span><span class="menu-label" data-i18n="menu.overview">Tổng quan</span></button>
-                <button class="menu-item w-full text-left" data-view="live" data-tooltip="Live"><span class="nav-key"><img src="/icons/radio-tower.svg" alt=""></span><span class="menu-label" data-i18n="menu.live">Live</span></button>
-                <button class="menu-item w-full text-left" data-view="orders" data-tooltip="Đơn hàng"><span class="nav-key"><img src="/icons/receipt-text.svg" alt=""></span><span class="menu-label" data-i18n="menu.orders">Đơn hàng</span></button>
-                <button class="menu-item w-full text-left" data-view="delivery" data-tooltip="Đi Đơn"><span class="nav-key"><img src="/icons/delivery.svg" alt=""></span><span class="menu-label" data-i18n="menu.delivery">Đi Đơn</span></button>
-                <button class="menu-item w-full text-left" data-view="customers" data-tooltip="Khách hàng"><span class="nav-key"><img src="/icons/users.svg" alt=""></span><span class="menu-label" data-i18n="menu.customers">Khách hàng</span></button>
-                <button class="menu-item w-full text-left" onclick="showLiveSessions()" data-tooltip="Lịch sử phiên"><span class="nav-key"><img src="/icons/receipt-text.svg" alt=""></span><span class="menu-label">Lịch sử Phiên Live</span></button>
-                <button class="menu-item w-full text-left" data-view="settings" data-tooltip="Cài đặt"><span class="nav-key"><img src="/icons/settings.svg" alt=""></span><span class="menu-label" data-i18n="menu.settings">Cài đặt</span></button>
+                <button class="menu-item w-full text-left" data-view="live" data-tooltip="Live"><span class="nav-key"><img src="/icons/radio-tower.svg" alt=""></span><span class="menu-label" data-i18n="menu.live">Phiên live</span></button>
+                <div class="menu-group">
+                    <button id="menu-orders-group-toggle" type="button" class="menu-item menu-group-toggle w-full text-left flex items-center justify-between" data-tooltip="Quản lý Đơn" aria-expanded="true">
+                        <div class="flex items-center gap-2 truncate">
+                            <span class="nav-key">
+                                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                                    <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
+                                    <polyline points="3.27 6.96 12 12.01 20.73 6.96"/>
+                                    <line x1="12" y1="22.08" x2="12" y2="12"/>
+                                </svg>
+                            </span>
+                            <span class="menu-label font-medium">Quản lý Đơn</span>
+                        </div>
+                        <span class="menu-arrow transition-transform duration-200 text-xs text-gray-400">▼</span>
+                    </button>
+                    <div id="menu-orders-submenu" class="menu-submenu space-y-1 mt-1">
+                        <button class="menu-item menu-sub-item w-full text-left" data-view="orders" data-tooltip="Đơn hàng"><span class="nav-key"><img src="/icons/receipt-text.svg" alt=""></span><span class="menu-label" data-i18n="menu.orders">Đơn hàng</span></button>
+                        <button class="menu-item menu-sub-item w-full text-left" data-view="delivery" data-tooltip="Đi Đơn"><span class="nav-key"><img src="/icons/delivery.svg" alt=""></span><span class="menu-label" data-i18n="menu.delivery">Đi Đơn</span></button>
+                        <button class="menu-item menu-sub-item w-full text-left" data-view="customers" data-tooltip="Khách hàng"><span class="nav-key"><img src="/icons/users.svg" alt=""></span><span class="menu-label" data-i18n="menu.customers">Khách hàng</span></button>
+                    </div>
+                </div>
+                <div class="menu-group">
+                    <button id="menu-settings-group-toggle" type="button" class="menu-item menu-group-toggle w-full text-left flex items-center justify-between" data-tooltip="Cài đặt" aria-expanded="true">
+                        <div class="flex items-center gap-2 truncate">
+                            <span class="nav-key"><img src="/icons/settings.svg" alt=""></span>
+                            <span class="menu-label font-medium" data-i18n="menu.settings">Cài đặt</span>
+                        </div>
+                        <span class="menu-arrow transition-transform duration-200 text-xs text-gray-400">▼</span>
+                    </button>
+                    <div id="menu-settings-submenu" class="menu-submenu space-y-1 mt-1">
+                        <button class="menu-item menu-sub-item w-full text-left" data-view="settings" data-tooltip="Giao diện & Ngôn ngữ"><span class="nav-key"><img src="/icons/settings.svg" alt=""></span><span class="menu-label">Giao diện & Ngôn ngữ</span></button>
+                        <button class="menu-item menu-sub-item w-full text-left" data-view="print-config" data-tooltip="Kết nối & Máy in"><span class="nav-key"><img src="/icons/delivery.svg" alt=""></span><span class="menu-label">Kết nối & Máy in</span></button>
+                        <button class="menu-item menu-sub-item w-full text-left" data-view="backup" data-tooltip="Sao lưu & Dữ liệu"><span class="nav-key"><img src="/icons/receipt-text.svg" alt=""></span><span class="menu-label">Sao lưu & Dữ liệu</span></button>
+                    </div>
+                </div>
                 <button id="sidebar-admin-item" class="menu-item w-full text-left hidden" data-view="admin" data-tooltip="Admin"><span class="nav-key"><img src="/icons/settings.svg" alt=""></span><span class="menu-label" data-i18n="menu.admin">Admin</span></button>
             </nav>
 
@@ -826,7 +855,7 @@
 
                         <div class="settings-layout">
                             <div class="settings-main-col">
-                                <div class="settings-card">
+                                <div id="card-settings-general" class="settings-card">
                                     <div class="settings-card-head">
                                         <div class="settings-icon settings-icon-blue">◎</div>
                                         <div>
@@ -869,7 +898,7 @@
                                     </div>
                                 </div>
 
-                                <div class="settings-card">
+                                <div id="card-settings-integration" class="settings-card">
                                     <div class="settings-card-head settings-card-head-between">
                                         <div class="settings-head-left">
                                             <div class="settings-icon settings-icon-red">IN</div>
@@ -959,7 +988,7 @@
                                     </div>
                                 </div>
 
-                                <div class="settings-side-card">
+                                <div id="card-settings-backup" class="settings-side-card">
                                     <div class="settings-side-title">
                                         <span>▤</span>
                                         <div>
@@ -1144,6 +1173,7 @@
     </div>
 
     <script src="/js/mobile-gestures.js"></script>
+    <script src="/js/chat-confirm.js"></script>
     <script src="/js/dashboard.js"></script>
     <script>
         // Edit-item modal

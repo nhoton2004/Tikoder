@@ -74,6 +74,7 @@
         let currentUserRole = 'user';
         let currentView = 'overview';
         const seenChatMsgIds = new Set();
+        const confirmedMsgIds = new Set(); // Set msgId đã in/chốt — track theo comment, không theo username
         let mobilePopoverEl = null;
         let mobilePopoverHideTimer = null;
 
@@ -430,6 +431,31 @@
             });
             sidebarBackdrop?.addEventListener('click', () => setSidebarDrawerOpen(false));
             
+            // Submenu collapse/expand handler
+            const setupGroupToggle = (toggleId, submenuId) => {
+                const groupToggleBtn = document.getElementById(toggleId);
+                const submenu = document.getElementById(submenuId);
+                if (groupToggleBtn && submenu) {
+                    groupToggleBtn.classList.add('open');
+                    groupToggleBtn.addEventListener('click', (e) => {
+                        e.preventDefault();
+                        if (appShell && appShell.dataset.sidebarCollapsed === 'true') {
+                            setSidebarCollapsed(false);
+                            submenu.classList.remove('collapsed');
+                            groupToggleBtn.classList.add('open');
+                            groupToggleBtn.setAttribute('aria-expanded', 'true');
+                            return;
+                        }
+                        const isCollapsed = submenu.classList.toggle('collapsed');
+                        groupToggleBtn.classList.toggle('open', !isCollapsed);
+                        groupToggleBtn.setAttribute('aria-expanded', !isCollapsed ? 'true' : 'false');
+                    });
+                }
+            };
+
+            setupGroupToggle('menu-orders-group-toggle', 'menu-orders-submenu');
+            setupGroupToggle('menu-settings-group-toggle', 'menu-settings-submenu');
+
             // Mobile header menu toggle
             const mobileMenuToggle = document.getElementById('mobile-menu-toggle');
             if (mobileMenuToggle) {
@@ -1460,6 +1486,33 @@
                 btn.classList.toggle('active', btn.dataset.view === view);
             });
 
+            // Update parent dropdown group active and expanded state
+            const orderViews = ['orders', 'delivery', 'customers'];
+            const ordersToggleBtn = document.getElementById('menu-orders-group-toggle');
+            const ordersSubmenu = document.getElementById('menu-orders-submenu');
+            if (ordersToggleBtn && ordersSubmenu) {
+                const isChildActive = orderViews.includes(view);
+                ordersToggleBtn.classList.toggle('has-active-child', isChildActive);
+                if (isChildActive) {
+                    ordersSubmenu.classList.remove('collapsed');
+                    ordersToggleBtn.classList.add('open');
+                    ordersToggleBtn.setAttribute('aria-expanded', 'true');
+                }
+            }
+
+            const settingsViews = ['settings', 'print-config', 'backup'];
+            const settingsToggleBtn = document.getElementById('menu-settings-group-toggle');
+            const settingsSubmenu = document.getElementById('menu-settings-submenu');
+            if (settingsToggleBtn && settingsSubmenu) {
+                const isChildActive = settingsViews.includes(view);
+                settingsToggleBtn.classList.toggle('has-active-child', isChildActive);
+                if (isChildActive) {
+                    settingsSubmenu.classList.remove('collapsed');
+                    settingsToggleBtn.classList.add('open');
+                    settingsToggleBtn.setAttribute('aria-expanded', 'true');
+                }
+            }
+
             const sectionMap = {
                 overview: [sectionOverview],
                 live: [sectionConnect, sectionLiveWorkspace],
@@ -1468,11 +1521,24 @@
                 customers: [sectionCustomers],
                 shop: [sectionShop],
                 reports: [sectionReports],
-                settings: [settingsPanel]
+                settings: [settingsPanel],
+                'print-config': [settingsPanel],
+                backup: [settingsPanel]
             };
             const activeSections = sectionMap[view] || sectionMap.overview;
             dashboardSections.forEach(sectionEl => setSectionVisibility(sectionEl, activeSections.includes(sectionEl)));
-            setSectionVisibility(rightCol, view === 'settings');
+            setSectionVisibility(rightCol, settingsViews.includes(view));
+
+            if (view === 'print-config') {
+                const targetCard = document.getElementById('card-settings-integration');
+                targetCard?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else if (view === 'backup') {
+                const targetCard = document.getElementById('card-settings-backup');
+                targetCard?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            } else if (view === 'settings') {
+                const targetCard = document.getElementById('card-settings-general');
+                targetCard?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
             if (pageTitle) {
                 pageTitle.textContent = view === 'live' ? 'TikTok Live Management' : 'TikTok Order';
             }
@@ -2023,6 +2089,7 @@
             liveOrdersData = normalizeOrdersMap(allOrders);
             calculateKpis();
             refreshCommentUserTooltips();
+            syncConfirmedMsgIdsFromOrders(liveOrdersData);
 
             // Tắt spin
             const iconEl = document.querySelector('[onclick="refreshCurrentOrders()"] .material-symbols-outlined');
@@ -2080,6 +2147,34 @@
             }, {});
         }
 
+        // Đồng bộ confirmedMsgIds từ danh sách đơn đã chốt (load session / reconnect / manual)
+        function syncConfirmedMsgIdsFromOrders(orderMap) {
+            Object.values(orderMap || {}).forEach(order => {
+                (Array.isArray(order.items) ? order.items : []).forEach(item => {
+                    const msgId = item.sourceMsgId || item.msgId || '';
+                    if (msgId) {
+                        confirmedMsgIds.add(msgId);
+                    }
+                });
+            });
+            // Re-render trạng thái badge cho các row đang hiển thị
+            chatFeed.querySelectorAll('.chat-row[data-msg-id]').forEach(row => {
+                const msgId = row.dataset.msgId || '';
+                const actions = row.querySelector('.flex.items-center.gap-2');
+                if (!actions || !msgId) return;
+                const hasBadge = !!actions.querySelector('[data-printed-badge="1"]');
+                const shouldPrinted = confirmedMsgIds.has(msgId);
+                if (shouldPrinted && !hasBadge) {
+                    const confirmBtn = actions.querySelector('button[data-confirm-btn]');
+                    if (confirmBtn) confirmBtn.remove();
+                    const userid = row.dataset.commentUserid || '';
+                    actions.appendChild(createPrintedBadge(userid, msgId));
+                } else if (!shouldPrinted && hasBadge) {
+                    actions.querySelector('[data-printed-badge="1"]')?.remove();
+                }
+            });
+        }
+
         function normalizeSessionOrdersArray(orders) {
             return (Array.isArray(orders) ? orders : []).reduce((result, order, index) => {
                 const username = normalizeTikTokUsername(order.customerUsername || order.username || order.tiktokUsername || order.customer || '');
@@ -2118,25 +2213,32 @@
             }, {});
         }
 
-        function resetChatFeed() {
-            chatFeed.innerHTML = '';
-            kpiComments = 0;
-            seenChatMsgIds.clear();
-            // Reset session đang load để không sync lẫn vào session cũ
-            if (activeLoadedSessionId) {
-                activeLoadedSessionId = null;
-                socket.emit('set-active-session', { sessionId: null });
-            }
-            calculateKpis();
-            renderEmptyCommentState();
-        }
+         function resetChatFeed(options = {}) {
+             const keepConfirmed = Boolean(options.keepConfirmed);
+             chatFeed.innerHTML = '';
+             kpiComments = 0;
+             seenChatMsgIds.clear();
+             if (!keepConfirmed) {
+                 confirmedMsgIds.clear();
+             }
+             // Reset session đang load để không sync lẫn vào session cũ
+             if (activeLoadedSessionId) {
+                 activeLoadedSessionId = null;
+                 socket.emit('set-active-session', { sessionId: null });
+             }
+             calculateKpis();
+             renderEmptyCommentState();
+         }
 
-        function createPrintedBadge(username) {
+        function createPrintedBadge(username, msgId) {
             const btn = document.createElement('button');
             btn.type = 'button';
             btn.className = 'badge bg-amber-900 hover:bg-amber-800 text-white text-[10px] font-black px-2.5 py-1 rounded uppercase flex items-center gap-1 border border-amber-800 shadow-sm transition-colors cursor-pointer';
             btn.innerHTML = `<span class="material-symbols-outlined text-[14px]">check_circle</span> ${currentLang === 'en' ? 'PRINTED' : 'ĐÃ IN'}`;
             btn.dataset.printedBadge = '1';
+            if (msgId) {
+                btn.dataset.msgId = msgId;
+            }
             if (username) {
                 btn.dataset.username = username;
             }
@@ -2155,7 +2257,23 @@
             return btn;
         }
 
-        function updateCommentRowPrintedStatus(username) {
+        // Đánh dấu ĐÃ IN cho ĐÚNG comment (theo msgId). Fallback: theo username.
+        function updateCommentRowPrintedStatus(username, msgId) {
+            if (msgId) {
+                confirmedMsgIds.add(msgId);
+                const row = chatFeed.querySelector(`.chat-row[data-msg-id="${(window.ChatConfirm && window.ChatConfirm.cssEscape) ? window.ChatConfirm.cssEscape(msgId) : String(msgId).replace(/"/g, '\\"')}"]`);
+                if (row) {
+                    const actions = row.querySelector('.flex.items-center.gap-2');
+                    if (!actions) return;
+                    const confirmBtn = actions.querySelector('button[data-confirm-btn]');
+                    if (confirmBtn) confirmBtn.remove();
+                    if (!actions.querySelector('[data-printed-badge="1"]')) {
+                        const userid = row.dataset.commentUserid || username || '';
+                        actions.appendChild(createPrintedBadge(userid, msgId));
+                    }
+                }
+                return;
+            }
             if (!username) return;
             const norm = normalizeTikTokUsername(username);
             const rows = document.querySelectorAll(`.chat-row[data-comment-userid="${CSS.escape(norm)}"]`);
@@ -2167,12 +2285,49 @@
                     confirmBtn.remove();
                 }
                 if (!actions.querySelector('[data-printed-badge="1"]')) {
-                    actions.appendChild(createPrintedBadge(norm));
+                    actions.appendChild(createPrintedBadge(norm, row.dataset.msgId || msgId || ''));
                 }
             });
         }
 
-        function revertCommentRowPrintedStatus(username) {
+        function revertCommentRowPrintedStatus(username, msgId) {
+            if (msgId) {
+                confirmedMsgIds.delete(msgId);
+                const row = chatFeed.querySelector(`.chat-row[data-msg-id="${(window.ChatConfirm && window.ChatConfirm.cssEscape) ? window.ChatConfirm.cssEscape(msgId) : String(msgId).replace(/"/g, '\\"')}"]`);
+                if (row) {
+                    const actions = row.querySelector('.flex.items-center.gap-2');
+                    if (!actions) return;
+                    const badge = actions.querySelector('[data-printed-badge="1"]');
+                    if (badge) badge.remove();
+                    if (!actions.querySelector('button')) {
+                        const confirmBtn = document.createElement('button');
+                        confirmBtn.type = 'button';
+                        confirmBtn.className = 'bg-red-500 text-white text-[10px] font-black px-3 py-1 rounded uppercase transition-colors';
+                        confirmBtn.textContent = currentLang === 'en' ? 'CONFIRM' : 'CHỐT';
+                        confirmBtn.dataset.confirmBtn = msgId;
+                        confirmBtn.addEventListener('click', () => {
+                            if (confirmBtn.disabled) return;
+                            confirmBtn.disabled = true;
+                            confirmBtn.textContent = currentLang === 'en' ? '✔ CONFIRMED' : '✔ Đã chốt';
+                            confirmBtn.classList.remove('bg-red-500');
+                            confirmBtn.classList.add('bg-green-500');
+                            
+                            const rawNickname = row.querySelector('.customer-display-name')?.textContent || username;
+                            const avatarUrl = row.querySelector('img')?.src || '';
+                            const commentText = row.querySelector('p.text-gray-700')?.textContent || '';
+                            const ok = manualConfirm(norm, rawNickname, avatarUrl, commentText, 0, msgId);
+                            if (!ok) {
+                                confirmBtn.disabled = false;
+                                confirmBtn.textContent = currentLang === 'en' ? 'CONFIRM' : 'CHỐT';
+                                confirmBtn.classList.remove('bg-green-500');
+                                confirmBtn.classList.add('bg-red-500');
+                            }
+                        });
+                        actions.appendChild(confirmBtn);
+                    }
+                    return;
+                }
+            }
             if (!username) return;
             const norm = normalizeTikTokUsername(username);
             const rows = document.querySelectorAll(`.chat-row[data-comment-userid="${CSS.escape(norm)}"]`);
@@ -2187,6 +2342,7 @@
                         confirmBtn.type = 'button';
                         confirmBtn.className = 'bg-red-500 text-white text-[10px] font-black px-3 py-1 rounded uppercase transition-colors';
                         confirmBtn.textContent = currentLang === 'en' ? 'CONFIRM' : 'CHỐT';
+                        confirmBtn.dataset.confirmBtn = row.dataset.msgId || '';
                         confirmBtn.addEventListener('click', () => {
                             if (confirmBtn.disabled) return;
                             confirmBtn.disabled = true;
@@ -2197,7 +2353,7 @@
                             const rawNickname = row.querySelector('.customer-display-name')?.textContent || norm;
                             const avatarUrl = row.querySelector('img')?.src || '';
                             const commentText = row.querySelector('p.text-gray-700')?.textContent || '';
-                            const ok = manualConfirm(norm, rawNickname, avatarUrl, commentText, 0);
+                            const ok = manualConfirm(norm, rawNickname, avatarUrl, commentText, 0, row.dataset.msgId || '');
                             if (!ok) {
                                 confirmBtn.disabled = false;
                                 confirmBtn.textContent = currentLang === 'en' ? 'CONFIRM' : 'CHỐT';
@@ -2212,7 +2368,7 @@
         }
 
         function renderChatRow(data) {
-            const msgId = data.msgId || `${data.nickname || ''}_${data.comment || ''}_${data.timestamp || ''}`;
+            const msgId = (window.ChatConfirm && window.ChatConfirm.ensureChatMessageId) ? window.ChatConfirm.ensureChatMessageId(data) : (data.msgId || `${data.nickname || ''}_${data.comment || ''}_${data.timestamp || ''}`);
             if (seenChatMsgIds.has(msgId)) return;
             seenChatMsgIds.add(msgId);
             if (seenChatMsgIds.size > 1200) {
@@ -2228,6 +2384,7 @@
                 : new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
             const row = document.createElement('div');
             row.dataset.chatRow = '1';
+            row.dataset.msgId = msgId;
             const commenterId = normalizeTikTokUsername(data.uniqueId || data.username || '');
             row.dataset.commentUserid = commenterId;
             row.className = 'chat-row border border-gray-100 rounded-xl p-3 flex gap-3 items-start';
@@ -2271,18 +2428,16 @@
                 actions.appendChild(priceTag);
             }
 
-            const isUserPrinted = Boolean(
-                (liveOrdersData[commenterId]?.items?.length > 0) || 
-                (ordersData[commenterId]?.items?.length > 0)
-            );
+            const isUserPrinted = confirmedMsgIds.has(msgId);
 
             if (isUserPrinted) {
-                actions.appendChild(createPrintedBadge(commenterId));
+                actions.appendChild(createPrintedBadge(commenterId, msgId));
             } else {
                 const confirmBtn = document.createElement('button');
                 confirmBtn.type = 'button';
                 confirmBtn.className = 'bg-red-500 text-white text-[10px] font-black px-3 py-1 rounded uppercase transition-colors';
                 confirmBtn.textContent = currentLang === 'en' ? 'CONFIRM' : 'CHỐT';
+                confirmBtn.dataset.confirmBtn = msgId;
                 confirmBtn.addEventListener('click', () => {
                     if (confirmBtn.disabled) return;
                     confirmBtn.disabled = true;
@@ -2290,7 +2445,7 @@
                     confirmBtn.classList.remove('bg-red-500');
                     confirmBtn.classList.add('bg-green-500');
                     
-                    const ok = manualConfirm(commenterId, rawNickname, profilePictureUrl, comment, data.suggestedPrice);
+                    const ok = manualConfirm(commenterId, rawNickname, profilePictureUrl, comment, data.suggestedPrice, msgId);
                     if (!ok) {
                         confirmBtn.disabled = false;
                         confirmBtn.textContent = currentLang === 'en' ? 'CONFIRM' : 'CHỐT';
@@ -2544,22 +2699,26 @@
             const comments = Array.isArray(payload?.comments) ? payload.comments : [];
             if (!broadcasterId || (activeBroadcasterId && broadcasterId !== activeBroadcasterId)) return;
 
-            resetChatFeed();
+            resetChatFeed({ keepConfirmed: true });
             comments.forEach(renderChatRow);
             if (comments.length === 0) renderEmptyCommentState();
         });
 
-        window.manualConfirm = (uniqueId, nickname, profilePictureUrl, comment, suggestedPrice) => {
+        window.manualConfirm = (uniqueId, nickname, profilePictureUrl, comment, suggestedPrice, msgId) => {
             const inputText = currentLang === 'en' ? 'Enter price (e.g. 50000):' : 'Nhập giá (vd: 50000):';
             let price = suggestedPrice || parseFloat(prompt(inputText, '')) || 0;
             if (price > 0) {
                 const username = normalizeTikTokUsername(uniqueId);
+                const sourceMsgId = msgId || (window.ChatConfirm && window.ChatConfirm.ensureChatMessageId
+                    ? window.ChatConfirm.ensureChatMessageId({ uniqueId: username, comment, nickname })
+                    : '');
                 socket.emit('confirm-item', {
                     uniqueId: username,
                     nickname: cleanDisplayText(nickname),
                     profilePictureUrl: normalizeDisplayText(profilePictureUrl),
                     comment: normalizeDisplayText(comment),
-                    price
+                    price,
+                    sourceMsgId
                 });
                 return true;
             }
@@ -2627,7 +2786,7 @@
             patchLiveOrderCard(username);
             updateLiveKpiCounters();
             refreshCommentUserTooltips();
-            updateCommentRowPrintedStatus(username);
+            updateCommentRowPrintedStatus(username, userOrder.sourceMsgId || '');
         });
 
         // ─── LẮNG NGHE CẬP NHẬT MANUAL WORKSPACE TỪ SERVER ────────────────────────
@@ -2636,6 +2795,7 @@
             ordersData = normalizeOrdersMap(data);
             activeLoadedSessionId = payload?.sessionId || null;
             renderManualCurrentOrders();
+            syncConfirmedMsgIdsFromOrders(ordersData);
         });
 
         socket.on('manual-order-item-deleted', ({ username, itemId }) => {
@@ -2694,7 +2854,7 @@
             };
             patchManualOrderCard(username);
             refreshCommentUserTooltips();
-            updateCommentRowPrintedStatus(username);
+            updateCommentRowPrintedStatus(username, userOrder.sourceMsgId || '');
         });
 
         function formatMoney(amount) {
@@ -2820,6 +2980,7 @@
             customersData = [];
             kpiComments = 0;
             seenChatMsgIds.clear();
+            confirmedMsgIds.clear();
             activeBroadcasterId = '';
             if (chatFeed) chatFeed.textContent = '';
             if (customersTableBody) customersTableBody.textContent = '';
