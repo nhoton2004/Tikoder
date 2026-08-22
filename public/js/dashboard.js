@@ -1955,46 +1955,33 @@
         window.closeHistory = () => historyModal.classList.add('hidden');
 
         // Load session orders to current view (để có thể chỉnh sửa)
+        let historyLoadInFlight = false; // cờ nhận biết emit đến từ thao tác load history
         window.loadSessionOrdersToCurrentView = async (sessionId) => {
             try {
                 console.log(`🔍 Loading session: ${sessionId}`);
                 const res = await fetch('/api/live-sessions/' + encodeURIComponent(sessionId));
                 console.log(`📡 Response status: ${res.status}`);
 
-                if (!res.ok) {
+                // Legacy session không có REST endpoint → vẫn load qua socket
+                if (!res.ok && !String(sessionId).startsWith('legacy:')) {
                     const errData = await res.json();
                     alert(`❌ Load error (${res.status}): ${errData.error}`);
                     return;
                 }
 
-                const data = await res.json();
-                console.log('📦 Data:', data);
+                // Gửi sự kiện socket để server load CHÍNH XÁC session vào live runtime.
+                // Server sẽ emit session-info + all-confirmed-orders + manual-all-confirmed-orders.
+                historyLoadInFlight = true;
+                socket.emit('load-session-orders', { sessionId });
 
-                if (!data || !data.session) {
-                    alert('Không tìm thấy phiên');
-                    return;
-                }
-
-                const orders = data.orders || [];
-                console.log(`✅ Loaded ${orders.length} orders`);
-
-                ordersData = normalizeSessionOrdersArray(orders);
-                socket.emit('replace-confirmed-orders', {
-                    orders: ordersData,
-                    broadcasterId: data.session.tiktokUsername || data.session.liveName || '',
-                    isManual: true
-                });
-
-                // Ghi nhớ session đang làm việc và thông báo server
+                // Client reset trạng thái ngay (REPLACE, không merge) tránh hiện dữ liệu phiên cũ
                 activeLoadedSessionId = sessionId;
-                socket.emit('set-active-session', { sessionId });
-
+                liveOrdersData = {};
+                ordersData = {};
                 calculateKpis();
                 refreshCommentUserTooltips();
-                const totalOrders = Object.values(ordersData).reduce((sum, order) => {
-                    return sum + (Array.isArray(order.items) ? order.items.length : 0);
-                }, 0);
 
+                closeLiveSessions();
                 switchView('orders');
                 if (sectionCurrentOrders) {
                     sectionCurrentOrders.scrollIntoView({ block: 'start' });
@@ -2002,14 +1989,16 @@
                 const currentOrdersGrid = document.getElementById('current-orders-grid');
                 if (currentOrdersGrid) currentOrdersGrid.scrollTop = 0;
 
-                // Close history modal
-                closeLiveSessions();
-
-                // Show success notification
-                console.log(`✅ Loaded ${totalOrders} orders from session: ${data.session.liveName}`);
-                alert(`✅ Loaded ${totalOrders} orders từ: ${data.session.liveName}`);
+                // Lấy thông tin session chỉ để hiển thị tên (dữ liệu đơn do server emit)
+                const data = res.ok ? await res.json() : null;
+                const session = data?.session;
+                const orders = data?.orders || [];
+                const totalOrders = orders.reduce((sum, order) => sum + (Array.isArray(order.items) ? order.items.length : (order.quantity || 1)), 0);
+                console.log(`✅ Đã yêu cầu load ${totalOrders} orders từ session: ${session?.liveName || sessionId}`);
+                showLiveToast(`✅ Đang load đơn từ: ${session?.liveName || sessionId}`, 'success');
 
             } catch (e) {
+                historyLoadInFlight = false;
                 console.error('Load session orders error:', e);
                 alert('Lỗi load orders: ' + e.message);
             }
@@ -2090,6 +2079,15 @@
             calculateKpis();
             refreshCommentUserTooltips();
             syncConfirmedMsgIdsFromOrders(liveOrdersData);
+
+            if (historyLoadInFlight) {
+                historyLoadInFlight = false;
+                const customers = Object.keys(liveOrdersData || {}).length;
+                const items = Object.values(liveOrdersData || {}).reduce((s, c) => s + ((c.items && c.items.length) || 0), 0);
+                const total = Object.values(liveOrdersData || {}).reduce((s, c) => s + Number(c.total || 0), 0);
+                console.log(`[HISTORY_LOAD_CLIENT_RECEIVED] customers=${customers} items=${items} total=${total}`);
+                console.log(`[ORDERS_DATA_UPDATED] liveOrdersData customers=${customers} items=${items} total=${total}`);
+            }
 
             // Tắt spin
             const iconEl = document.querySelector('[onclick="refreshCurrentOrders()"] .material-symbols-outlined');
@@ -2534,20 +2532,39 @@
                 };
 
                 try {
-                    // Lấy danh sách phiên live
+                    // Lấy danh sách phiên live (đã sort mới nhất trước từ server)
                     const res = await fetch('/api/live-sessions');
                     if (!res.ok) throw new Error('Không thể lấy danh sách phiên');
                     const data = await res.json();
                     const sessions = Array.isArray(data.sessions) ? data.sessions : [];
 
-                    // Lọc: lấy phiên live của kênh này + phiên gộp (merged_session) của người dùng
-                    const filtered = sessions.filter(s =>
-                        (s.tiktokUsername && s.tiktokUsername.toLowerCase() === id.toLowerCase()) ||
-                        s.type === 'merged_session'
-                    ).slice(0, 8);
+                    // Hiện lịch sử gần nhất giống phần Lịch sử Phiên Live:
+                    // ưu tiên phiên khớp kênh hiện tại, phần còn lại là phiên mới nhất.
+                    const idLower = id.toLowerCase();
+                    const seenIds = new Set();
+                    const ranked = [];
+                    for (const s of sessions) {
+                        // Bỏ bản snapshot file trùng với phiên DB (ví dụ session_<epoch>_<rand>_<shop>.json)
+                        let dedupeKey = s.id;
+                        if (s.source === 'legacy_history' && s.liveName) {
+                            const dbMatch = sessions.find(x => x.source !== 'legacy_history' && s.liveName.startsWith(x.rawSessionId || x.id));
+                            if (dbMatch) dedupeKey = dbMatch.id;
+                        }
+                        if (seenIds.has(dedupeKey)) continue;
+                        seenIds.add(dedupeKey);
+                        const channelMatch = !!(s.tiktokUsername && s.tiktokUsername.toLowerCase() === idLower);
+                        ranked.push({ s, channelMatch });
+                    }
+                    ranked.sort((a, b) => {
+                        if (a.channelMatch !== b.channelMatch) return a.channelMatch ? -1 : 1;
+                        const left = Date.parse(a.s.createdAt || a.s.startedAt || 0) || 0;
+                        const right = Date.parse(b.s.createdAt || b.s.startedAt || 0) || 0;
+                        return right - left;
+                    });
+                    const filtered = ranked.slice(0, 8).map(r => r.s);
 
                     if (filtered.length === 0) {
-                        listEl.innerHTML = '<p class="text-xs text-center text-slate-400 py-6">Không có phiên live cũ nào của tài khoản này.</p>';
+                        listEl.innerHTML = '<p class="text-xs text-center text-slate-400 py-6">Không có phiên live gần đây của tài khoản này.</p>';
                     } else {
                         let html = '';
                         filtered.forEach(s => {
@@ -2790,12 +2807,27 @@
         });
 
         // ─── LẮNG NGHE CẬP NHẬT MANUAL WORKSPACE TỪ SERVER ────────────────────────
+        socket.on('session-load-error', (payload) => {
+            historyLoadInFlight = false;
+            console.error(`[HISTORY_LOAD_ERROR] ${payload?.sessionId}: ${payload?.error}`);
+            alert(`❌ ${payload?.error || 'Không tìm thấy phiên trong lịch sử'}`);
+        });
+
         socket.on('manual-all-confirmed-orders', (payload) => {
             const data = payload?.data || {};
             ordersData = normalizeOrdersMap(data);
             activeLoadedSessionId = payload?.sessionId || null;
             renderManualCurrentOrders();
             syncConfirmedMsgIdsFromOrders(ordersData);
+
+            if (historyLoadInFlight) {
+                historyLoadInFlight = false;
+                const customers = Object.keys(ordersData || {}).length;
+                const items = Object.values(ordersData || {}).reduce((s, c) => s + ((c.items && c.items.length) || 0), 0);
+                const total = Object.values(ordersData || {}).reduce((s, c) => s + Number(c.total || 0), 0);
+                console.log(`[HISTORY_LOAD_CLIENT_RECEIVED] customers=${customers} items=${items} total=${total}`);
+                console.log(`[ORDERS_DATA_UPDATED] ordersData customers=${customers} items=${items} total=${total}`);
+            }
         });
 
         socket.on('manual-order-item-deleted', ({ username, itemId }) => {

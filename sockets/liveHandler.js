@@ -21,6 +21,7 @@ function getLiveRuntime(userId) {
             confirmedOrders: {},
             manualConfirmedOrders: {}, // Cách ly cho mục Đơn hàng thủ công
             activeLoadedSessionId: null, // Session ID đang load ở mục Đơn hàng
+            historyLoadedSessionId: null, // Session ID đang load từ lịch sử vào live runtime
             currentBroadcasterId: '',
             sessionId: null,
             sessionStartedAt: null,
@@ -33,6 +34,13 @@ function getLiveRuntime(userId) {
         });
     }
     return liveRuntimeByUser.get(userId);
+}
+
+function summarizeOrders(orders) {
+    const customers = Object.keys(orders || {}).length;
+    const items = Object.values(orders || {}).reduce((sum, c) => sum + ((c.items && c.items.length) || 0), 0);
+    const total = Object.values(orders || {}).reduce((sum, c) => sum + Number(c.total || 0), 0);
+    return { customers, items, total };
 }
 
 /**
@@ -100,8 +108,12 @@ function scheduleDebouncedSave(userId, runtime, ctx) {
     if (runtime.saveDebouncedTimer) clearTimeout(runtime.saveDebouncedTimer);
     runtime.saveDebouncedTimer = setTimeout(() => {
         ctx.flushSessionToDb(userId, runtime);
-        // Nếu đang load session lịch sử/thủ công, sync ngược về session gốc
-        if (runtime.activeLoadedSessionId) {
+        // Nếu đang load session lịch sử → sync đơn live (confirmedOrders) về đúng nguồn
+        if (runtime.historyLoadedSessionId) {
+            ctx.syncSessionOrders(userId, runtime.historyLoadedSessionId, runtime.confirmedOrders);
+        }
+        // Nếu đang load session thủ công riêng biệt → sync manualConfirmedOrders
+        if (runtime.activeLoadedSessionId && runtime.activeLoadedSessionId !== runtime.historyLoadedSessionId) {
             ctx.syncSessionOrders(userId, runtime.activeLoadedSessionId, runtime.manualConfirmedOrders);
         }
         runtime.saveDebouncedTimer = null;
@@ -130,12 +142,15 @@ function setupLiveHandler(io, ctx) {
             if (Object.keys(runtime.confirmedOrders || {}).length > 0) {
                 socket.emit('all-confirmed-orders', runtime.confirmedOrders);
             } else if (runtime.currentBroadcasterId) {
-                // Thử load lại từ file ngày hôm nay (sau server crash/restart)
-                const todayFile = ctx.getSessionFileName(userId, runtime.currentBroadcasterId, null);
-                if (fs.existsSync(todayFile)) {
-                    runtime.confirmedOrders = sanitizeConfirmedOrders(JSON.parse(fs.readFileSync(todayFile)));
+                // Thử load lại từ file của ĐÚNG session đang hoạt động (sau server crash/restart)
+                // KHÔNG tự load file theo ngày vì có thể trùng vào phiên khác
+                const sessionFile = runtime.sessionId
+                    ? ctx.getSessionFileName(userId, runtime.currentBroadcasterId, runtime.sessionId)
+                    : null;
+                if (sessionFile && fs.existsSync(sessionFile)) {
+                    runtime.confirmedOrders = sanitizeConfirmedOrders(JSON.parse(fs.readFileSync(sessionFile)));
                     if (Object.keys(runtime.confirmedOrders).length > 0) {
-                        console.log(`>>> Auto-restored ${Object.keys(runtime.confirmedOrders).length} live orders after restart for user ${userId}`);
+                        console.log(`>>> Auto-restored ${Object.keys(runtime.confirmedOrders).length} live orders after restart for user ${userId} (session ${runtime.sessionId})`);
                         socket.emit('all-confirmed-orders', runtime.confirmedOrders);
                     }
                 }
@@ -240,6 +255,9 @@ function setupLiveHandler(io, ctx) {
             ctx.flushSessionToDb(userId, runtime);
             
             runtime.confirmedOrders = {};
+            runtime.manualConfirmedOrders = {};
+            runtime.activeLoadedSessionId = null;
+            runtime.historyLoadedSessionId = null;
             runtime.currentDbSessionId = null;
             runtime.currentBroadcasterId = null;
             emitToUser(userId, 'all-confirmed-orders', {});
@@ -267,6 +285,24 @@ function setupLiveHandler(io, ctx) {
             if (clientSessionId) {
                 if (clientSessionId === runtime.sessionId && broadcasterId === runtime.currentBroadcasterId) {
                     isContinuation = true;
+                } else if (String(clientSessionId).startsWith('legacy:')) {
+                    // Phiên legacy (file JSON lịch sử) → khôi phục đơn chính xác từ file
+                    try {
+                        const loaded = ctx.loadExactHistorySession(userId, clientSessionId);
+                        if (loaded) {
+                            console.log(`>>> [Live] Khôi phục legacy session ${clientSessionId} từ file JSON cho user ${userId}`);
+                            runtime.sessionId = null;
+                            runtime.currentDbSessionId = null;
+                            runtime.confirmedOrders = loaded.orders;
+                            runtime.manualConfirmedOrders = loaded.orders;
+                            runtime.historyLoadedSessionId = clientSessionId;
+                            runtime.activeLoadedSessionId = clientSessionId;
+                            runtime.currentBroadcasterId = loaded.broadcasterId || broadcasterId;
+                            isContinuation = true;
+                        }
+                    } catch (err) {
+                        console.error('>>> [LỖI] Khôi phục legacy session thất bại:', err.message);
+                    }
                 } else {
                     // Thử khôi phục từ DB nếu server restart hoặc mất đồng bộ RAM
                     try {
@@ -363,13 +399,12 @@ function setupLiveHandler(io, ctx) {
                 runtime.sessionStartedAt = new Date().toISOString();
                 runtime.processedMsgIds.clear();
 
-                // Thử load file ngày hôm nay hoặc hôm qua trước
-                const fileName = ctx.getSessionFileName(userId, broadcasterId, null);
-                if (fs.existsSync(fileName)) {
-                    runtime.confirmedOrders = sanitizeConfirmedOrders(JSON.parse(fs.readFileSync(fileName)));
-                } else {
-                    runtime.confirmedOrders = {};
-                }
+                // Phiên mới: bắt đầu RỖNG.
+                // KHÔNG tự load file theo ngày vì đó có thể là dữ liệu của phiên khác.
+                runtime.confirmedOrders = {};
+                runtime.manualConfirmedOrders = {};
+                runtime.historyLoadedSessionId = null;
+                runtime.activeLoadedSessionId = null;
             }
 
             // Gửi session-info về client
@@ -526,6 +561,100 @@ function setupLiveHandler(io, ctx) {
                     sessionId: runtime.activeLoadedSessionId
                 });
             }
+        });
+
+        // Load CHÍNH XÁC một session từ lịch sử (DB hoặc legacy file) vào live runtime.
+        // Atomic flow: load → gán runtime → emit toàn bộ state → client replace (không merge).
+        socket.on('load-session-orders', (payload) => {
+            const requestedSessionId = String(payload?.sessionId || '');
+            if (!requestedSessionId) return;
+
+            console.log('[HISTORY_LOAD_REQUEST]', JSON.stringify({
+                userId,
+                requestedSessionId,
+                requestedBroadcasterId: '',
+                requestedFileName: '',
+                requestedPath: 'resolve'
+            }));
+
+            const loaded = ctx.loadExactHistorySession(userId, requestedSessionId);
+            if (!loaded) {
+                console.log('[HISTORY_LOAD_RESULT]', JSON.stringify({
+                    userId,
+                    requestedSessionId,
+                    exists: false,
+                    orders: 0,
+                    items: 0,
+                    total: 0
+                }));
+                socket.emit('session-load-error', { sessionId: requestedSessionId, error: 'Không tìm thấy phiên trong lịch sử' });
+                return;
+            }
+
+            const loadedOrders = sanitizeConfirmedOrders(loaded.orders);
+            const summary = summarizeOrders(loadedOrders);
+
+            console.log('[HISTORY_LOAD_RESULT]', JSON.stringify({
+                userId,
+                requestedSessionId,
+                loadedSessionId: requestedSessionId,
+                exists: true,
+                source: loaded.source,
+                fileName: loaded.fileName,
+                orders: summary.customers,
+                items: summary.items,
+                total: summary.total
+            }));
+
+            // Atomic: gán runtime xong mới emit để client luôn nhận đúng trạng thái.
+            // DB session: giữ identity; legacy: không gán vào sessionId (tránh file rác).
+            if (loaded.source !== 'legacy') {
+                runtime.sessionId = requestedSessionId;
+            }
+            runtime.currentBroadcasterId = loaded.broadcasterId || runtime.currentBroadcasterId;
+            runtime.confirmedOrders = loadedOrders;
+            runtime.manualConfirmedOrders = loadedOrders;
+            runtime.historyLoadedSessionId = requestedSessionId;
+            runtime.activeLoadedSessionId = requestedSessionId;
+            runtime.currentDbSessionId = null; // Tránh flushSessionToDb ghi đè phiên live cũ
+
+            console.log('[RUNTIME_AFTER_HISTORY_LOAD]', JSON.stringify({
+                userId,
+                runtimeSessionId: runtime.sessionId,
+                runtimeBroadcasterId: runtime.currentBroadcasterId,
+                runtimeConfirmedOrdersCount: Object.keys(runtime.confirmedOrders).length,
+                runtimeManualConfirmedOrdersCount: Object.keys(runtime.manualConfirmedOrders).length,
+                historyLoadedSessionId: runtime.historyLoadedSessionId
+            }));
+
+            console.log('[SESSION_TRANSITION]', JSON.stringify({
+                userId,
+                fromSessionId: null,
+                toSessionId: requestedSessionId,
+                source: 'history-load'
+            }));
+
+            emitToUser(userId, 'session-info', {
+                sessionId: requestedSessionId,
+                broadcasterId: runtime.currentBroadcasterId,
+                startedAt: runtime.sessionStartedAt,
+                isContinuation: true,
+                source: 'history-load'
+            });
+            emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
+            emitToUser(userId, 'manual-all-confirmed-orders', {
+                data: runtime.manualConfirmedOrders,
+                sessionId: runtime.activeLoadedSessionId
+            });
+
+            console.log('[HISTORY_EMIT_TO_CLIENT]', JSON.stringify({
+                userId,
+                sessionId: requestedSessionId,
+                event: 'all-confirmed-orders',
+                customers: summary.customers,
+                items: summary.items,
+                total: summary.total
+            }));
         });
 
         socket.on('delete-customer', (payload) => {
@@ -692,10 +821,6 @@ function setupLiveHandler(io, ctx) {
             }).sort((a, b) => b.mtime - a.mtime);
 
             socket.emit('history-list', historyList);
-
-            if (historyList.length > 0) {
-                socket.emit('load-history-file', historyList[0].fileName);
-            }
         });
 
          // Set active session khi user load đơn từ lịch sử
@@ -710,6 +835,28 @@ function setupLiveHandler(io, ctx) {
          socket.on('restore-live-session', ({ sessionId } = {}) => {
              if (!sessionId) return;
              try {
+                 // Legacy JSON file session → khôi phục trực tiếp từ file (chính xác tuyệt đối)
+                 if (String(sessionId).startsWith('legacy:')) {
+                     const loaded = ctx.loadExactHistorySession(userId, sessionId);
+                     if (!loaded) return;
+                     console.log(`>>> [Live] Khôi phục legacy session ${sessionId} từ file JSON cho user ${userId}`);
+                     runtime.sessionId = null;
+                     runtime.currentDbSessionId = null;
+                     runtime.currentBroadcasterId = loaded.broadcasterId || runtime.currentBroadcasterId;
+                     runtime.confirmedOrders = loaded.orders;
+                     runtime.manualConfirmedOrders = loaded.orders;
+                     runtime.historyLoadedSessionId = sessionId;
+                     runtime.activeLoadedSessionId = sessionId;
+                     socket.emit('all-confirmed-orders', runtime.confirmedOrders);
+                     socket.emit('session-info', {
+                         sessionId,
+                         broadcasterId: runtime.currentBroadcasterId,
+                         startedAt: runtime.sessionStartedAt,
+                         isContinuation: true,
+                         source: 'restore-live-session'
+                     });
+                     return;
+                 }
                  const existingSession = liveSessionStore.getLiveSessionById(userId, sessionId);
                  if (existingSession) {
                      console.log(`>>> [Live] Tự động khôi phục phiên active ${sessionId} từ DB cho user ${userId}`);

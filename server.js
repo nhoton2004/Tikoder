@@ -1164,6 +1164,9 @@ function resetLiveRuntime(userId) {
     }
     runtime.tiktokConnection = null;
     runtime.confirmedOrders = {};
+    runtime.manualConfirmedOrders = {};
+    runtime.activeLoadedSessionId = null;
+    runtime.historyLoadedSessionId = null;
     runtime.currentBroadcasterId = '';
     runtime.sessionId = null;
     runtime.sessionStartedAt = null;
@@ -1176,9 +1179,14 @@ function resetLiveRuntime(userId) {
 
 function saveSessionDataForUser(userId) {
     const runtime = getLiveRuntime(userId);
+    runtime.confirmedOrders = sanitizeConfirmedOrders(runtime.confirmedOrders);
+    // Nếu đang làm việc với session đã load từ lịch sử → sync ngược về đúng nguồn (file/DB)
+    if (runtime.historyLoadedSessionId) {
+        syncSessionOrders(userId, runtime.historyLoadedSessionId, runtime.confirmedOrders);
+        return;
+    }
     if (!runtime.currentBroadcasterId) return;
     const fileName = getSessionFileName(userId, runtime.currentBroadcasterId, runtime.sessionId);
-    runtime.confirmedOrders = sanitizeConfirmedOrders(runtime.confirmedOrders);
     fs.writeFileSync(fileName, JSON.stringify(runtime.confirmedOrders, null, 2));
 }
 
@@ -1236,9 +1244,15 @@ function flushSessionToDb(userId, runtime) {
             createdAt: item.createdAt || now.toISOString()
         }))
     );
-    // Nếu không có đơn nào thì xóa phiên rỗng, tránh rác trong danh sách lịch sử
+    // Nếu không có đơn nào thì xóa phiên rỗng, tránh rác trong danh sách lịch sử.
+    // Nhưng KHÔNG xóa phiên lịch sử đã có đơn trong DB (tránh mất dữ liệu).
     if (orders.length === 0) {
         try {
+            const existing = liveSessionStore.getLiveSessionById(userId, sessionId);
+            if (existing && (existing.orders || []).length > 0) {
+                console.log(`>>> flushSessionToDb: giữ nguyên phiên [${sessionId}] vì đã có ${existing.orders.length} đơn trong DB.`);
+                return;
+            }
             liveSessionStore.deleteLiveSession(userId, sessionId);
             console.log(`>>> flushSessionToDb: xóa phiên rỗng [${sessionId}] vì không có đơn nào.`);
         } catch (err) {
@@ -1352,8 +1366,9 @@ function normalizeOrderCustomerName(name, username) {
 }
 
 function sanitizeConfirmedOrders(orders) {
-    return Object.values(orders || {}).reduce((result, customer) => {
-        const username = customerStore.normalizeTikTokUsername(customer.username || customer.tiktokUsername || '');
+    return Object.entries(orders || {}).reduce((result, [key, customer]) => {
+        // Fallback về key của map khi customer thiếu username — không được drop khách
+        const username = customerStore.normalizeTikTokUsername(customer.username || customer.tiktokUsername || key || '');
         if (!username) return result;
         const nickname = cleanDisplayText(customer.nickname || customer.displayName || '') || displayFallbackFromUsername(username) || username;
         result[username] = {
@@ -1371,6 +1386,102 @@ function sanitizeConfirmedOrders(orders) {
         };
         return result;
     }, {});
+}
+
+/**
+ * Load CHÍNH XÁC một session từ lịch sử (DB hoặc legacy JSON file) về dạng orders map.
+ * Trả về { orders, broadcasterId, source, fileName } hoặc null nếu không tìm thấy.
+ * Đây là nguồn dữ liệu duy nhất cho thao tác "Load đơn" để đảm bảo
+ * panel Live và panel History luôn ĐỒNG NHẤT.
+ */
+function loadExactHistorySession(userId, sessionId) {
+    const id = String(sessionId || '');
+    if (!id) return null;
+
+    // ── Legacy JSON file session (legacy:...) ─────────────────────────────────
+    if (id.startsWith('legacy:')) {
+        const ref = parseLegacySessionRef(id);
+        const safeFileName = safeLegacyHistoryFileName(ref.fileName);
+        if (!safeFileName) return null;
+
+        let historyDir;
+        if (ref.scope === 'shared') {
+            historyDir = HISTORY_ROOT_DIR;
+        } else {
+            const ownerUid = ref.ownerUserId || userId;
+            historyDir = path.join(HISTORY_ROOT_DIR, safeStorageId(ownerUid));
+        }
+        const filePath = path.join(historyDir, safeFileName);
+        if (!fs.existsSync(filePath)) return null;
+
+        let rawOrders;
+        try {
+            rawOrders = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+        } catch (err) {
+            console.error(`>>> [ERROR] loadExactHistorySession đọc file legacy thất bại: ${filePath}:`, err.message);
+            return null;
+        }
+        const meta = historyMetaFromFile(safeFileName);
+        return {
+            orders: sanitizeConfirmedOrders(rawOrders),
+            broadcasterId: customerStore.normalizeTikTokUsername(meta.shop || '') || '',
+            source: 'legacy',
+            fileName: safeFileName
+        };
+    }
+
+    // ── DB session (session_xxx) ──────────────────────────────────────────────
+    const existingSession = liveSessionStore.getLiveSessionById(userId, id);
+    if (!existingSession) return null;
+
+    // Ưu tiên file JSON snapshot (giữ đầy đủ sourceMsgId/printed trạng thái ĐÃ IN)
+    const sessionFile = getSessionFileName(userId, existingSession.tiktokUsername || '', id);
+    if (fs.existsSync(sessionFile)) {
+        try {
+            const rawOrders = JSON.parse(fs.readFileSync(sessionFile, 'utf-8'));
+            if (rawOrders && typeof rawOrders === 'object' && Object.keys(rawOrders).length > 0) {
+                return {
+                    orders: sanitizeConfirmedOrders(rawOrders),
+                    broadcasterId: customerStore.normalizeTikTokUsername(existingSession.tiktokUsername || '') || '',
+                    source: 'db-file',
+                    fileName: sessionFile
+                };
+            }
+        } catch (err) {
+            console.error(`>>> [ERROR] loadExactHistorySession đọc file session thất bại: ${sessionFile}:`, err.message);
+        }
+    }
+
+    // Fallback: dựng lại orders map từ DB
+    const ordersMap = {};
+    (existingSession.orders || []).forEach(o => {
+        const rawUsername = o.customerUsername || o.customerName || 'unknown';
+        const username = customerStore.normalizeTikTokUsername(rawUsername) || rawUsername;
+        if (!ordersMap[username]) {
+            ordersMap[username] = {
+                username,
+                nickname: o.customerName || username,
+                profilePictureUrl: o.profilePictureUrl || '',
+                items: [],
+                total: 0
+            };
+        }
+        const price = Number(o.price || 0);
+        ordersMap[username].items.push({
+            id: o.id,
+            text: normalizeDisplayText(o.productName || ''),
+            price,
+            time: o.time || '',
+            createdAt: o.createdAt || ''
+        });
+        ordersMap[username].total += price;
+    });
+    return {
+        orders: sanitizeConfirmedOrders(ordersMap),
+        broadcasterId: customerStore.normalizeTikTokUsername(existingSession.tiktokUsername || '') || '',
+        source: 'db',
+        fileName: id
+    };
 }
 
 function normalizePrinterInterface(raw) {
@@ -1854,7 +1965,9 @@ function readAllUserHistoryRows() {
 
 function safeLegacyHistoryFileName(fileName) {
     const name = path.basename(String(fileName || ''));
-    if (!/^\d{4}-\d{2}-\d{2}_[^/\\]+\.json$/i.test(name)) return '';
+    if (!/^\d{4}-\d{2}-\d{2}_[^/\\]+\.json$/i.test(name)
+        && !/^sess_\d{4}-\d{2}-\d{2}_[a-z0-9]+_[^/\\]+\.json$/i.test(name)
+        && !/^session_\d+_[a-z0-9]+_[^/\\]+\.json$/i.test(name)) return '';
     return name;
 }
 
@@ -1867,7 +1980,9 @@ function legacyHistoryFileToOrders(fileName, data) {
         const items = Array.isArray(customer?.items) ? customer.items : [];
         items.forEach(item => {
             const itemTime = item.time || '';
-            const timestamp = timestampFromParts(dateKey, itemTime);
+            const timestamp = Number.isFinite(meta.timestamp)
+                ? meta.timestamp
+                : timestampFromParts(dateKey, itemTime);
             orders.push({
                 id: `legacy_${fileName}_${item.id || `${customer.username || 'unknown'}_${itemTime}`}`,
                 customerName: normalizeOrderCustomerName(customer.nickname || customer.displayName || '', customer.username || customer.tiktokUsername || ''),
@@ -1905,7 +2020,11 @@ function readLegacyHistorySession(userId, fileName, options = {}) {
         const meta = historyMetaFromFile(safeFileName);
         const orders = legacyHistoryFileToOrders(safeFileName, data);
         const summary = liveSessionStore.calculateSessionSummary(orders);
-        const sessionDate = meta.date ? timestampFromParts(meta.date, '00:00:00') : stats.mtime.getTime();
+        const sessionDate = meta.timestamp
+            ? meta.timestamp
+            : meta.date
+            ? timestampFromParts(meta.date, '00:00:00')
+            : stats.mtime.getTime();
         const createdAt = new Date(sessionDate || stats.mtime.getTime()).toISOString();
 
         return {
@@ -2206,12 +2325,25 @@ function normalizeOverviewRange(startQuery, endQuery) {
 }
 
 function historyMetaFromFile(fileName) {
-    const match = String(fileName || '').match(/^(\d{4}-\d{2}-\d{2})_(.+)\.json$/i);
-    if (!match) return { date: '', shop: '' };
-    return {
-        date: match[1],
-        shop: match[2].replace(/\.json$/i, '')
-    };
+    const name = String(fileName || '');
+    let match = name.match(/^(\d{4}-\d{2}-\d{2})_(.+)\.json$/i);
+    if (match) {
+        return { date: match[1], shop: match[2].replace(/\.json$/i, ''), timestamp: null };
+    }
+    match = name.match(/^sess_(\d{4}-\d{2}-\d{2})_([a-z0-9]+)_(.+)\.json$/i);
+    if (match) {
+        return { date: match[1], shop: match[3].replace(/\.json$/i, ''), timestamp: null };
+    }
+    match = name.match(/^session_(\d+)_([a-z0-9]+)_(.+)\.json$/i);
+    if (match) {
+        const ts = Number(match[1]);
+        return {
+            date: Number.isFinite(ts) ? dateKeyFromTimestamp(ts) : '',
+            shop: match[3].replace(/\.json$/i, ''),
+            timestamp: Number.isFinite(ts) ? ts : null
+        };
+    }
+    return { date: '', shop: '', timestamp: null };
 }
 
 function timestampFromParts(dateKey, timeText) {
@@ -2794,6 +2926,7 @@ const liveContext = {
     initLiveSession,
     flushSessionToDb,
     syncSessionOrders,
+    loadExactHistorySession,
     // Live getters so socket handlers always see current values
     get printer() { return printer; },
     get printerInterface() { return printerInterface; },
