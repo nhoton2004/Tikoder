@@ -5443,6 +5443,7 @@
             // Show backdrop and sliding panel
             document.getElementById('delivery-customer-backdrop').classList.remove('hidden');
             const panel = document.getElementById('delivery-customer-edit-panel');
+            panel.classList.remove('hidden');
             panel.classList.remove('translate-x-full');
             panel.classList.add('translate-x-0');
 
@@ -5492,6 +5493,7 @@
         window.closeDeliveryInlineEdit = () => {
             document.getElementById('delivery-customer-backdrop').classList.add('hidden');
             const panel = document.getElementById('delivery-customer-edit-panel');
+            panel.classList.add('hidden');
             panel.classList.remove('translate-x-0');
             panel.classList.add('translate-x-full');
         };

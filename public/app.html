@@ -11,9 +11,10 @@
             document.documentElement.setAttribute('data-theme', theme === 'dark' ? 'dark' : 'light');
         })();
     </script>
-    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="/css/tailwind.min.css">
     <script src="/socket.io/socket.io.js"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet">
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" onload="this.onload=null;this.rel='stylesheet'">
+    <noscript><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap"></noscript>
     <link rel="stylesheet" href="/css/dashboard.css">
     <link rel="stylesheet" href="/css/dashboard-premium.css">
     <link rel="stylesheet" href="/css/dashboard-pro.css">
@@ -633,7 +634,7 @@
                     <div id="delivery-customer-backdrop" class="fixed inset-0 bg-black/50 z-40 hidden" onclick="closeDeliveryInlineEdit()"></div>
 
                     <!-- Sliding Panel for Inline Edit -->
-                    <div id="delivery-customer-edit-panel" class="fixed right-0 top-0 bottom-0 w-full max-w-md bg-white shadow-2xl z-50 transform translate-x-full transition-transform duration-300 overflow-y-auto p-6 no-print">
+                    <div id="delivery-customer-edit-panel" class="fixed right-0 top-0 bottom-0 w-full max-w-md bg-white shadow-2xl z-50 hidden overflow-y-auto p-6 no-print">
                         <div class="flex items-center justify-between border-b pb-3 mb-4">
                             <h3 class="font-black text-xl">Thông tin giao hàng</h3>
                             <button type="button" class="text-gray-400 hover:text-black text-xl font-bold" onclick="closeDeliveryInlineEdit()">✕</button>
@@ -1221,7 +1222,7 @@
             });
         })();
     </script>
-    <div id="batch-action-bar" class="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white px-6 py-4 rounded-xl shadow-2xl flex items-center gap-4 z-50 transition-all transform translate-y-24 opacity-0 border border-slate-700 no-print">
+    <div id="batch-action-bar" class="fixed bottom-6 left-1/2 bg-slate-900 text-white px-6 py-4 rounded-xl shadow-2xl flex items-center gap-4 z-50 transition-all transform translate-y-24 opacity-0 border border-slate-700 no-print" style="--tw-translate-x:-50%;">
         <div class="flex items-center gap-2 border-r border-slate-700 pr-4">
             <span class="material-symbols-outlined text-red-500 font-bold">check_box</span>
             <span id="batch-action-count" class="font-bold text-sm">Đã chọn 0 đơn</span>
