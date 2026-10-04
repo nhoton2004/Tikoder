@@ -100,6 +100,32 @@ function initTables() {
 
         CREATE INDEX IF NOT EXISTS idx_debts_user ON debts(user_id);
         CREATE INDEX IF NOT EXISTS idx_debts_customer ON debts(user_id, customer_username);
+
+        -- Nợ phải trả ra ngoài (creditor debts): chủ nợ bên ngoài, theo dõi hạn trả + lịch sử thanh toán
+        CREATE TABLE IF NOT EXISTS creditor_debts (
+            id TEXT PRIMARY KEY,
+            user_id TEXT NOT NULL,
+            creditor TEXT NOT NULL,
+            total_amount REAL NOT NULL DEFAULT 0,
+            remaining_amount REAL NOT NULL DEFAULT 0,
+            due_date TEXT DEFAULT '',
+            status TEXT DEFAULT 'pending',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_creditor_debts_user ON creditor_debts(user_id);
+
+        CREATE TABLE IF NOT EXISTS creditor_payments (
+            id TEXT PRIMARY KEY,
+            debt_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            amount_paid REAL NOT NULL,
+            payment_date TEXT NOT NULL,
+            FOREIGN KEY (debt_id) REFERENCES creditor_debts(id) ON DELETE CASCADE
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_creditor_payments_debt ON creditor_payments(debt_id);
     `);
 }
 
@@ -298,6 +324,104 @@ function dbUpdateDebt(userId, debtId, patch = {}) {
 
 function dbDeleteDebt(userId, debtId) {
     const result = getDb().prepare('DELETE FROM debts WHERE id = ? AND user_id = ?').run(debtId, userId);
+    return result.changes > 0;
+}
+
+// ==================== CREDITOR DEBT OPERATIONS (nợ phải trả ra ngoài) ====================
+
+function dbCreateCreditorDebt(userId, data = {}) {
+    const now = new Date().toISOString();
+    const id = `creddebt_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const total = Number(data.totalAmount) || 0;
+    getDb().prepare(`
+        INSERT INTO creditor_debts (id, user_id, creditor, total_amount, remaining_amount, due_date, status, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, 'pending', ?, ?)
+    `).run(id, userId, String(data.creditor || '').trim(), total, total, String(data.dueDate || '').trim(), now, now);
+    return dbGetCreditorDebtById(userId, id);
+}
+
+function dbGetCreditorDebtById(userId, debtId) {
+    return getDb().prepare('SELECT * FROM creditor_debts WHERE id = ? AND user_id = ?').get(debtId, userId) || null;
+}
+
+function dbListCreditorDebts(userId) {
+    return getDb().prepare(`
+        SELECT d.*,
+            (julianday(d.due_date) - julianday(date('now'))) AS days_left
+        FROM creditor_debts d
+        WHERE d.user_id = ?
+        ORDER BY CASE WHEN d.status = 'pending' THEN 0 ELSE 1 END, d.due_date ASC
+    `).all(userId);
+}
+
+function dbGetCreditorDebtSummary(userId) {
+    const row = getDb().prepare(`
+        SELECT
+            COUNT(*) AS totalDebts,
+            COALESCE(SUM(CASE WHEN status = 'pending' THEN remaining_amount END), 0) AS totalRemaining,
+            COALESCE(SUM(CASE WHEN status = 'pending' AND due_date <> '' AND julianday(due_date) < julianday(date('now')) THEN 1 END), 0) AS overdueCount,
+            COALESCE(SUM(CASE WHEN status = 'pending' AND due_date <> '' AND julianday(due_date) BETWEEN julianday(date('now')) AND julianday(date('now', '+3 days')) THEN 1 END), 0) AS dueSoonCount
+        FROM creditor_debts
+        WHERE user_id = ?
+    `).get(userId);
+    return { totalDebts: row.totalDebts, totalRemaining: row.totalRemaining, overdueCount: row.overdueCount, dueSoonCount: row.dueSoonCount };
+}
+
+function dbUpdateCreditorDebt(userId, debtId, patch = {}) {
+    const existing = dbGetCreditorDebtById(userId, debtId);
+    if (!existing) return null;
+    const total = Number(patch.totalAmount);
+    const creditor = patch.creditor !== undefined ? String(patch.creditor).trim() : existing.creditor;
+    const dueDate = patch.dueDate !== undefined ? String(patch.dueDate).trim() : existing.due_date;
+    // Khi sửa tổng tiền: tính lại số còn nợ dựa trên lịch sử thanh toán (giữ đúng nghĩa "đã trả").
+    const paid = Number(getDb().prepare('SELECT COALESCE(SUM(amount_paid), 0) AS s FROM creditor_payments WHERE debt_id = ?').get(debtId).s) || 0;
+    let remaining, status;
+    if (Number.isFinite(total)) {
+        remaining = Math.max(0, total - paid);
+        status = remaining <= 0 ? 'paid' : 'pending';
+    } else {
+        remaining = existing.remaining_amount;
+        status = existing.status;
+    }
+    const now = new Date().toISOString();
+    getDb().prepare(`
+        UPDATE creditor_debts
+        SET creditor = ?, total_amount = ?, remaining_amount = ?, due_date = ?, status = ?, updated_at = ?
+        WHERE id = ? AND user_id = ?
+    `).run(creditor, Number.isFinite(total) ? total : existing.total_amount, remaining, dueDate, status, now, debtId, userId);
+    return dbGetCreditorDebtById(userId, debtId);
+}
+
+function dbPayCreditorDebt(userId, debtId, amountPaid) {
+    const debt = dbGetCreditorDebtById(userId, debtId);
+    if (!debt) return null;
+    const amount = Number(amountPaid);
+    if (!Number.isFinite(amount) || amount <= 0) {
+        throw new Error('Số tiền trả phải là số dương hợp lệ');
+    }
+    const now = new Date().toISOString();
+    const txn = getDb().transaction(() => {
+        const payId = `credpay_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+        getDb().prepare('INSERT INTO creditor_payments (id, debt_id, user_id, amount_paid, payment_date) VALUES (?, ?, ?, ?, ?)')
+            .run(payId, debtId, userId, amount, now);
+        const newRemaining = Math.max(0, debt.remaining_amount - amount);
+        const newStatus = newRemaining <= 0 ? 'paid' : 'pending';
+        getDb().prepare('UPDATE creditor_debts SET remaining_amount = ?, status = ?, updated_at = ? WHERE id = ? AND user_id = ?')
+            .run(newRemaining, newStatus, now, debtId, userId);
+        return { remaining: newRemaining, status: newStatus };
+    });
+    txn();
+    return dbGetCreditorDebtById(userId, debtId);
+}
+
+function dbListCreditorPayments(userId, debtId) {
+    const debt = dbGetCreditorDebtById(userId, debtId);
+    if (!debt) return [];
+    return getDb().prepare('SELECT * FROM creditor_payments WHERE debt_id = ? ORDER BY payment_date ASC').all(debtId);
+}
+
+function dbDeleteCreditorDebt(userId, debtId) {
+    const result = getDb().prepare('DELETE FROM creditor_debts WHERE id = ? AND user_id = ?').run(debtId, userId);
     return result.changes > 0;
 }
 
@@ -584,6 +708,15 @@ module.exports = {
     dbGetDebtSummary,
     dbUpdateDebt,
     dbDeleteDebt,
+    // Creditor debts (nợ phải trả ra ngoài)
+    dbCreateCreditorDebt,
+    dbGetCreditorDebtById,
+    dbListCreditorDebts,
+    dbGetCreditorDebtSummary,
+    dbUpdateCreditorDebt,
+    dbPayCreditorDebt,
+    dbListCreditorPayments,
+    dbDeleteCreditorDebt,
     // Migration
     dbMigrateHistoryToSqlite,
 };

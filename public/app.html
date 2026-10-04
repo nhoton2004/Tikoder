@@ -70,6 +70,7 @@
                         <button class="menu-item menu-sub-item w-full text-left" data-view="orders" data-tooltip="Đơn hàng"><span class="nav-key"><img src="/icons/receipt-text.svg" alt=""></span><span class="menu-label" data-i18n="menu.orders">Đơn hàng</span></button>
                         <button class="menu-item menu-sub-item w-full text-left" data-view="delivery" data-tooltip="Đi Đơn"><span class="nav-key"><img src="/icons/delivery.svg" alt=""></span><span class="menu-label" data-i18n="menu.delivery">Đi Đơn</span></button>
                         <button class="menu-item menu-sub-item w-full text-left" data-view="customers" data-tooltip="Khách hàng"><span class="nav-key"><img src="/icons/users.svg" alt=""></span><span class="menu-label" data-i18n="menu.customers">Khách hàng</span></button>
+                        <button class="menu-item menu-sub-item w-full text-left" data-view="creditor-debts" data-tooltip="Nợ phải trả"><span class="nav-key"><img src="/icons/receipt-text.svg" alt=""></span><span class="menu-label" data-i18n="menu.creditorDebts">Nợ phải trả</span></button>
                     </div>
                 </div>
                 <div class="menu-group">
@@ -845,6 +846,94 @@
                         </div>
                     </section>
 
+                    <section id="section-creditor-debts" class="dashboard-section space-y-4 no-print" hidden>
+                        <div class="panel p-4">
+                            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
+                                <div>
+                                    <h2 class="text-3xl font-black" data-i18n="creditor.title">Nợ phải trả</h2>
+                                    <p class="text-sm text-gray-500" data-i18n="creditor.subtitle">Theo dõi khoản tiền shop đang nợ bên ngoài: hạn trả và lịch sử thanh toán từng lần.</p>
+                                </div>
+                            </div>
+                            <div class="grid grid-cols-2 md:grid-cols-4 gap-3 mt-4">
+                                <div class="rounded-xl bg-red-50 dark:bg-red-950/30 p-3">
+                                    <p class="text-xs font-bold text-red-600">Tổng nợ còn lại</p>
+                                    <p id="cred-total-debt" class="text-xl font-black text-red-600 mt-1">0đ</p>
+                                </div>
+                                <div class="rounded-xl bg-amber-50 dark:bg-amber-950/30 p-3">
+                                    <p class="text-xs font-bold text-amber-600">Quá hạn</p>
+                                    <p id="cred-overdue-count" class="text-xl font-black text-amber-600 mt-1">0</p>
+                                </div>
+                                <div class="rounded-xl bg-blue-50 dark:bg-blue-950/30 p-3">
+                                    <p class="text-xs font-bold text-blue-600">Sắp đến hạn (3 ngày)</p>
+                                    <p id="cred-due-soon-count" class="text-xl font-black text-blue-600 mt-1">0</p>
+                                </div>
+                                <div class="rounded-xl bg-gray-50 dark:bg-slate-800/40 p-3">
+                                    <p class="text-xs font-bold text-gray-500">Tổng số khoản</p>
+                                    <p id="cred-total-count" class="text-xl font-black text-gray-700 dark:text-gray-200 mt-1">0</p>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-4">
+                            <div class="panel overflow-hidden">
+                                <div class="overflow-x-auto">
+                                    <table class="w-full text-sm">
+                                        <thead class="bg-white border-b text-xs text-gray-500">
+                                            <tr>
+                                                <th class="p-3 text-left">Chủ nợ</th>
+                                                <th class="p-3 text-right">Tiền nợ</th>
+                                                <th class="p-3 text-right">Còn lại</th>
+                                                <th class="p-3 text-left">Hạn chót</th>
+                                                <th class="p-3 text-left">Cảnh báo</th>
+                                                <th class="p-3 text-right">Thao tác</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="creditors-table-body"></tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <form id="creditor-form" class="panel p-4 space-y-3" onsubmit="saveCreditorDebtForm(event)">
+                                <input type="hidden" id="creditor-id">
+                                <div>
+                                    <h3 id="creditor-form-title" class="font-black text-xl">Thêm khoản nợ</h3>
+                                    <p class="text-xs text-gray-400 mt-1">Sửa khoản nợ có sẵn nếu đã chọn ở bảng bên cạnh.</p>
+                                </div>
+                                <label class="block text-xs font-bold text-gray-500">Chủ nợ *
+                                    <input id="creditor-name" type="text" required class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm" placeholder="Nợ ai?">
+                                </label>
+                                <label class="block text-xs font-bold text-gray-500">Số tiền (VNĐ) *
+                                    <input id="creditor-amount" type="number" min="1" step="any" required class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm" placeholder="Bao nhiêu?">
+                                </label>
+                                <label class="block text-xs font-bold text-gray-500">Hạn trả
+                                    <input id="creditor-due-date" type="date" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm">
+                                </label>
+                                <div class="flex gap-2 pt-2">
+                                    <button type="submit" id="creditor-submit-btn" class="flex-1 bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold">Thêm nợ</button>
+                                    <button type="button" id="creditor-cancel-btn" onclick="resetCreditorDebtForm()" class="hidden bg-white border border-gray-300 px-4 py-2 rounded-xl text-sm font-bold">Hủy</button>
+                                </div>
+                            </form>
+                        </div>
+                    </section>
+
+                </div>
+
+                <!-- Modal trả nợ: nhập số tiền từng lần thanh toán -->
+                <div id="creditor-pay-modal" class="fixed inset-0 bg-black bg-opacity-50 z-50 hidden flex items-center justify-center p-4 no-print">
+                    <div class="bg-white rounded-xl shadow-2xl w-full max-w-sm p-4 space-y-3">
+                        <div class="flex justify-between items-center">
+                            <h3 class="font-bold text-lg">Trả một phần khoản nợ</h3>
+                            <button onclick="closeCreditorPayModal()" class="text-gray-500 hover:text-black text-xl">✕</button>
+                        </div>
+                        <p id="creditor-pay-creditor" class="text-sm text-gray-500"></p>
+                        <label class="block text-xs font-bold text-gray-500">Số tiền trả (VNĐ) *
+                            <input id="creditor-pay-amount" type="number" min="1" step="any" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm" placeholder="Nhập số tiền đã trả">
+                        </label>
+                        <div class="flex gap-2">
+                            <button type="button" onclick="submitCreditorDebtPayment()" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl text-sm font-bold">Xác nhận trả</button>
+                            <button type="button" onclick="closeCreditorPayModal()" class="bg-white border border-gray-300 px-4 py-2 rounded-xl text-sm font-bold">Hủy</button>
+                        </div>
+                    </div>
                 </div>
 
                 <aside id="right-col" class="right-col space-y-4" hidden>
@@ -1176,6 +1265,7 @@
     <script src="/js/mobile-gestures.js"></script>
     <script src="/js/chat-confirm.js"></script>
     <script src="/js/dashboard.js"></script>
+    <script src="/js/creditor-debts.js"></script>
     <script>
         // Edit-item modal
         (() => {

@@ -1,6 +1,5 @@
 # Dependencies
 node_modules/
-DebtTracker/node_modules/
 
 # Secrets & Environment
 .env

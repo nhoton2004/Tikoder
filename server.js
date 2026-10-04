@@ -19,6 +19,7 @@ const orderExcelExporter = require('./utils/orderExcelExporter');
 const { cleanDisplayText, normalizeDisplayName, normalizeDisplayText } = require('./utils/displayName');
 const adminRoutes = require('./routes/admin');
 const debtRoutes = require('./routes/debts');
+const creditorDebtRoutes = require('./routes/creditorDebts');
 const { setupLiveHandler, getLiveRuntime, liveRuntimeByUser } = require('./sockets/liveHandler');
 
 // DEV ONLY: Bật để bỏ qua đăng nhập Firebase trong môi trường local/dev.
@@ -1058,6 +1059,7 @@ app.get('/admin', (req, res) => {
 
 app.use('/api/admin', adminRoutes);
 app.use('/api/debts', debtRoutes);
+app.use('/api/creditor-debts', creditorDebtRoutes);
 app.get('/app', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'app.html'));
 });

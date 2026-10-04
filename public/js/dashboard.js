@@ -27,6 +27,7 @@
         const sectionOverview = document.getElementById('section-overview');
         const sectionDelivery = document.getElementById('section-delivery');
         const sectionCustomers = document.getElementById('section-customers');
+        const sectionCreditorDebts = document.getElementById('section-creditor-debts');
         const sectionShop = document.getElementById('section-shop');
         const sectionReports = document.getElementById('section-reports');
         const rightCol = document.getElementById('right-col');
@@ -85,6 +86,9 @@
                 'menu.orders': 'Đơn hàng',
                 'menu.delivery': 'Đi Đơn',
                 'menu.customers': 'Khách hàng',
+                'menu.creditorDebts': 'Nợ phải trả',
+                'creditor.title': 'Nợ phải trả',
+                'creditor.subtitle': 'Theo dõi khoản tiền shop đang nợ bên ngoài: hạn trả và lịch sử thanh toán từng lần.',
                 'menu.shop': 'Shop',
                 'menu.reports': 'Báo cáo',
                 'menu.settings': 'Cài đặt',
@@ -211,6 +215,9 @@
                 'menu.orders': 'Orders',
                 'menu.delivery': 'Shipping',
                 'menu.customers': 'Customers',
+                'menu.creditorDebts': 'Debt Tracker',
+                'creditor.title': 'Debt Tracker',
+                'creditor.subtitle': 'Track money the shop owes externally: due dates and payment history.',
                 'menu.shop': 'Shop',
                 'menu.reports': 'Reports',
                 'menu.settings': 'Settings',
@@ -1487,7 +1494,7 @@
             });
 
             // Update parent dropdown group active and expanded state
-            const orderViews = ['orders', 'delivery', 'customers'];
+            const orderViews = ['orders', 'delivery', 'customers', 'creditor-debts'];
             const ordersToggleBtn = document.getElementById('menu-orders-group-toggle');
             const ordersSubmenu = document.getElementById('menu-orders-submenu');
             if (ordersToggleBtn && ordersSubmenu) {
@@ -1519,6 +1526,7 @@
                 orders: [sectionOrders],
                 delivery: [sectionDelivery],
                 customers: [sectionCustomers],
+                'creditor-debts': [sectionCreditorDebts],
                 shop: [sectionShop],
                 reports: [sectionReports],
                 settings: [settingsPanel],
@@ -1552,6 +1560,9 @@
 
             if (view === 'customers') {
                 loadCustomers();
+            }
+            if (view === 'creditor-debts' && window.CreditorDebtsPage) {
+                CreditorDebtsPage.refresh();
             }
             if (view === 'delivery') {
                 loadDeliverySessions();

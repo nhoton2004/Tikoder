@@ -1,4 +1,4 @@
-# RULES.md - Quy tắc Lập trình cùng AI (Tikoder / DebtTracker)
+# RULES.md - Quy tắc Lập trình cùng AI (Tikoder)
 
 ## 1. QUY TRÌNH THỰC THI (Plan-then-Code)
 - **Bắt buộc**: Với mọi yêu cầu tính năng hoặc sửa bug phức tạp, AI KHÔNG ĐƯỢC tự ý sửa file ngay.
@@ -10,9 +10,9 @@
 ## 2. BẢN ĐỒ DỰ ÁN & VÙNG GIỚI HẠN (Red Zone)
 - **Tech Stack**: Node.js, Express.js (CommonJS `require`), SQLite3 (`utils/db.js`), Socket.io, EJS / Frontend Vanilla JS.
 - **Vùng Red Zone (Cần cẩn trọng đặc biệt & review kỹ)**:
-  - Logic tính toán công nợ/tài chính: `routes/debts.js`, `utils/customerStore.js`.
+  - Logic tính toán công nợ/tài chính: `routes/debts.js` (khách nợ shop), `routes/creditorDebts.js` (nợ phải trả ra ngoài), `utils/customerStore.js`.
   - Livestream socket realtime: `sockets/liveHandler.js`, `server.js`.
-  - Database schema & migration: `utils/db.js`, `debts.db`.
+  - Database schema & migration: `utils/db.js`, `data/tiktok-order.db`.
 - **Giới hạn**: Không tự ý `npm install` package mới hoặc refactor lại kiến trúc thư mục nếu chưa được yêu cầu.
 
 ## 3. CHUẨN CODE (Code Conventions)
@@ -28,3 +28,5 @@
 - Code chạy được không lỗi runtime (`npm start`).
 - Các bài test tự động (`npm test`) vượt qua thành công.
 - Diff sạch, loại bỏ console.log thừa trước khi bàn giao.
+## 6. Quy tắc Cầu chì ngắt mạch khi gặp lỗi (Circuit Breaker):
+- Nếu AI sửa cùng 1 lỗi quá 3 lần vẫn thất bại, dừng lại, không thử tiếp. Báo cho người dùng để reset phiên chat/xóa context cũ.

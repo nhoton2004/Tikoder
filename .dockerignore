@@ -11,5 +11,3 @@ yarn-error.log*
 .vscode
 .github
 .gemini
-DebtTracker/node_modules
-DebtTracker/debts.db
