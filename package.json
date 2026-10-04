@@ -5,6 +5,7 @@
   "scripts": {
     "start": "node server.js",
     "set-super-admin": "node scripts/setSuperAdmin.js",
+    "audit:customers": "node scripts/audit-customers.js",
     "test": "npm run test:audit",
     "test:audit": "node tests/customer-auditor.test.js",
     "test:excel": "node tests/orderExcelExporter.test.js"

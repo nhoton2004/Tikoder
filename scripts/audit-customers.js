@@ -1,6 +1,6 @@
 /**
  * Script chạy một lần để audit toàn bộ database khách hàng.
- * Chạy bằng lệnh: node scripts/audit-customers.js
+ * Chạy bằng lệnh: npm run audit:customers (hoặc node scripts/audit-customers.js)
  */
 
 const fs = require('fs');
