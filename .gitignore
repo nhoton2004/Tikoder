@@ -20,6 +20,7 @@ data/reports/
 # Logs & Temp Files
 .tmp/
 *.log
+*.err
 *.recovered_*
 *.pyc
 
