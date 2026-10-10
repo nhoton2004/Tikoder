@@ -74,6 +74,14 @@
         let currentUserUid = '';
         let currentUserRole = 'user';
         let currentView = 'overview';
+        const settingsRouteByView = {
+            'settings-appearance': 'appearance',
+            'settings-connection': 'connection',
+            'settings-data': 'data'
+        };
+        const settingsViewByRoute = Object.fromEntries(Object.entries(settingsRouteByView).map(([view, route]) => [route, view]));
+        let settingsSnapshot = '';
+        let settingsUiLoaded = false;
         const seenChatMsgIds = new Set();
         const confirmedMsgIds = new Set(); // Set msgId đã in/chốt — track theo comment, không theo username
         let mobilePopoverEl = null;
@@ -144,7 +152,13 @@
                 'settings.printerTypeDesc': 'Chọn TCP (Wi‑Fi/LAN), USB/cổng trực tiếp, hoặc máy in hệ thống.',
                 'settings.apiKey': 'TikTok Sign API Key',
                 'settings.apiKeyDesc': 'Khóa bảo mật đồng bộ với hệ thống TikTok.',
-                'settings.save': 'Lưu cấu hình hệ thống',
+                'settings.save': 'Lưu cấu hình',
+                'settings.navAppearance': 'Giao diện',
+                'settings.navConnection': 'Kết nối',
+                'settings.navData': 'Dữ liệu',
+                'settings.quickTools': 'Tiện ích hệ thống',
+                'settings.online': 'Đang kết nối',
+                'settings.offline': 'Chưa kết nối',
                 'settings.appearanceTitle': 'Giao diện',
                 'settings.appearanceDesc': 'Chọn chế độ sáng hoặc tối cho toàn bộ ứng dụng.',
                 'settings.lightMode': 'Chế độ sáng',
@@ -273,7 +287,13 @@
                 'settings.printerTypeDesc': 'Choose TCP (Wi‑Fi/LAN), USB/direct port, or system printer.',
                 'settings.apiKey': 'TikTok Sign API Key',
                 'settings.apiKeyDesc': 'Security key to sync with TikTok services.',
-                'settings.save': 'Save system configuration',
+                'settings.save': 'Save configuration',
+                'settings.navAppearance': 'Appearance',
+                'settings.navConnection': 'Connection',
+                'settings.navData': 'Data',
+                'settings.quickTools': 'System tools',
+                'settings.online': 'Connected',
+                'settings.offline': 'Disconnected',
                 'settings.appearanceTitle': 'Appearance',
                 'settings.appearanceDesc': 'Choose light or dark mode for the whole app.',
                 'settings.lightMode': 'Light mode',
@@ -375,9 +395,7 @@
                 renderOverview(overviewData, overviewComparison);
             }
             renderEmptyCommentState();
-            if (currentView === 'settings') {
-                loadSettingsUI();
-            }
+            markSettingsDirty();
         }
         window.setLang = setLang;
 
@@ -443,7 +461,9 @@
                 const groupToggleBtn = document.getElementById(toggleId);
                 const submenu = document.getElementById(submenuId);
                 if (groupToggleBtn && submenu) {
-                    groupToggleBtn.classList.add('open');
+                    const isInitiallyOpen = !submenu.classList.contains('collapsed');
+                    groupToggleBtn.classList.toggle('open', isInitiallyOpen);
+                    groupToggleBtn.setAttribute('aria-expanded', isInitiallyOpen ? 'true' : 'false');
                     groupToggleBtn.addEventListener('click', (e) => {
                         e.preventDefault();
                         if (appShell && appShell.dataset.sidebarCollapsed === 'true') {
@@ -481,6 +501,7 @@
             document.documentElement.setAttribute('data-theme', nextTheme);
             localStorage.setItem('theme', nextTheme);
             syncThemeControls();
+            markSettingsDirty();
         }
 
         function syncThemeControls() {
@@ -502,6 +523,14 @@
             if (!userMenuDropdown) return;
             userMenuDropdown.classList.toggle('hidden', !open);
             userMenuTrigger?.setAttribute('aria-expanded', open ? 'true' : 'false');
+        }
+
+        function syncUserMenuPlacement() {
+            if (!userMenu) return;
+            const slot = document.getElementById(isMobileLayout() ? 'topbar-user-menu-slot' : 'sidebar-user-menu-slot');
+            if (!slot || userMenu.parentElement === slot) return;
+            setUserMenuOpen(false);
+            slot.appendChild(userMenu);
         }
 
         function initUserAvatarMenu() {
@@ -527,6 +556,8 @@
 
         Sidebar.init();
         initTheme();
+        syncUserMenuPlacement();
+        window.addEventListener('resize', syncUserMenuPlacement);
         Topbar.init();
 
         menuItems.forEach(btn => {
@@ -633,8 +664,8 @@
 
         function updateLiveOrdersToggleLabel() {
             const panel = document.getElementById('live-current-orders-panel');
-            const toggle = panel?.querySelector('[data-live-orders-toggle]');
-            const label = panel?.querySelector('[data-live-orders-toggle-label]');
+            const toggle = document.querySelector('[data-live-orders-toggle]');
+            const label = document.querySelector('[data-live-orders-toggle-label]');
             const icon = toggle?.querySelector('.material-symbols-outlined');
             if (!panel || !toggle) return;
             const isCollapsed = panel.classList.contains('is-collapsed');
@@ -1473,7 +1504,7 @@
             sectionEl.hidden = true;
         }
 
-        function switchView(view) {
+        function switchView(view, { syncRoute = true } = {}) {
             if (view === 'admin') {
                 if (currentUserRole === 'admin' || currentUserRole === 'super_admin') {
                     window.location.href = '/admin';
@@ -1483,6 +1514,7 @@
                 return;
             }
 
+            if (view === 'settings') view = 'settings-appearance';
             currentView = view;
             document.body.dataset.view = view;
 
@@ -1507,7 +1539,7 @@
                 }
             }
 
-            const settingsViews = ['settings', 'print-config', 'backup'];
+            const settingsViews = Object.keys(settingsRouteByView);
             const settingsToggleBtn = document.getElementById('menu-settings-group-toggle');
             const settingsSubmenu = document.getElementById('menu-settings-submenu');
             if (settingsToggleBtn && settingsSubmenu) {
@@ -1529,23 +1561,21 @@
                 'creditor-debts': [sectionCreditorDebts],
                 shop: [sectionShop],
                 reports: [sectionReports],
-                settings: [settingsPanel],
-                'print-config': [settingsPanel],
-                backup: [settingsPanel]
+                'settings-appearance': [settingsPanel],
+                'settings-connection': [settingsPanel],
+                'settings-data': [settingsPanel]
             };
             const activeSections = sectionMap[view] || sectionMap.overview;
             dashboardSections.forEach(sectionEl => setSectionVisibility(sectionEl, activeSections.includes(sectionEl)));
             setSectionVisibility(rightCol, settingsViews.includes(view));
-
-            if (view === 'print-config') {
-                const targetCard = document.getElementById('card-settings-integration');
-                targetCard?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            } else if (view === 'backup') {
-                const targetCard = document.getElementById('card-settings-backup');
-                targetCard?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-            } else if (view === 'settings') {
-                const targetCard = document.getElementById('card-settings-general');
-                targetCard?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            if (settingsViews.includes(view)) {
+                const route = settingsRouteByView[view];
+                document.querySelectorAll('[data-settings-tab]').forEach(card => {
+                    card.hidden = card.dataset.settingsTab !== route;
+                });
+                if (syncRoute && window.location.pathname !== `/settings/${route}`) {
+                    window.history.pushState({ settingsRoute: route }, '', `/settings/${route}`);
+                }
             }
             if (pageTitle) {
                 pageTitle.textContent = view === 'live' ? 'TikTok Live Management' : 'TikTok Order';
@@ -1573,9 +1603,8 @@
             if (view === 'orders') {
                 OrdersPage.refresh();
             }
-            if (view === 'settings') {
-                // Đợi DOM hiển thị xong rồi load settings UI
-                setTimeout(() => loadSettingsUI(), 50);
+            if (settingsViews.includes(view)) {
+                if (!settingsUiLoaded) setTimeout(() => loadSettingsUI(), 50);
             }
             if (typeof window.updateSelectAllCheckboxState === 'function') {
                 window.updateSelectAllCheckboxState();
@@ -1689,6 +1718,37 @@
         }
 
         window.toggleSettings = () => switchView('settings');
+        window.addEventListener('popstate', () => {
+            const route = window.location.pathname.split('/').filter(Boolean)[1];
+            const view = settingsViewByRoute[route];
+            if (view) switchView(view, { syncRoute: false });
+        });
+        function settingsDraft() {
+            return JSON.stringify({
+                lang: currentLang,
+                theme: document.documentElement.getAttribute('data-theme') || 'light',
+                tiktokId: document.getElementById('default-tiktok-id')?.value || '',
+                autoConnect: document.getElementById('auto-connect-enabled')?.checked || false,
+                printerType: printerTypeSelect?.value || 'tcp',
+                printerAddress: printerIpInput?.value || '',
+                apiKey: tiktokApiKeyInput?.value || ''
+            });
+        }
+        function syncSettingsSaveButton() {
+            const button = document.getElementById('settings-save-button');
+            if (button) button.disabled = settingsDraft() === settingsSnapshot;
+        }
+        function captureSettingsSnapshot() {
+            settingsSnapshot = settingsDraft();
+            syncSettingsSaveButton();
+        }
+        function markSettingsDirty() {
+            if (currentView.startsWith('settings-')) syncSettingsSaveButton();
+        }
+        document.querySelectorAll('#settings-panel input, #settings-panel select:not(#backup-scope)').forEach(control => {
+            control.addEventListener('input', markSettingsDirty);
+            control.addEventListener('change', markSettingsDirty);
+        });
         window.saveSettings = () => {
             const defaultTikTokIdInput = document.getElementById('default-tiktok-id');
             const autoConnectCheckbox = document.getElementById('auto-connect-enabled');
@@ -1739,6 +1799,7 @@
                 msg.style.color = '#16a34a';
                 setTimeout(() => { msg.textContent = ''; }, 3000);
             }
+            captureSettingsSnapshot();
         };
 
         window.testConnectionFromSettings = () => {
@@ -1802,6 +1863,7 @@
         }
 
         function loadSettingsUI() {
+            settingsUiLoaded = true;
             const scopedDefaultKey = getScopedStorageKey('defaultTikTokId');
             const scopedAutoKey = getScopedStorageKey('autoConnectEnabled');
             const defaultTikTokId = scopedDefaultKey ? (localStorage.getItem(scopedDefaultKey) || '') : '';
@@ -1868,6 +1930,11 @@
                     tiktokBadge.style.background = 'rgba(255,255,255,0.05)';
                 }
             }
+            const connectionBadge = document.getElementById('connection-status-badge');
+            if (connectionBadge) {
+                connectionBadge.textContent = isConnected ? t('settings.online') : t('settings.offline');
+                connectionBadge.classList.toggle('is-online', isConnected);
+            }
             if (tiktokStatusText) {
                 tiktokStatusText.textContent = isConnected
                     ? (activeBroadcasterId || (currentLang === 'en' ? 'Connected' : 'Đã kết nối'))
@@ -1904,6 +1971,7 @@
                     toggleBtn.setAttribute('title', isPassword ? 'Hiện API key' : 'Ẩn API key');
                 }
             }
+            captureSettingsSnapshot();
         }
 
         function updateApiKeyStatus() {
@@ -4023,7 +4091,8 @@
         };
 
         (async () => {
-            switchView('overview');
+            const initialRoute = window.location.pathname.split('/').filter(Boolean)[1];
+            switchView(settingsViewByRoute[initialRoute] || 'overview', { syncRoute: false });
             setLang(currentLang);
             setupMobileCommentPopover();
             setOverviewRange('7');
@@ -4047,16 +4116,22 @@
 
                     if (userMenu) {
                         userMenu.classList.remove('hidden');
-                        userMenu.style.display = 'block';
+                        userMenu.style.display = 'flex';
                     }
                     if (userMenuTrigger) {
                         userMenuTrigger.classList.remove('hidden');
                         userMenuTrigger.style.display = 'inline-flex';
                     }
 
-                    if (currentUserRole === 'admin' || currentUserRole === 'super_admin') {
-                        document.getElementById('btn-admin').classList.remove('hidden');
-                        if (sidebarAdminItem) sidebarAdminItem.classList.remove('hidden');
+                    const isAdmin = currentUserRole === 'admin' || currentUserRole === 'super_admin';
+                    const adminToolButton = document.getElementById('btn-admin');
+                    if (adminToolButton) {
+                        adminToolButton.classList.toggle('hidden', !isAdmin);
+                        adminToolButton.hidden = !isAdmin;
+                    }
+                    if (sidebarAdminItem) {
+                        sidebarAdminItem.classList.toggle('hidden', !isAdmin);
+                        sidebarAdminItem.hidden = !isAdmin;
                     }
 
                     if (data.devSkipAuth) {
@@ -4104,11 +4179,14 @@
         // --- AUTO-SAVE KHI LIVE KẾT THÚC ---
         socket.on('live-ended', async (data) => {
             const broadcasterId = data?.broadcasterId || activeBroadcasterId || '';
+            const saveFailed = data?.status === 'error';
             const msg = currentLang === 'en' ? t('live.liveEnded') : 'Khách đã xuống live. Đang tự động lưu phiên...';
-            showLiveToast(msg, 'info');
+            showLiveToast(saveFailed
+                ? (currentLang === 'en' ? 'Could not save the live session. Please retry.' : 'Không thể lưu phiên Live. Dữ liệu vẫn được giữ để thử lại.')
+                : msg, saveFailed ? 'error' : 'info');
 
-            // Xoá Session ID khỏi localStorage nếu server thông báo kết thúc hẳn
-            if (data?.clearSession) {
+            // Phiên đã kết thúc hoặc bị loại vì rỗng không được phép tiếp tục.
+            if (['ended', 'discarded'].includes(data?.status) || data?.clearSession) {
                 const sessionKey = getScopedStorageKey('activeSessionId');
                 if (sessionKey) localStorage.removeItem(sessionKey);
             }
@@ -4126,13 +4204,13 @@
 
             // Server đã tự flush & lưu session khi stream kết thúc (flushSessionToDb)
             // Không cần client auto-save thêm để tránh tạo phiên trùng lặp
-            if (Object.keys(liveOrdersData).length > 0) {
+            if (!saveFailed && Object.keys(liveOrdersData).length > 0) {
                 showLiveToast('✅ Phiên live đã được lưu tự động bởi server.', 'success');
                 refreshOverviewTopShops?.();
             }
 
             // Dọn sạch dữ liệu đơn chốt và cập nhật lại trạng thái kết nối trên UI
-            liveOrdersData = {};
+            if (!saveFailed) liveOrdersData = {};
             document.body.classList.remove('live-connected');
             document.body.classList.add('live-disconnected');
             if (statusMsg) {
@@ -4184,6 +4262,11 @@
 
         window.saveCurrentSession = async () => {
             const isLive = currentView === 'live';
+            if (isLive && document.body.classList.contains('live-connected')) {
+                return showLiveToast(currentLang === 'en'
+                    ? 'Live session is active. Disconnect to finish and save it.'
+                    : 'Phiên Live đang hoạt động. Hãy ngắt kết nối để kết thúc và lưu phiên.', 'info');
+            }
             const dataTarget = isLive ? liveOrdersData : ordersData;
 
             if (Object.keys(dataTarget).length === 0) {
@@ -4897,6 +4980,7 @@
         // ==================== DI ĐƠN / DELIVERY VIEW LOGIC ====================
         let deliverySessionsList = [];
         const selectedDeliverySessionIds = new Set();
+        let deliveryMultiSelectMode = false;
         let deliveryShowOnlyMissing = false;
         let deliveryCachedPreviewGroups = [];
         let selectedDeliveryCustomerKeys = new Set();
@@ -5072,21 +5156,36 @@
             listBody.innerHTML = '';
             sessions.forEach(s => {
                 const tr = document.createElement('tr');
-                tr.className = 'border-b hover:bg-slate-50 transition-colors';
+                const isSelected = selectedDeliverySessionIds.has(s.id);
+                tr.className = `border-b transition-colors cursor-pointer ${isSelected ? 'bg-rose-50 hover:bg-rose-100' : 'hover:bg-slate-50'}`;
                 
                 const dateStr = s.createdAt || s.startedAt ? new Date(s.createdAt || s.startedAt).toLocaleString('vi-VN') : 'Không rõ';
                 const totalCust = s.summary?.totalCustomers || 0;
                 const totalRev = formatMoney(s.summary?.totalRevenue || 0);
                 const liveName = s.liveName || 'Phiên livestream';
-                const isChecked = selectedDeliverySessionIds.has(s.id) ? 'checked' : '';
+                const isChecked = isSelected ? 'checked' : '';
 
                 tr.innerHTML = `
-                    <td class="p-3 text-center"><input type="checkbox" id="del-cb-${s.id}" ${isChecked} onchange="toggleDeliverySessionSelect('${s.id}')"></td>
+                    <td class="p-3 text-center"><input type="checkbox" id="del-cb-${s.id}" ${isChecked} aria-label="Chọn phiên ${escapeHtml(liveName)}"></td>
                      <td class="p-3 font-semibold text-gray-800">${escapeHtml(liveName)}</td>
                      <td class="p-3 text-gray-500 font-mono text-xs">${escapeHtml(dateStr)}</td>
                      <td class="p-3 text-center text-gray-600 font-bold">${totalCust}</td>
                      <td class="p-3 text-right text-red-600 font-bold">${totalRev}</td>
                 `;
+                const checkbox = tr.querySelector('input[type="checkbox"]');
+                checkbox.addEventListener('click', event => event.stopPropagation());
+                checkbox.addEventListener('change', () => {
+                    deliveryMultiSelectMode = checkbox.checked || selectedDeliverySessionIds.size > 0;
+                    setDeliverySessionSelected(s.id, checkbox.checked);
+                });
+                tr.addEventListener('click', event => {
+                    if (event.ctrlKey || event.metaKey || event.shiftKey || deliveryMultiSelectMode) {
+                        deliveryMultiSelectMode = true;
+                        setDeliverySessionSelected(s.id, !selectedDeliverySessionIds.has(s.id));
+                        return;
+                    }
+                    goToDeliveryStep2([s.id]);
+                });
                 listBody.appendChild(tr);
             });
         }
@@ -5116,18 +5215,20 @@
                     selectedDeliverySessionIds.delete(sessionId);
                 }
             });
+            deliveryMultiSelectMode = checked;
             updateDeliveryPreviewButton();
+            renderDeliverySessionsTable(getFilteredDeliverySessions());
         };
 
         window.toggleDeliverySessionSelect = (sessionId) => {
             const cb = document.getElementById(`del-cb-${sessionId}`);
-            if (cb) {
-                if (cb.checked) {
-                    selectedDeliverySessionIds.add(sessionId);
-                } else {
-                    selectedDeliverySessionIds.delete(sessionId);
-                }
-            }
+            if (cb) setDeliverySessionSelected(sessionId, cb.checked);
+        };
+
+        function setDeliverySessionSelected(sessionId, selected) {
+            if (selected) selectedDeliverySessionIds.add(sessionId);
+            else selectedDeliverySessionIds.delete(sessionId);
+            if (selectedDeliverySessionIds.size === 0) deliveryMultiSelectMode = false;
             
             // Check if all are selected
             const checkboxes = Array.from(document.querySelectorAll('#delivery-sessions-list-body input[type="checkbox"]'));
@@ -5137,22 +5238,44 @@
             }
 
             updateDeliveryPreviewButton();
+            renderDeliverySessionsTable(getFilteredDeliverySessions());
         };
 
         function updateDeliveryPreviewButton() {
             const btn = document.getElementById('btn-delivery-preview');
-            if (btn) {
-                btn.disabled = selectedDeliverySessionIds.size === 0;
-            }
+            const actions = document.getElementById('delivery-selection-actions');
+            const count = document.getElementById('delivery-selection-count');
+            const label = document.getElementById('delivery-preview-label');
+            const selectedCount = selectedDeliverySessionIds.size;
+            if (actions) actions.classList.toggle('hidden', selectedCount === 0);
+            if (actions) actions.classList.toggle('flex', selectedCount > 0);
+            if (count) count.textContent = `Đã chọn ${selectedCount} phiên`;
+            if (label) label.textContent = `Mở ${selectedCount} phiên`;
+            if (btn) btn.disabled = selectedCount === 0;
         }
+
+        function getFilteredDeliverySessions() {
+            const query = document.getElementById('delivery-sessions-search')?.value.trim().toLowerCase() || '';
+            if (!query) return deliverySessionsList;
+            return deliverySessionsList.filter(s => `${s.liveName || ''} ${s.createdAt || s.startedAt || ''}`.toLowerCase().includes(query));
+        }
+
+        window.clearDeliverySessionSelection = () => {
+            selectedDeliverySessionIds.clear();
+            deliveryMultiSelectMode = false;
+            const selectAllCb = document.getElementById('delivery-select-all-sessions');
+            if (selectAllCb) selectAllCb.checked = false;
+            updateDeliveryPreviewButton();
+            renderDeliverySessionsTable(getFilteredDeliverySessions());
+        };
 
         window.goToDeliveryStep1 = () => {
             document.getElementById('delivery-step-2').classList.add('hidden');
             document.getElementById('delivery-step-1').classList.remove('hidden');
         };
 
-        window.goToDeliveryStep2 = async () => {
-            if (selectedDeliverySessionIds.size === 0) return;
+        window.goToDeliveryStep2 = async (sessionIds = Array.from(selectedDeliverySessionIds)) => {
+            if (!sessionIds.length) return;
 
             const previewTableBody = document.getElementById('delivery-preview-table-body');
             if (previewTableBody) {
@@ -5167,7 +5290,7 @@
             loadDeliveryDefaults(); // Refresh fields to use latest saved defaults
 
             try {
-                const fetchPromises = Array.from(selectedDeliverySessionIds).map(id => 
+            const fetchPromises = sessionIds.map(id =>
                     fetch(`/api/live-sessions/${encodeURIComponent(id)}`).then(r => {
                         if (!r.ok) throw new Error('Không thể tải chi tiết phiên live ' + id);
                         return r.json();

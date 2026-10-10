@@ -18,6 +18,12 @@ function rowToSession(row) {
         startedAt: row.started_at || '',
         endedAt: row.ended_at || '',
         createdAt: row.created_at || '',
+        status: row.status || 'ended',
+        resumedAt: row.resumed_at || '',
+        resumeCount: Number(row.resume_count || 0),
+        lastActivityAt: row.last_activity_at || '',
+        endedReason: row.ended_reason || '',
+        revision: Number(row.revision || 0),
         summary: typeof row.summary === 'string' ? JSON.parse(row.summary || '{}') : (row.summary || {}),
         orders: []
     };
@@ -161,7 +167,7 @@ function createLiveSession(userId, data) {
         ? { ...data.summary, ...calculatedSummary }
         : calculatedSummary;
     const now = new Date().toISOString();
-    const id = generateSessionId();
+    const id = data.id || generateSessionId();
 
     const db = getDb();
 
@@ -172,17 +178,23 @@ function createLiveSession(userId, data) {
 
     const finalSummary = db.transaction(() => {
         db.prepare(`
-            INSERT INTO live_sessions (id, user_id, type, live_name, tiktok_username, started_at, ended_at, created_at, summary)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            INSERT INTO live_sessions (id, user_id, type, live_name, tiktok_username, started_at, ended_at, created_at, summary, status, resumed_at, resume_count, last_activity_at, ended_reason, revision)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
             id, userId,
             data.type || 'live_session',
             data.liveName || `Phiên live ${new Date().toLocaleDateString('vi-VN')}`,
             data.tiktokUsername || '',
             data.startedAt || now,
-            data.endedAt || now,
+            data.endedAt || null,
             now,
-            JSON.stringify(summary)
+            JSON.stringify(summary),
+            data.status || 'live',
+            data.resumedAt || null,
+            Number(data.resumeCount || 0),
+            data.lastActivityAt || now,
+            data.endedReason || null,
+            Number(data.revision || 0)
         );
 
         for (const o of orders) {
@@ -297,15 +309,37 @@ function getUserSessionFile(userId) {
  */
 function updateLiveSession(userId, sessionId, patch) {
     const db = getDb();
-    const existing = db.prepare('SELECT id FROM live_sessions WHERE id = ? AND user_id = ?').get(sessionId, userId);
+    const existing = db.prepare('SELECT id, revision FROM live_sessions WHERE id = ? AND user_id = ?').get(sessionId, userId);
     if (!existing) throw new Error(`Session ${sessionId} không tồn tại hoặc không thuộc user ${userId}`);
+
+    const requestedRevision = Number.isFinite(Number(patch.revision)) ? Number(patch.revision) : null;
+    if (requestedRevision !== null && requestedRevision < Number(existing.revision || 0)) {
+        return getLiveSessionById(userId, sessionId);
+    }
+    const revision = requestedRevision === null ? Number(existing.revision || 0) + 1 : requestedRevision;
+    const now = new Date().toISOString();
+    const metadata = {
+        status: patch.status,
+        endedAt: patch.endedAt,
+        endedReason: patch.endedReason,
+        lastActivityAt: patch.lastActivityAt || now,
+        resumedAt: patch.resumedAt,
+        resumeCount: patch.resumeCount
+    };
 
     let orders = patch.orders;
     if (!orders) {
         // Không cập nhật orders nếu không truyền vào
         if (patch.summary) {
-            db.prepare('UPDATE live_sessions SET summary = ? WHERE id = ? AND user_id = ?')
-                .run(JSON.stringify(patch.summary), sessionId, userId);
+            db.prepare(`
+                UPDATE live_sessions
+                SET summary = ?, status = COALESCE(?, status), ended_at = COALESCE(?, ended_at),
+                    ended_reason = COALESCE(?, ended_reason), last_activity_at = ?,
+                    resumed_at = COALESCE(?, resumed_at), resume_count = COALESCE(?, resume_count), revision = ?
+                WHERE id = ? AND user_id = ?
+            `).run(JSON.stringify(patch.summary), metadata.status || null, metadata.endedAt || null,
+                metadata.endedReason || null, metadata.lastActivityAt, metadata.resumedAt || null,
+                metadata.resumeCount ?? null, revision, sessionId, userId);
         }
         return getLiveSessionById(userId, sessionId);
     }
@@ -314,7 +348,6 @@ function updateLiveSession(userId, sessionId, patch) {
         orders = flattenConfirmedOrders(orders);
     }
 
-    const now = new Date().toISOString();
     const calculatedSummary = calculateSessionSummary(orders);
     const summary = patch.summary
         ? { ...patch.summary, ...calculatedSummary }
@@ -339,9 +372,15 @@ function updateLiveSession(userId, sessionId, patch) {
                 o.note || '', o.time || '', o.createdAt || now
             );
         }
-        // Cập nhật summary
-        db.prepare('UPDATE live_sessions SET summary = ?, ended_at = ? WHERE id = ? AND user_id = ?')
-            .run(JSON.stringify(summary), now, sessionId, userId);
+        db.prepare(`
+            UPDATE live_sessions
+            SET summary = ?, status = COALESCE(?, status), ended_at = COALESCE(?, ended_at),
+                ended_reason = COALESCE(?, ended_reason), last_activity_at = ?,
+                resumed_at = COALESCE(?, resumed_at), resume_count = COALESCE(?, resume_count), revision = ?
+            WHERE id = ? AND user_id = ?
+        `).run(JSON.stringify(summary), metadata.status || null, metadata.endedAt || null,
+            metadata.endedReason || null, metadata.lastActivityAt, metadata.resumedAt || null,
+            metadata.resumeCount ?? null, revision, sessionId, userId);
     })();
 
     return getLiveSessionById(userId, sessionId);

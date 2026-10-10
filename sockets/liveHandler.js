@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const { cleanDisplayText, normalizeDisplayText } = require('../utils/displayName');
 const liveSessionStore = require('../utils/liveSessionStore');
+const { isResumableSession } = require('../utils/liveSessionLifecycle');
 const ChatConfirm = require('../public/js/chat-confirm');
 
 const liveRuntimeByUser = new Map();
@@ -25,6 +26,10 @@ function getLiveRuntime(userId) {
             currentBroadcasterId: '',
             sessionId: null,
             sessionStartedAt: null,
+            sessionState: 'idle',
+            sessionRevision: 0,
+            saveQueue: Promise.resolve(),
+            endPromise: null,
             gracePeriodTimer: null,
             processedMsgIds: new Set(),
             chatBufferByBroadcaster: new Map(),
@@ -105,19 +110,70 @@ function processIncomingChat(runtime, ctx, userConnection, broadcasterId, userId
  * Giảm thải ghi đĩa trong khi vẫn đảm bảo dữ liệu được cập nhật.
  */
 function scheduleDebouncedSave(userId, runtime, ctx) {
+    if (runtime.sessionState === 'ending' || runtime.sessionState === 'ended') return;
+    runtime.sessionRevision += 1;
     if (runtime.saveDebouncedTimer) clearTimeout(runtime.saveDebouncedTimer);
     runtime.saveDebouncedTimer = setTimeout(() => {
-        ctx.flushSessionToDb(userId, runtime);
-        // Nếu đang load session lịch sử → sync đơn live (confirmedOrders) về đúng nguồn
-        if (runtime.historyLoadedSessionId) {
-            ctx.syncSessionOrders(userId, runtime.historyLoadedSessionId, runtime.confirmedOrders);
-        }
-        // Nếu đang load session thủ công riêng biệt → sync manualConfirmedOrders
-        if (runtime.activeLoadedSessionId && runtime.activeLoadedSessionId !== runtime.historyLoadedSessionId) {
-            ctx.syncSessionOrders(userId, runtime.activeLoadedSessionId, runtime.manualConfirmedOrders);
-        }
+        runtime.saveQueue = runtime.saveQueue.catch(() => undefined).then(() => {
+            if (runtime.sessionState === 'ending' || runtime.sessionState === 'ended') return;
+            ctx.flushSessionToDb(userId, runtime);
+            if (runtime.historyLoadedSessionId) {
+                ctx.syncSessionOrders(userId, runtime.historyLoadedSessionId, runtime.confirmedOrders);
+            }
+            if (runtime.activeLoadedSessionId && runtime.activeLoadedSessionId !== runtime.historyLoadedSessionId) {
+                ctx.syncSessionOrders(userId, runtime.activeLoadedSessionId, runtime.manualConfirmedOrders);
+            }
+        });
         runtime.saveDebouncedTimer = null;
     }, 1500); // 1.5s debounce — đủ nhanh cho cảm giác real-time
+}
+
+function endLiveSession(userId, runtime, ctx, reason) {
+    if (runtime.endPromise) return runtime.endPromise;
+    if (runtime.sessionState === 'ended' || runtime.sessionState === 'discarded') {
+        return Promise.resolve({ status: runtime.sessionState, sessionId: runtime.sessionId });
+    }
+    const broadcasterId = runtime.currentBroadcasterId;
+    runtime.sessionState = 'ending';
+    runtime.endPromise = (async () => {
+        if (runtime.saveDebouncedTimer) {
+            clearTimeout(runtime.saveDebouncedTimer);
+            runtime.saveDebouncedTimer = null;
+        }
+        await runtime.saveQueue.catch(() => undefined);
+        runtime.sessionRevision += 1;
+        ctx.saveSessionDataForUser(userId);
+        const result = ctx.flushSessionToDb(userId, runtime, { finalize: true, reason });
+        if (result?.status === 'error') {
+            runtime.sessionState = 'error';
+            ctx.emitToUser(userId, 'live-ended', {
+                broadcasterId,
+                reason,
+                clearSession: false,
+                status: 'error',
+                sessionId: runtime.sessionId,
+                error: result.error
+            });
+            return result;
+        }
+        runtime.confirmedOrders = {};
+        runtime.manualConfirmedOrders = {};
+        runtime.activeLoadedSessionId = null;
+        runtime.historyLoadedSessionId = null;
+        runtime.currentDbSessionId = null;
+        runtime.currentBroadcasterId = null;
+        runtime.sessionState = result?.status === 'discarded' ? 'discarded' : 'ended';
+        ctx.emitToUser(userId, 'all-confirmed-orders', {});
+        ctx.emitToUser(userId, 'live-ended', {
+            broadcasterId,
+            reason,
+            clearSession: true,
+            status: runtime.sessionState,
+            sessionId: runtime.sessionId
+        });
+        return result;
+    })().finally(() => { runtime.endPromise = null; });
+    return runtime.endPromise;
 }
 
 function setupLiveHandler(io, ctx) {
@@ -175,17 +231,7 @@ function setupLiveHandler(io, ctx) {
                     try { runtime.tiktokConnection.disconnect(); } catch (e) {}
                     runtime.tiktokConnection = null;
 
-                    // Flush lần cuối vào DB và lưu JSON backup
-                    if (runtime.saveDebouncedTimer) {
-                        clearTimeout(runtime.saveDebouncedTimer);
-                        runtime.saveDebouncedTimer = null;
-                    }
-                    ctx.saveSessionDataForUser(userId);
-                    ctx.flushSessionToDb(userId, runtime);
-                    runtime.confirmedOrders = {};
-                    runtime.currentDbSessionId = null;
-                    runtime.currentBroadcasterId = null;
-                    emitToUser(userId, 'all-confirmed-orders', {});
+                    endLiveSession(userId, runtime, ctx, 'client_disconnected');
                 }, 2 * 60 * 1000); // 2 phút
             }
         });
@@ -246,27 +292,10 @@ function setupLiveHandler(io, ctx) {
                 try { runtime.tiktokConnection.disconnect(); } catch (e) {}
                 runtime.tiktokConnection = null;
             }
-            // Flush and notify
-            if (runtime.saveDebouncedTimer) {
-                clearTimeout(runtime.saveDebouncedTimer);
-                runtime.saveDebouncedTimer = null;
-            }
-            ctx.saveSessionDataForUser(userId);
-            ctx.flushSessionToDb(userId, runtime);
-            
-            runtime.confirmedOrders = {};
-            runtime.manualConfirmedOrders = {};
-            runtime.activeLoadedSessionId = null;
-            runtime.historyLoadedSessionId = null;
-            runtime.currentDbSessionId = null;
-            runtime.currentBroadcasterId = null;
-            emitToUser(userId, 'all-confirmed-orders', {});
-            
-            // Dọn session ID khỏi client khi người dùng chủ động ngắt kết nối
-            emitToUser(userId, 'live-ended', { broadcasterId: oldBroadcasterId, reason: 'user_stopped', clearSession: true });
+            endLiveSession(userId, runtime, ctx, 'manual_disconnect');
         });
 
-        socket.on('start-live', (payload) => {
+        socket.on('start-live', async (payload) => {
             const uniqueId = typeof payload === 'string' ? payload : (payload?.uniqueId || '');
             const clientSessionId = typeof payload === 'object' ? payload?.sessionId : null;
 
@@ -307,12 +336,13 @@ function setupLiveHandler(io, ctx) {
                     // Thử khôi phục từ DB nếu server restart hoặc mất đồng bộ RAM
                     try {
                         const existingSession = liveSessionStore.getLiveSessionById(userId, clientSessionId);
-                        if (existingSession) {
+                        if (existingSession && isResumableSession(existingSession.status)) {
                             console.log(`>>> [Live] Khôi phục thành công phiên ${clientSessionId} từ DB cho user ${userId}`);
                             runtime.sessionId = clientSessionId;
                             runtime.currentDbSessionId = clientSessionId;
                             runtime.currentBroadcasterId = existingSession.tiktokUsername || broadcasterId;
                             runtime.sessionStartedAt = existingSession.startedAt;
+                            runtime.sessionRevision = Number(existingSession.revision || 0);
 
                             // Khôi phục danh sách đơn chốt về RAM (dạng object key-value theo username)
                             const restoredOrders = {};
@@ -340,6 +370,9 @@ function setupLiveHandler(io, ctx) {
                             });
                             runtime.confirmedOrders = restoredOrders;
                             isContinuation = true;
+                        } else if (existingSession) {
+                            socket.emit('session-load-error', { sessionId: clientSessionId, error: 'Phiên này đã kết thúc, hãy tạo phiên mới.' });
+                            return;
                         }
                     } catch (err) {
                         console.error('>>> [LỖI] Khôi phục phiên từ DB thất bại:', err.message);
@@ -370,14 +403,7 @@ function setupLiveHandler(io, ctx) {
                     console.log(`>>> Idle timeout expired for user ${userId}. Ending live.`);
                     try { runtime.tiktokConnection.disconnect(); } catch (e) {}
                     runtime.tiktokConnection = null;
-                    // Flush lần cuối vào DB
-                    if (runtime.saveDebouncedTimer) {
-                        clearTimeout(runtime.saveDebouncedTimer);
-                        runtime.saveDebouncedTimer = null;
-                    }
-                    saveSessionDataForUser(userId);
-                    ctx.flushSessionToDb(userId, runtime);
-                    emitToUser(userId, 'live-ended', { broadcasterId, reason: 'idle_10m', clearSession: true });
+                    endLiveSession(userId, runtime, ctx, 'inactivity_timeout');
                 }, 10 * 60 * 1000);
             };
 
@@ -386,17 +412,19 @@ function setupLiveHandler(io, ctx) {
 
             if (isContinuation) {
                 console.log(`>>> Resuming existing session ${runtime.sessionId} for user ${userId}`);
+                runtime.sessionState = 'live';
+                runtime.sessionRevision += 1;
             } else {
-                // Flush phiên cũ nếu đang có session khác hoạt động và có đơn hàng
-                if (runtime.sessionId && Object.keys(runtime.confirmedOrders || {}).length > 0) {
-                    ctx.saveSessionDataForUser(userId);
-                    ctx.flushSessionToDb(userId, runtime);
-                    runtime.currentDbSessionId = null; // Reset để initLiveSession tạo mới
+                // Không bỏ tham chiếu phiên cũ trước khi server chốt dữ liệu của nó.
+                if (runtime.currentDbSessionId && runtime.sessionState === 'live') {
+                    await endLiveSession(userId, runtime, ctx, 'replaced_by_new_session');
                 }
 
                 // Khởi tạo phiên mới hoàn toàn
                 runtime.sessionId = ctx.generateSessionId(broadcasterId);
                 runtime.sessionStartedAt = new Date().toISOString();
+                runtime.sessionState = 'connecting';
+                runtime.sessionRevision = 0;
                 runtime.processedMsgIds.clear();
 
                 // Phiên mới: bắt đầu RỖNG.
@@ -425,7 +453,20 @@ function setupLiveHandler(io, ctx) {
                 // Tạo session record trong DB ngay khi connect thành công (chỉ 1 lần)
                 if (!isContinuation) {
                     ctx.initLiveSession(userId, runtime, broadcasterId);
+                } else if (runtime.currentDbSessionId) {
+                    const resumedAt = new Date().toISOString();
+                    const current = liveSessionStore.getLiveSessionById(userId, runtime.currentDbSessionId);
+                    liveSessionStore.updateLiveSession(userId, runtime.currentDbSessionId, {
+                        status: 'live',
+                        resumedAt,
+                        resumeCount: Number(current?.resumeCount || 0) + 1,
+                        lastActivityAt: resumedAt,
+                        revision: runtime.sessionRevision + 1,
+                        summary: current?.summary || {}
+                    });
+                    runtime.sessionRevision += 1;
                 }
+                runtime.sessionState = 'live';
             }).catch(err => {
                 if (runtime.tiktokConnection !== userConnection) return;
                 let errorMessage = "Lỗi không xác định";
@@ -449,16 +490,7 @@ function setupLiveHandler(io, ctx) {
                 if (runtime.tiktokConnection !== userConnection) return;
                 console.log(`>>> Stream ended for broadcaster: ${broadcasterId} (user: ${userId})`);
 
-                // Flush lần cuối vào DB và lưu JSON backup
-                if (runtime.saveDebouncedTimer) {
-                    clearTimeout(runtime.saveDebouncedTimer);
-                    runtime.saveDebouncedTimer = null;
-                }
-                saveSessionDataForUser(userId);
-                ctx.flushSessionToDb(userId, runtime);
-
-                 // Thông báo về client và ngắt kết nối TikTok
-                 emitToUser(userId, 'live-ended', { broadcasterId, reason: data?.action || 'ended', clearSession: false });
+                endLiveSession(userId, runtime, ctx, 'host_ended');
 
                 try { userConnection.disconnect(); } catch (e) {}
                 if (runtime.tiktokConnection === userConnection) {
@@ -942,4 +974,4 @@ function setupLiveHandler(io, ctx) {
     });
 }
 
-module.exports = { setupLiveHandler, getLiveRuntime, liveRuntimeByUser };
+module.exports = { setupLiveHandler, getLiveRuntime, liveRuntimeByUser, endLiveSession };

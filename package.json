@@ -6,8 +6,10 @@
     "start": "node server.js",
     "set-super-admin": "node scripts/setSuperAdmin.js",
     "audit:customers": "node scripts/audit-customers.js",
-    "test": "npm run test:audit",
+    "test": "npm run test:audit && npm run test:settings && npm run test:live-session",
     "test:audit": "node tests/customer-auditor.test.js",
+    "test:settings": "node --test tests/settings-navigation.test.js",
+    "test:live-session": "node --test tests/live-session-lifecycle.test.js",
     "test:excel": "node tests/orderExcelExporter.test.js"
   },
   "keywords": [],

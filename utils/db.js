@@ -59,7 +59,13 @@ function initTables() {
             started_at TEXT,
             ended_at TEXT,
             created_at TEXT NOT NULL,
-            summary TEXT DEFAULT '{}'
+            summary TEXT DEFAULT '{}',
+            status TEXT DEFAULT 'draft',
+            resumed_at TEXT,
+            resume_count INTEGER DEFAULT 0,
+            last_activity_at TEXT,
+            ended_reason TEXT,
+            revision INTEGER DEFAULT 0
         );
 
         CREATE INDEX IF NOT EXISTS idx_sessions_user_id ON live_sessions(user_id);
@@ -127,6 +133,26 @@ function initTables() {
 
         CREATE INDEX IF NOT EXISTS idx_creditor_payments_debt ON creditor_payments(debt_id);
     `);
+
+    // Migrate databases created before live-session state tracking existed.
+    const sessionColumns = new Set(db.prepare('PRAGMA table_info(live_sessions)').all().map(column => column.name));
+    const sessionMigrations = [
+        ['status', "TEXT DEFAULT 'draft'"],
+        ['resumed_at', 'TEXT'],
+        ['resume_count', 'INTEGER DEFAULT 0'],
+        ['last_activity_at', 'TEXT'],
+        ['ended_reason', 'TEXT'],
+        ['revision', 'INTEGER DEFAULT 0']
+    ];
+    for (const [name, definition] of sessionMigrations) {
+        if (!sessionColumns.has(name)) db.exec(`ALTER TABLE live_sessions ADD COLUMN ${name} ${definition}`);
+    }
+    db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_user_status ON live_sessions(user_id, status)');
+    db.prepare(`
+        UPDATE live_sessions
+        SET status = CASE WHEN COALESCE(ended_at, '') = '' THEN 'interrupted' ELSE 'ended' END
+        WHERE status IS NULL OR status = '' OR status = 'draft'
+    `).run();
 }
 
 // ==================== CUSTOMER OPERATIONS ====================

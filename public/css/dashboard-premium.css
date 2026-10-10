@@ -2209,31 +2209,32 @@ body[data-view="live"] .sidebar {
     top: 12px !important;
     z-index: 50 !important;
     height: calc(100dvh - 24px) !important;
-    padding: 14px 16px !important;
+    padding: 14px 12px !important;
     gap: 14px !important;
     border-radius: 10px !important;
     border: 1px solid rgba(15, 23, 42, 0.08) !important;
     background: rgba(255, 255, 255, 0.96) !important;
     box-shadow: 0 18px 42px rgba(15, 23, 42, 0.08) !important;
-    overflow: visible !important;
+    overflow: hidden !important;
 }
 
 [data-theme="dark"] .sidebar {
     top: 12px !important;
     z-index: 50 !important;
     height: calc(100dvh - 24px) !important;
-    padding: 14px 16px !important;
+    padding: 14px 12px !important;
     gap: 14px !important;
     border-radius: 10px !important;
     border: 1px solid var(--border-base) !important;
     background: var(--bg-subtle) !important;
     box-shadow: 0 18px 42px rgba(0, 0, 0, 0.4) !important;
-    overflow: visible !important;
+    overflow: hidden !important;
 }
 
 .app-shell[data-sidebar-collapsed="true"] .sidebar,
 body[data-view="live"] .app-shell[data-sidebar-collapsed="true"] .sidebar {
     padding: 14px 10px !important;
+    overflow: visible !important;
 }
 
 .brand-lockup,
@@ -2939,7 +2940,7 @@ body[data-view="live"] .live-workspace {
 }
 
 body[data-view="live"] .live-workspace.is-orders-collapsed {
-    grid-template-columns: minmax(0, 1fr) minmax(190px, 220px) !important;
+    grid-template-columns: minmax(0, 1fr) !important;
 }
 
 .live-panel-actions {
@@ -2971,37 +2972,7 @@ body[data-view="live"] .live-workspace.is-orders-collapsed {
 }
 
 body[data-view="live"] .live-current-orders-panel.is-collapsed {
-    height: auto !important;
-    min-height: 42px !important;
-}
-
-body[data-view="live"] .live-current-orders-panel.is-collapsed .live-orders-empty,
-body[data-view="live"] .live-current-orders-panel.is-collapsed .live-orders-grid {
     display: none !important;
-}
-
-body[data-view="live"] .live-current-orders-panel.is-collapsed .live-panel-head {
-    border-bottom: 0;
-}
-
-body[data-view="live"] .live-current-orders-panel.is-collapsed .live-panel-head h3 {
-    max-width: 0;
-    overflow: hidden;
-    opacity: 0;
-}
-
-body[data-view="live"] .live-current-orders-panel.is-collapsed .live-panel-actions {
-    width: 100%;
-}
-
-body[data-view="live"] .live-current-orders-panel.is-collapsed .live-count-pill {
-    flex: 1 1 auto;
-    justify-content: center;
-    text-align: center;
-}
-
-body[data-view="live"] .live-current-orders-panel.is-collapsed .live-orders-toggle {
-    flex: 0 0 auto;
 }
 
 body[data-view="live"] .live-current-orders-panel .live-orders-toggle {
@@ -3029,10 +3000,6 @@ body[data-view="live"] .live-current-orders-panel .live-count-pill {
         min-height: 260px;
     }
 
-    body[data-view="live"] .live-current-orders-panel.is-collapsed .live-panel-head h3 {
-        max-width: none;
-        opacity: 1;
-    }
 }
 
 @media (max-width: 620px) {
@@ -3050,10 +3017,6 @@ body[data-view="live"] .live-current-orders-panel .live-count-pill {
         padding: 10px 12px;
     }
 
-    body[data-view="live"] .live-current-orders-panel.is-collapsed .live-panel-head {
-        align-items: center;
-        flex-direction: row;
-    }
 }
 
 /* --- CUSTOMERS TAB UPGRADES --- */
@@ -3232,11 +3195,16 @@ body[data-view="live"] .live-current-orders-panel .live-count-pill {
 /* Sidebar Dropdown / Submenu Styling */
 .menu-group {
     width: 100%;
+    min-width: 0;
 }
 
 .menu-group-toggle {
     cursor: pointer;
     user-select: none;
+}
+
+.menu-group-toggle > div {
+    min-width: 0;
 }
 
 .menu-group-toggle .menu-arrow {
@@ -3258,8 +3226,10 @@ body[data-view="live"] .live-current-orders-panel .live-count-pill {
     display: flex;
     flex-direction: column;
     gap: 2px;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
     padding-left: 12px;
-    margin-left: 12px;
     border-left: 2px solid rgba(226, 232, 240, 0.8);
     overflow: hidden;
     max-height: 500px;
@@ -3284,6 +3254,7 @@ body[data-view="live"] .live-current-orders-panel .live-count-pill {
 .menu-sub-item {
     min-height: 38px !important;
     font-size: 0.85rem;
+    margin-inline: 0;
 }
 
 /* Parent active state when child is active */
@@ -3305,6 +3276,5 @@ body[data-view="live"] .live-current-orders-panel .live-count-pill {
 
 .app-shell[data-sidebar-collapsed="true"] .menu-submenu {
     padding-left: 0 !important;
-    margin-left: 0 !important;
     border-left: none !important;
 }

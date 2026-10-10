@@ -49,12 +49,12 @@
                 </div>
             </div>
 
-            <nav class="mt-3 space-y-1">
-                <button class="menu-item active w-full text-left" data-view="overview" data-tooltip="Tổng quan"><span class="nav-key"><img src="/icons/layout-dashboard.svg" alt=""></span><span class="menu-label" data-i18n="menu.overview">Tổng quan</span></button>
-                <button class="menu-item w-full text-left" data-view="live" data-tooltip="Live"><span class="nav-key"><img src="/icons/radio-tower.svg" alt=""></span><span class="menu-label" data-i18n="menu.live">Phiên live</span></button>
+            <nav class="sidebar-nav mt-3">
+                <button class="menu-item active w-full text-left" data-view="overview" data-tooltip="Tổng quan"><span class="nav-key"><img src="/icons/layout-dashboard.svg" alt=""></span><span class="menu-label min-w-0 truncate" data-i18n="menu.overview">Tổng quan</span></button>
+                <button class="menu-item w-full text-left" data-view="live" data-tooltip="Live"><span class="nav-key"><img src="/icons/radio-tower.svg" alt=""></span><span class="menu-label min-w-0 truncate" data-i18n="menu.live">Phiên live</span></button>
                 <div class="menu-group">
-                    <button id="menu-orders-group-toggle" type="button" class="menu-item menu-group-toggle w-full text-left flex items-center justify-between" data-tooltip="Quản lý Đơn" aria-expanded="true">
-                        <div class="flex items-center gap-2 truncate">
+                    <button id="menu-orders-group-toggle" type="button" class="menu-item menu-group-toggle w-full text-left flex items-center justify-between" data-tooltip="Quản lý Đơn" aria-expanded="false">
+                        <div class="flex min-w-0 flex-1 items-center gap-2 truncate">
                             <span class="nav-key">
                                 <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                                     <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/>
@@ -62,33 +62,55 @@
                                     <line x1="12" y1="22.08" x2="12" y2="12"/>
                                 </svg>
                             </span>
-                            <span class="menu-label font-medium">Quản lý Đơn</span>
+                            <span class="menu-label min-w-0 truncate font-medium">Quản lý Đơn</span>
                         </div>
-                        <span class="menu-arrow transition-transform duration-200 text-xs text-gray-400">▼</span>
+                        <span class="menu-arrow shrink-0 transition-transform duration-200 text-xs text-gray-400">▼</span>
                     </button>
-                    <div id="menu-orders-submenu" class="menu-submenu space-y-1 mt-1">
-                        <button class="menu-item menu-sub-item w-full text-left" data-view="orders" data-tooltip="Đơn hàng"><span class="nav-key"><img src="/icons/receipt-text.svg" alt=""></span><span class="menu-label" data-i18n="menu.orders">Đơn hàng</span></button>
-                        <button class="menu-item menu-sub-item w-full text-left" data-view="delivery" data-tooltip="Đi Đơn"><span class="nav-key"><img src="/icons/delivery.svg" alt=""></span><span class="menu-label" data-i18n="menu.delivery">Đi Đơn</span></button>
-                        <button class="menu-item menu-sub-item w-full text-left" data-view="customers" data-tooltip="Khách hàng"><span class="nav-key"><img src="/icons/users.svg" alt=""></span><span class="menu-label" data-i18n="menu.customers">Khách hàng</span></button>
-                        <button class="menu-item menu-sub-item w-full text-left" data-view="creditor-debts" data-tooltip="Nợ phải trả"><span class="nav-key"><img src="/icons/receipt-text.svg" alt=""></span><span class="menu-label" data-i18n="menu.creditorDebts">Nợ phải trả</span></button>
+                    <div id="menu-orders-submenu" class="menu-submenu collapsed space-y-1 mt-1">
+                        <button class="menu-item menu-sub-item w-full text-left" data-view="orders" data-tooltip="Đơn hàng"><span class="nav-key"><img src="/icons/receipt-text.svg" alt=""></span><span class="menu-label min-w-0 truncate" data-i18n="menu.orders">Đơn hàng</span></button>
+                        <button class="menu-item menu-sub-item w-full text-left" data-view="delivery" data-tooltip="Đi Đơn"><span class="nav-key"><img src="/icons/delivery.svg" alt=""></span><span class="menu-label min-w-0 truncate" data-i18n="menu.delivery">Đi Đơn</span></button>
+                        <button class="menu-item menu-sub-item w-full text-left" data-view="customers" data-tooltip="Khách hàng"><span class="nav-key"><img src="/icons/users.svg" alt=""></span><span class="menu-label min-w-0 truncate" data-i18n="menu.customers">Khách hàng</span></button>
                     </div>
                 </div>
                 <div class="menu-group">
-                    <button id="menu-settings-group-toggle" type="button" class="menu-item menu-group-toggle w-full text-left flex items-center justify-between" data-tooltip="Cài đặt" aria-expanded="true">
-                        <div class="flex items-center gap-2 truncate">
+                    <button id="menu-settings-group-toggle" type="button" class="menu-item menu-group-toggle w-full text-left flex items-center justify-between" data-tooltip="Cài đặt" aria-expanded="false">
+                        <div class="flex min-w-0 flex-1 items-center gap-2 truncate">
                             <span class="nav-key"><img src="/icons/settings.svg" alt=""></span>
-                            <span class="menu-label font-medium" data-i18n="menu.settings">Cài đặt</span>
+                            <span class="menu-label min-w-0 truncate font-medium" data-i18n="menu.settings">Cài đặt</span>
                         </div>
-                        <span class="menu-arrow transition-transform duration-200 text-xs text-gray-400">▼</span>
+                        <span class="menu-arrow shrink-0 transition-transform duration-200 text-xs text-gray-400">▼</span>
                     </button>
-                    <div id="menu-settings-submenu" class="menu-submenu space-y-1 mt-1">
-                        <button class="menu-item menu-sub-item w-full text-left" data-view="settings" data-tooltip="Giao diện & Ngôn ngữ"><span class="nav-key"><img src="/icons/settings.svg" alt=""></span><span class="menu-label">Giao diện & Ngôn ngữ</span></button>
-                        <button class="menu-item menu-sub-item w-full text-left" data-view="print-config" data-tooltip="Kết nối & Máy in"><span class="nav-key"><img src="/icons/delivery.svg" alt=""></span><span class="menu-label">Kết nối & Máy in</span></button>
-                        <button class="menu-item menu-sub-item w-full text-left" data-view="backup" data-tooltip="Sao lưu & Dữ liệu"><span class="nav-key"><img src="/icons/receipt-text.svg" alt=""></span><span class="menu-label">Sao lưu & Dữ liệu</span></button>
+                    <div id="menu-settings-submenu" class="menu-submenu collapsed space-y-1 mt-1">
+                        <button class="menu-item menu-sub-item w-full text-left" data-view="settings-appearance" data-settings-route="appearance" data-tooltip="Giao diện"><span class="nav-key"><img src="/icons/settings.svg" alt=""></span><span class="menu-label min-w-0 truncate" data-i18n="settings.navAppearance">Giao diện</span></button>
+                        <button class="menu-item menu-sub-item w-full text-left" data-view="settings-connection" data-settings-route="connection" data-tooltip="Kết nối"><span class="nav-key"><img src="/icons/delivery.svg" alt=""></span><span class="menu-label min-w-0 truncate" data-i18n="settings.navConnection">Kết nối</span></button>
+                        <button class="menu-item menu-sub-item w-full text-left" data-view="settings-data" data-settings-route="data" data-tooltip="Dữ liệu"><span class="nav-key"><img src="/icons/receipt-text.svg" alt=""></span><span class="menu-label min-w-0 truncate" data-i18n="settings.navData">Dữ liệu</span></button>
                     </div>
                 </div>
-                <button id="sidebar-admin-item" class="menu-item w-full text-left hidden" data-view="admin" data-tooltip="Admin"><span class="nav-key"><img src="/icons/settings.svg" alt=""></span><span class="menu-label" data-i18n="menu.admin">Admin</span></button>
+                <button id="sidebar-admin-item" class="menu-item w-full text-left hidden" hidden data-view="admin" data-tooltip="Admin"><span class="nav-key"><img src="/icons/settings.svg" alt=""></span><span class="menu-label min-w-0 truncate" data-i18n="menu.admin">Admin</span></button>
             </nav>
+
+            <div id="sidebar-user-menu-slot" class="sidebar-user-menu-slot">
+                <div id="user-menu" class="user-menu">
+                    <button id="user-bar" type="button" class="user-menu-trigger items-center gap-2 bg-white border border-gray-200 rounded-full pl-1 pr-3 py-1 shadow-sm" aria-expanded="false">
+                        <img id="user-avatar" src="" alt="avatar" class="w-7 h-7 rounded-full border border-gray-300 hidden">
+                        <div class="leading-tight">
+                            <div id="user-name" class="text-[12px] font-bold text-gray-700 max-w-[140px] truncate">Tài khoản</div>
+                            <div id="user-email" class="text-[10px] text-gray-400 max-w-[140px] truncate">...</div>
+                        </div>
+                    </button>
+                    <div id="user-menu-dropdown" class="user-menu-dropdown hidden">
+                        <div class="user-menu-profile">
+                            <p id="user-menu-name" class="font-bold text-sm text-slate-800 truncate">Tài khoản</p>
+                            <p id="user-menu-email" class="text-xs text-gray-500 truncate">...</p>
+                            <p id="user-menu-role" class="text-[11px] text-gray-400 mt-1"></p>
+                        </div>
+                        <div class="user-menu-actions">
+                            <button type="button" onclick="switchView('settings')" class="user-menu-action" data-i18n="menu.settings">Cài đặt</button>
+                            <button type="button" onclick="logout()" class="user-menu-action danger" data-i18n="settings.logout">Đăng xuất</button>
+                        </div>
+                    </div>
+                </div>
+            </div>
 
             <button id="sidebar-toggle" class="sidebar-toggle-btn" type="button" aria-label="Thu gọn sidebar" title="Thu gọn sidebar">
                 <span class="sidebar-toggle-icon">‹</span>
@@ -116,26 +138,7 @@
                         <img src="/icons/receipt-text.svg" alt="" width="14" height="14">
                         <span class="text-[11px] font-bold">Lịch sử</span>
                     </button>
-                    <div id="user-menu" class="user-menu">
-                        <button id="user-bar" type="button" class="user-menu-trigger items-center gap-2 bg-white border border-gray-200 rounded-full pl-1 pr-3 py-1 shadow-sm">
-                            <img id="user-avatar" src="" alt="avatar" class="w-7 h-7 rounded-full border border-gray-300 hidden">
-                            <div class="leading-tight">
-                                <div id="user-name" class="text-[12px] font-bold text-gray-700 max-w-[140px] truncate">Tài khoản</div>
-                                <div id="user-email" class="text-[10px] text-gray-400 max-w-[140px] truncate">...</div>
-                            </div>
-                        </button>
-                        <div id="user-menu-dropdown" class="user-menu-dropdown hidden">
-                            <div class="user-menu-profile">
-                                <p id="user-menu-name" class="font-bold text-sm text-slate-800 truncate">Tài khoản</p>
-                                <p id="user-menu-email" class="text-xs text-gray-500 truncate">...</p>
-                                <p id="user-menu-role" class="text-[11px] text-gray-400 mt-1"></p>
-                            </div>
-                            <div class="user-menu-actions">
-                                <button type="button" onclick="switchView('settings')" class="user-menu-action" data-i18n="menu.settings">Cài đặt</button>
-                                <button type="button" onclick="logout()" class="user-menu-action danger" data-i18n="settings.logout">Đăng xuất</button>
-                            </div>
-                        </div>
-                    </div>
+                    <div id="topbar-user-menu-slot" class="topbar-user-menu-slot"></div>
                 </div>
             </header>
 
@@ -311,10 +314,6 @@
                                     <button type="button" class="live-orders-refresh bg-emerald-600 text-white px-3 py-1.5 rounded text-xs font-bold" onclick="refreshCurrentOrders()" title="Làm mới đơn chốt">
                                         <span class="material-symbols-outlined text-sm">refresh</span>
                                     </button>
-                                    <button type="button" class="live-orders-toggle" data-live-orders-toggle aria-expanded="true" onclick="toggleLiveOrdersPanel()">
-                                        <span class="material-symbols-outlined">keyboard_double_arrow_right</span>
-                                        <span data-live-orders-toggle-label>Thu gọn</span>
-                                    </button>
                                 </div>
                             </div>
                             <div class="live-orders-empty" data-current-orders-empty>
@@ -339,7 +338,6 @@
                         <div class="p-4 border-b bg-gray-50">
                             <div class="flex flex-col xl:flex-row xl:items-center xl:justify-between gap-3">
                                 <div>
-                                    <h3 class="font-black text-2xl" data-i18n="orders.title">Đơn hàng</h3>
                                     <p class="text-xs text-gray-500" data-i18n="orders.subtitle">Quản lý toàn bộ đơn hàng theo tài khoản, shop và thời gian.</p>
                                 </div>
                                 <div class="flex flex-wrap gap-2 no-print">
@@ -375,14 +373,7 @@
                     </section>
 
                     <section id="section-delivery" class="dashboard-section space-y-4 no-print" hidden>
-                        <div class="panel p-4 pb-0">
-                            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3 border-b pb-3 dark:border-zinc-800">
-                                <div>
-                                    <h2 class="text-3xl font-black" data-i18n="menu.delivery">Đi Đơn hàng loạt SPX</h2>
-                                    <p class="text-sm text-gray-500">Chọn phiên livestream từ lịch sử để tổng hợp đơn hàng, điền thông tin và xuất file đi đơn hàng loạt.</p>
-                                </div>
-                            </div>
-                            
+                        <div class="panel px-4 pt-1 pb-0">
                             <!-- Tab Switching Buttons -->
                             <div class="flex gap-4 text-sm mt-3">
                                 <button type="button" id="delivery-tab-btn-process" class="pb-3 font-bold border-b-2 border-red-500 text-red-600 px-1 transition-all" onclick="switchDeliveryTab('process')">
@@ -401,14 +392,19 @@
                                 <div class="panel p-4">
                                     <div class="flex flex-col md:flex-row items-center justify-between gap-3">
                                         <div class="relative w-full md:max-w-xs">
-                                            <input id="delivery-sessions-search" type="search" class="w-full border border-gray-300 rounded-xl px-3 py-2 pl-9 text-sm" placeholder="Tìm kiếm phiên live..." oninput="filterDeliverySessions(this.value)">
-                                            <span class="material-symbols-outlined absolute left-3 top-2.5 text-gray-400 text-sm">search</span>
+                                            <input id="delivery-sessions-search" type="search" class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm" style="padding-left: 2.25rem" placeholder="Tìm kiếm phiên live..." oninput="filterDeliverySessions(this.value)">
+                                            <svg class="pointer-events-none text-gray-400" style="position: absolute; left: 0.75rem; top: 50%; width: 1rem; height: 1rem; transform: translateY(-50%)" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                                                <circle cx="11" cy="11" r="6"></circle>
+                                                <path d="m16 16 4 4"></path>
+                                            </svg>
                                         </div>
-                                        <div>
-                                            <button type="button" id="btn-delivery-preview" disabled class="bg-red-500 text-white px-5 py-2.5 rounded-xl text-sm font-bold disabled:opacity-50 transition-all flex items-center gap-1" onclick="goToDeliveryStep2()">
-                                                <span>Xem trước đơn hàng</span>
+                                        <div id="delivery-selection-actions" class="hidden items-center gap-2">
+                                            <span id="delivery-selection-count" class="text-xs font-bold text-slate-600"></span>
+                                            <button type="button" id="btn-delivery-preview" class="bg-red-500 text-white px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-1" onclick="goToDeliveryStep2()">
+                                                <span id="delivery-preview-label">Mở các phiên đã chọn</span>
                                                 <span class="material-symbols-outlined text-sm">navigate_next</span>
                                             </button>
+                                            <button type="button" class="border border-slate-200 px-3 py-2 rounded-xl text-xs font-bold text-slate-600 hover:bg-slate-50" onclick="clearDeliverySessionSelection()">Hủy chọn</button>
                                         </div>
                                     </div>
                                 </div>
@@ -752,13 +748,8 @@
                     </div>
 
                     <section id="section-customers" class="dashboard-section space-y-4 no-print" hidden>
-                        <div class="panel p-4">
-                            <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-3">
-                                <div>
-                                    <h2 class="text-3xl font-black" data-i18n="customers.title">Khách hàng</h2>
-                                    <p class="text-sm text-gray-500" data-i18n="customers.subtitle">Lưu địa chỉ theo từng tài khoản để xuất file đi đơn.</p>
-                                </div>
-                                <div class="flex flex-wrap gap-2">
+                        <div class="panel px-4 py-2">
+                            <div class="flex flex-wrap justify-end gap-2">
                                     <button type="button" id="btn-merge-customers" onclick="openMergeSelectedCustomersModal()" disabled class="bg-purple-600 hover:bg-purple-700 disabled:opacity-50 text-white px-4 py-2 rounded-xl text-sm font-bold transition-all flex items-center gap-1.5">
                                         <span>🔀 Gộp khách hàng</span>
                                         <span id="selected-customers-count" class="bg-purple-800 text-white text-xs px-2 py-0.5 rounded-full hidden">0</span>
@@ -767,7 +758,6 @@
                                     <button type="button" onclick="resetCustomerForm()" class="bg-red-500 text-white px-4 py-2 rounded-xl text-sm font-bold" data-i18n="customers.new">Thêm khách</button>
                                 </div>
                             </div>
-                        </div>
 
                         <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-4">
                             <div class="panel overflow-hidden">
@@ -945,9 +935,9 @@
 
                         <div class="settings-layout">
                             <div class="settings-main-col">
-                                <div id="card-settings-general" class="settings-card">
+                                <div id="card-settings-general" class="settings-card" data-settings-tab="appearance">
                                     <div class="settings-card-head">
-                                        <div class="settings-icon settings-icon-blue">◎</div>
+                                        <div class="settings-icon settings-icon-blue"><span class="material-symbols-outlined">translate</span></div>
                                         <div>
                                             <h4 data-i18n="settings.languageTitle">Ngôn ngữ hiển thị</h4>
                                             <p data-i18n="settings.languageDesc">Chọn ngôn ngữ giao diện cho ứng dụng.</p>
@@ -965,10 +955,10 @@
                                     </div>
                                 </div>
 
-                                <div class="settings-card">
+                                <div class="settings-card" data-settings-tab="appearance">
                                     <div class="settings-card-head settings-card-head-between">
                                         <div class="settings-head-left">
-                                            <div class="settings-icon settings-icon-blue">◐</div>
+                                            <div class="settings-icon settings-icon-blue"><img src="/icons/settings.svg" alt=""></div>
                                             <div>
                                                 <h4 data-i18n="settings.appearanceTitle">Giao diện</h4>
                                                 <p data-i18n="settings.appearanceDesc">Chọn chế độ sáng hoặc tối cho toàn bộ ứng dụng.</p>
@@ -988,16 +978,16 @@
                                     </div>
                                 </div>
 
-                                <div id="card-settings-integration" class="settings-card">
+                                <div id="card-settings-integration" class="settings-card" data-settings-tab="connection">
                                     <div class="settings-card-head settings-card-head-between">
                                         <div class="settings-head-left">
-                                            <div class="settings-icon settings-icon-red">IN</div>
+                                            <div class="settings-icon settings-icon-red"><img src="/icons/delivery.svg" alt=""></div>
                                             <div>
                                                 <h4 data-i18n="settings.integrationTitle">Kết nối & Tích hợp</h4>
                                                 <p data-i18n="settings.integrationDesc">Cấu hình các dịch vụ bên thứ ba và thiết bị ngoại vi.</p>
                                             </div>
                                         </div>
-                                        <span class="settings-status-dot" data-i18n="settings.online">Online</span>
+                                        <span id="connection-status-badge" class="settings-status-dot" data-i18n="settings.offline">Chưa kết nối</span>
                                     </div>
                                     <div class="settings-card-body">
                                         <div class="settings-field settings-field-highlight">
@@ -1029,7 +1019,7 @@
                                                 <option value="usb">USB / Cổng trực tiếp</option>
                                                 <option value="printer">Máy in hệ thống</option>
                                             </select>
-                                            <label for="printer-ip" data-i18n="settings.printer">Máy in hóa đơn</label>
+                                            <label for="printer-ip"><img class="settings-inline-icon" src="/icons/delivery.svg" alt=""><span data-i18n="settings.printer">Máy in hóa đơn</span></label>
                                             <p data-i18n="settings.printerDesc">Địa chỉ IP, cổng thiết bị, hoặc tên máy in hệ thống.</p>
                                             <div class="settings-input-wrap">
                                                 <span>▣</span>
@@ -1051,18 +1041,12 @@
                                                 <input type="password" id="tiktok-api-key" placeholder="Nhập API key tại đây...">
                                             </div>
                                         </div>
-                                        <div class="settings-save-row">
-                                            <button onclick="saveSettings()" class="settings-save-btn" type="button">
-                                                <span>OK</span><span data-i18n="settings.save">Lưu thay đổi</span>
-                                            </button>
-                                            <p id="system-status-msg"></p>
-                                        </div>
                                     </div>
                                 </div>
                             </div>
 
                             <div class="settings-side-col">
-                                <div class="settings-side-card">
+                                <div class="settings-side-card settings-quick-tools" data-settings-tab="data">
                                     <div class="settings-side-title">
                                         <span>▱</span>
                                         <div>
@@ -1078,9 +1062,9 @@
                                     </div>
                                 </div>
 
-                                <div id="card-settings-backup" class="settings-side-card">
+                                <div id="card-settings-backup" class="settings-side-card" data-settings-tab="data">
                                     <div class="settings-side-title">
-                                        <span>▤</span>
+                                        <span class="settings-data-icon"><img src="/icons/receipt-text.svg" alt=""></span>
                                         <div>
                                             <h4 data-i18n="backup.title">Quản lý dữ liệu</h4>
                                             <p data-i18n="backup.desc">Sao lưu và xuất dữ liệu hệ thống.</p>
@@ -1098,6 +1082,12 @@
                                 </div>
                             </div>
                         </div>
+                        <footer class="settings-save-row settings-footer">
+                            <p id="system-status-msg" aria-live="polite"></p>
+                            <button id="settings-save-button" onclick="saveSettings()" class="settings-save-btn" type="button" disabled>
+                                <img class="settings-save-icon" src="/icons/settings.svg" alt=""><span data-i18n="settings.save">Lưu cấu hình</span>
+                            </button>
+                        </footer>
                     </section>
 
                 </aside>

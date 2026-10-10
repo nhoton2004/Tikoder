@@ -1063,6 +1063,12 @@ app.use('/api/creditor-debts', creditorDebtRoutes);
 app.get('/app', (req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'app.html'));
 });
+app.get('/settings', (_req, res) => {
+    res.redirect(302, '/settings/appearance');
+});
+app.get(['/settings/appearance', '/settings/connection', '/settings/data'], (_req, res) => {
+    res.sendFile(path.join(__dirname, 'public', 'app.html'));
+});
 app.get('/pricing', (_req, res) => {
     res.sendFile(path.join(__dirname, 'public', 'pricing.html'));
 });
@@ -1205,11 +1211,15 @@ function initLiveSession(userId, runtime, broadcasterId) {
         hour: '2-digit', minute: '2-digit'
     }).replace(',', '')}`;
     const sessionData = {
+        id: runtime.sessionId,
         userId,
         liveName,
         tiktokUsername: broadcasterId,
         startedAt: runtime.sessionStartedAt || now.toISOString(),
-        endedAt: now.toISOString(),
+        endedAt: null,
+        status: 'live',
+        lastActivityAt: now.toISOString(),
+        revision: runtime.sessionRevision || 0,
         orders: [],
         summary: { totalOrders: 0, totalQuantity: 0, totalRevenue: 0 }
     };
@@ -1229,9 +1239,9 @@ function initLiveSession(userId, runtime, broadcasterId) {
  * Gọi theo debounce sau mỗi mutation (confirm/delete/edit)
  * và một lần cuối khi session kết thúc.
  */
-function flushSessionToDb(userId, runtime) {
+function flushSessionToDb(userId, runtime, { finalize = false, reason = '' } = {}) {
     const sessionId = runtime.currentDbSessionId;
-    if (!sessionId || !userId) return;
+    if (!sessionId || !userId) return { status: 'not_found' };
     const now = new Date();
     const orders = Object.values(runtime.confirmedOrders || {}).flatMap(customer =>
         (customer.items || []).map(item => ({
@@ -1246,35 +1256,37 @@ function flushSessionToDb(userId, runtime) {
             createdAt: item.createdAt || now.toISOString()
         }))
     );
-    // Nếu không có đơn nào thì xóa phiên rỗng, tránh rác trong danh sách lịch sử.
-    // Nhưng KHÔNG xóa phiên lịch sử đã có đơn trong DB (tránh mất dữ liệu).
+    // Chỉ xóa session rỗng khi chốt phiên. Trong lúc live, session rỗng là bản nháp hợp lệ.
     if (orders.length === 0) {
+        if (!finalize) return { status: 'live', orderCount: 0 };
         try {
-            const existing = liveSessionStore.getLiveSessionById(userId, sessionId);
-            if (existing && (existing.orders || []).length > 0) {
-                console.log(`>>> flushSessionToDb: giữ nguyên phiên [${sessionId}] vì đã có ${existing.orders.length} đơn trong DB.`);
-                return;
-            }
             liveSessionStore.deleteLiveSession(userId, sessionId);
             console.log(`>>> flushSessionToDb: xóa phiên rỗng [${sessionId}] vì không có đơn nào.`);
         } catch (err) {
             console.warn(`>>> flushSessionToDb: không xóa được phiên rỗng [${sessionId}]:`, err.message);
         }
         runtime.currentDbSessionId = null;
-        return;
+        return { status: 'discarded', orderCount: 0 };
     }
 
     try {
         liveSessionStore.updateLiveSession(userId, sessionId, {
             orders,
+            status: finalize ? 'ended' : 'live',
+            endedAt: finalize ? now.toISOString() : null,
+            endedReason: finalize ? reason : null,
+            lastActivityAt: now.toISOString(),
+            revision: runtime.sessionRevision || 0,
             summary: {
                 totalOrders: orders.length,
                 totalQuantity: orders.length,
                 totalRevenue: orders.reduce((s, o) => s + o.price, 0)
             }
         });
+        return { status: finalize ? 'ended' : 'live', orderCount: orders.length };
     } catch (err) {
         console.error(`>>> [ERROR] flushSessionToDb failed for session ${sessionId}:`, err.message);
+        return { status: 'error', error: err.message };
     }
 }
 
