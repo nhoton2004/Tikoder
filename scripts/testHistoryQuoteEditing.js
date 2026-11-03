@@ -12,7 +12,7 @@ const root = path.resolve(__dirname, '..');
 
 function fixture(t) {
     const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'tikoder-edit-'));
-    t.after(() => fs.rmSync(directory, { recursive: true, force: true }));
+    t.after(async () => { await store.dispose(); fs.rmSync(directory, { recursive: true, force: true }); });
     const normalize = value => String(value || '').replace(/^@/, '').toLowerCase();
     const customers = { a: [{ id: 'buyer-a', tiktokUsername: 'buyer', displayName: 'Buyer', phone: '0900000000', consent: { quoteMessages: 'granted' } }], b: [{ id: 'buyer-b', tiktokUsername: 'buyer' }] };
     const customerStore = {
@@ -24,9 +24,10 @@ function fixture(t) {
     };
     function load(relative, from, to, dependency) {
         const filename = path.join(root, relative);
-        const source = fs.readFileSync(filename, 'utf8').replace(from, to);
+        let source = fs.readFileSync(filename, 'utf8').replace(from, to);
+        if (relative === 'utils/liveSessionStore.js') source = source.replace("const HISTORY_DIR = path.join(__dirname, '..', 'data', 'live-history');", 'const HISTORY_DIR = ' + JSON.stringify(path.join(directory, 'index')) + ';').replace("const ARCHIVE_DIR = path.join(__dirname, '..', 'archive', 'live-history');", 'const ARCHIVE_DIR = ' + JSON.stringify(path.join(directory, 'archive')) + ';');
         const module = { exports: {} };
-        vm.runInNewContext(source, { module, require: name => name === './customerStore' ? dependency : createRequire(filename)(name), __dirname: path.dirname(filename), console, process: { env: { ZALO_WEB_EXPERIMENTAL: 'true', ZALO_TEST_PHONES: '0900000000' } } });
+        vm.runInNewContext(source, { setTimeout, clearTimeout, module, require: name => name === './customerStore' ? dependency : createRequire(filename)(name), __dirname: path.dirname(filename), console, process: { env: { ZALO_WEB_EXPERIMENTAL: 'true', ZALO_TEST_PHONES: '0900000000' } } });
         return module.exports;
     }
     const store = load('utils/liveSessionStore.js', "const DATA_DIR = path.join(__dirname, '..', 'data', 'live-sessions');", 'const DATA_DIR = ' + JSON.stringify(path.join(directory, 'sessions')) + ';');
@@ -81,7 +82,9 @@ const seed = [{ id: 'one', customerUsername: 'buyer', customerName: 'Buyer', pro
 test('history edits persist saved/merged/legacy with no Live or unrelated active run; quote uses selected history', async t => {
     const f = await httpFixture(t);
     for (const active of [null, 'shop', 'different']) {
-        const activeSession = active && f.store.startLiveSession('a', { broadcasterId: active });
+        const previous = f.store.readUserSessions('a').find(s => !s.endedAt);
+        if (previous) await f.store.updateLiveSession('a', previous.id, { endedAt: new Date().toISOString() });
+        const activeSession = active && await f.store.startLiveSession('a', { broadcasterId: active });
         const runtime = f.getLiveRuntime('a');
         runtime.currentSessionId = activeSession?.id || null;
         runtime.confirmedOrders = { buyer: { username: 'buyer', items: [{ id: 'live', text: 'Wrong live item', price: 999 }] } };
@@ -90,7 +93,7 @@ test('history edits persist saved/merged/legacy with no Live or unrelated active
         for (const kind of ['saved', 'merged', 'legacy']) {
             const id = kind === 'legacy' ? 'legacy:user:2026-11-01_shop.json' : kind + '-' + active;
             if (kind === 'legacy') fs.writeFileSync(path.join(f.getUserHistoryDir('a'), '2026-11-01_shop.json'), JSON.stringify({ buyer: { username: 'buyer', nickname: 'Buyer', items: [{ id: 'old', text: 'History item', price: 45000, time: '01:00:00' }], total: 45000 } }));
-            else f.store.createLiveSession('a', { id, type: kind === 'merged' ? 'merged_session' : 'live_session', orders: seed });
+            else await f.store.createLiveSession('a', { id, type: kind === 'merged' ? 'merged_session' : 'live_session', orders: seed });
             const url = '/api/live-sessions/' + encodeURIComponent(id);
             let read = await f.api(url);
             assert.equal(read.status, 200);
@@ -125,8 +128,8 @@ test('history edits persist saved/merged/legacy with no Live or unrelated active
 
 test('exact active history edits synchronize only that runtime and reject stale snapshots after Live writes', async t => {
     const f = await httpFixture(t);
-    const session = f.store.startLiveSession('a', { broadcasterId: 'shop' });
-    f.store.updateLiveSession('a', session.id, { orders: seed });
+    const session = await f.store.startLiveSession('a', { broadcasterId: 'shop' });
+    await f.store.updateLiveSession('a', session.id, { orders: seed });
     const runtime = f.getLiveRuntime('a'); runtime.currentSessionId = session.id;
     const url = '/api/live-sessions/' + session.id;
     const read = await f.api(url);
@@ -134,7 +137,7 @@ test('exact active history edits synchronize only that runtime and reject stale 
     assert.equal(changed.status, 200);
     assert.equal(runtime.confirmedOrders.buyer.items[0].text, 'Targeted');
     assert.equal(f.store.getLiveSessionById('a', session.id).segments[0].orders[0].productName, 'Targeted');
-    f.store.updateLiveSession('a', session.id, { orders: [...seed, { ...seed[0], id: 'two' }] });
+    await f.store.updateLiveSession('a', session.id, { orders: [...seed, { ...seed[0], id: 'two' }] });
     assert.equal((await f.api(url + '/orders', 'PATCH', { action: 'delete-customer', username: 'buyer', revision: changed.body.revision })).status, 409);
     const latest = await f.api(url);
     const previousWrite = f.store.writeUserSessions;
@@ -144,6 +147,21 @@ test('exact active history edits synchronize only that runtime and reject stale 
     assert.equal(JSON.stringify(runtime), runtimeBefore, 'Failed persistence never mutates runtime');
     f.store.writeUserSessions = previousWrite;
     assert.equal(f.store.readUserSessions('a').length, 1);
+});
+
+test('history lost-response retry reuses durable receipt before revision checking', async t => {
+    const f = await httpFixture(t);
+    await f.store.createLiveSession('a', { id: 'receipt-history', orders: seed });
+    const url = '/api/live-sessions/receipt-history';
+    const read = await f.api(url);
+    const body = { action: 'add', username: 'buyer', text: 'Added once', price: 100, requestId: 'history-request', revision: read.body.revision };
+    const first = await f.api(url + '/orders', 'PATCH', body);
+    assert.equal(first.status, 200);
+    const retried = await f.api(url + '/orders', 'PATCH', body);
+    assert.equal(retried.status, 200);
+    assert.equal(retried.body.duplicate, true);
+    assert.equal(retried.body.orders.length, 2);
+    assert.equal((await f.api(url + '/orders', 'PATCH', { ...body, price: 200 })).status, 409);
 });
 
 test('standalone quote CRUD enforces versions, account auth, consent and in-flight delivery safety', async t => {
@@ -199,8 +217,8 @@ test('standalone quote CRUD enforces versions, account auth, consent and in-flig
 
 test('admin-scoped and shared history edits keep existing authorization; merged sources and run snapshots are preserved', async t => {
     const f = await httpFixture(t);
-    f.store.createLiveSession('a', { id: 'source', orders: seed, segments: [{ orders: seed }] });
-    f.store.createLiveSession('a', { id: 'merged', type: 'merged_session', orders: seed, sourceSessionIds: ['source'] });
+    await f.store.createLiveSession('a', { id: 'source', orders: seed, segments: [{ orders: seed }] });
+    await f.store.createLiveSession('a', { id: 'merged', type: 'merged_session', orders: seed, sourceSessionIds: ['source'] });
     const sourceBefore = JSON.stringify(f.store.getLiveSessionById('a', 'source'));
     const url = '/api/live-sessions/' + encodeURIComponent('user:a:merged');
     const read = await f.api(url, 'GET', undefined, 'b', { 'x-role': 'admin' });
