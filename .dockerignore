@@ -13,3 +13,16 @@ yarn-error.log*
 .gemini
 DebtTracker/node_modules
 DebtTracker/debts.db
+.env.*
+!.env.example
+config.json
+config.local.json
+.backup*
+*.bak
+*.db
+*.sqlite*
+*.db-shm
+*.db-wal
+deploy/secrets
+backups
+DebtTracker

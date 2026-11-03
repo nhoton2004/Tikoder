@@ -5,7 +5,12 @@
   "scripts": {
     "start": "node server.js",
     "set-super-admin": "node scripts/setSuperAdmin.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test scripts/testHistoryQuoteEditing.js scripts/testLiveSessionLifecycle.js scripts/testQuoteQueue.js scripts/testCustomerHistoryImport.js scripts/testN8nNotifications.js scripts/testN8nZaloDispatch.js scripts/testZaloAutoReplyStore.js scripts/testZaloAutoReplyIntegration.js scripts/testZaloPhoneAutoReply.js scripts/testZaloIntegrationData.js scripts/testZaloIntegrationDataAuth.js scripts/testZaloPersonalAdapter.js scripts/testZaloPersonalWorkflow.js scripts/testShopReconciliationData.js scripts/testShopReconciliationStore.js scripts/testShopReconciliationMcp.js scripts/testShopReconciliationExcel.js",
+    "test:zalo-ui": "node scripts/testZaloAutoReplyUi.js",
+    "test:zalo-dom": "node scripts/testZaloInboxDom.js && node scripts/testZaloLiveInboxDom.js && node scripts/testZaloLiveAdapter.js",
+    "test:zalo-image": "node scripts/testZaloImageSend.js",
+    "start:zalo-adapter": "node scripts/runZaloPersonalAdapter.js",
+    "test:docker": "node --test scripts/testDockerRuntime.js"
   },
   "keywords": [],
   "author": "",
@@ -13,6 +18,7 @@
   "description": "",
   "dependencies": {
     "@fontsource-variable/geist": "^5.2.9",
+    "@modelcontextprotocol/sdk": "^1.32.2",
     "cors": "^2.8.6",
     "csurf": "^1.11.0",
     "dotenv": "^17.4.2",
@@ -22,7 +28,9 @@
     "firebase-admin": "^13.10.0",
     "lucide-static": "^1.17.0",
     "node-thermal-printer": "^4.6.0",
+    "playwright-core": "^1.64.1",
     "socket.io": "^4.8.3",
-    "tiktok-live-connector": "^2.1.1-beta1"
+    "tiktok-live-connector": "^2.1.1-beta1",
+    "zca-js": "2.2.0"
   }
 }

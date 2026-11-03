@@ -1,0 +1,78 @@
+services:
+  n8n:
+    image: ${N8N_IMAGE:-docker.n8n.io/n8nio/n8n:stable}
+    profiles: [automation]
+    restart: unless-stopped
+    init: true
+    ports:
+      - "127.0.0.1:${N8N_PORT:-5678}:5678"
+    environment:
+      TZ: Asia/Bangkok
+      GENERIC_TIMEZONE: Asia/Bangkok
+      N8N_SECURE_COOKIE: "false"
+      N8N_BLOCK_ENV_ACCESS_IN_NODE: "false"
+      NODE_FUNCTION_ALLOW_BUILTIN: crypto
+      N8N_DATA_API_SECRET: ${N8N_DATA_API_SECRET:-}
+      N8N_DATA_API_TENANT: ${N8N_DATA_API_TENANT:-}
+      ZALO_PERSONAL_EVENT_SECRET: ${ZALO_PERSONAL_EVENT_SECRET:-}
+      ZALO_PERSONAL_COMMAND_SECRET: ${ZALO_PERSONAL_COMMAND_SECRET:-}
+      TIKODER_DATA_API_URL: http://tiktok-app:3000/api/integrations/n8n/zalo-auto-reply/data
+      TIKODER_DATA_API_IMAGE_URL: http://tiktok-app:3000/api/integrations/n8n/zalo-auto-reply/data/qr
+      ZALO_PERSONAL_COMMAND_URL: http://zalo-adapter:3010/command
+    volumes:
+      - n8n_data:/home/node/.n8n
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  zalo-adapter:
+    image: ${TIKODER_IMAGE:-tikoder:local}
+    build: .
+    profiles: [zalo]
+    init: true
+    command: ["node", "scripts/runZaloPersonalAdapter.js"]
+    restart: unless-stopped
+    stop_grace_period: 30s
+    environment:
+      ZALO_PERSONAL_ADAPTER_HOST: 0.0.0.0
+      ZALO_PERSONAL_ADAPTER_PORT: "3010"
+      ZALO_PERSONAL_ALLOW_QR_LOGIN: ${ZALO_PERSONAL_ALLOW_QR_LOGIN:-false}
+      ZALO_PERSONAL_CREDENTIALS_FILE: /app/data/zalo-personal/credentials.json
+      ZALO_PERSONAL_STATE_FILE: /app/data/zalo-personal/command-state.json
+      ZALO_PERSONAL_QR_PATH: /app/data/zalo-personal/login-qr.png
+      ZALO_PERSONAL_EVENT_URL: http://n8n:5678/webhook/tikoder/zalo-personal-event
+      ZALO_PERSONAL_EVENT_SECRET: ${ZALO_PERSONAL_EVENT_SECRET:-}
+      ZALO_PERSONAL_COMMAND_SECRET: ${ZALO_PERSONAL_COMMAND_SECRET:-}
+    volumes:
+      - ./data/zalo-personal:/app/data/zalo-personal
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3010/health',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      start_period: 120s
+      retries: 3
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+  debttracker:
+    build: ./DebtTracker
+    profiles: [debt]
+    init: true
+    restart: unless-stopped
+    environment:
+      DB_PATH: /app/data/debts.db
+    ports:
+      - "127.0.0.1:${DEBT_PORT:-3001}:3001"
+    volumes:
+      - debt_data:/app/data
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+volumes:
+  n8n_data:
+  debt_data:

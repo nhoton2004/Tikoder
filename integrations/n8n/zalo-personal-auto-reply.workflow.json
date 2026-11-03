@@ -1,0 +1,512 @@
+{
+  "name": "Tikoder - Zalo personal auto reply",
+  "nodes": [
+    {
+      "id": "webhook---zalo-personal-event",
+      "name": "Webhook - Zalo Personal Event",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [
+        0,
+        0
+      ],
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tikoder/zalo-personal-event",
+        "responseMode": "responseNode",
+        "options": {
+          "rawBody": true
+        }
+      },
+      "webhookId": "tikoder-zalo-personal-event"
+    },
+    {
+      "id": "validate-event",
+      "name": "Validate Event",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        250,
+        0
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const crypto = require('crypto');\nconst item = $input.first();\nconst headers = item.json.headers || {};\nfunction ignored(reason) { return [{ json: { status: 'ignored', reason } }]; }\nconst secret = $env.ZALO_PERSONAL_EVENT_SECRET;\nif (!secret || !item.binary?.data) return ignored('event secret or raw body missing');\nlet raw;\ntry { raw = await this.helpers.getBinaryDataBuffer(0, 'data'); } catch (_) { return ignored('raw body unavailable'); }\nif (!Buffer.isBuffer(raw) || !raw.length) return ignored('raw body unavailable');\nconst ts = String(headers['x-adapter-timestamp'] || '');\nconst signature = String(headers['x-adapter-signature'] || '');\nif (!/^\\d{10}$/.test(ts) || Math.abs(Date.now() / 1000 - Number(ts)) > 300 || !/^sha256=[a-f0-9]{64}$/.test(signature)) return ignored('invalid adapter event signature');\nconst expected = crypto.createHmac('sha256', secret).update(ts + '.').update(raw).digest();\nif (!crypto.timingSafeEqual(expected, Buffer.from(signature.slice(7), 'hex'))) return ignored('invalid adapter event signature');\nlet body;\ntry { body = JSON.parse(raw.toString('utf8')); } catch (_) { return ignored('invalid event JSON'); }\nif (!body || typeof body !== 'object' || Array.isArray(body) || typeof body.eventId !== 'string' || !body.eventId || typeof body.sourceMessageId !== 'string' || !body.sourceMessageId || body.isSelf !== false || ![0, 'USER', 'user'].includes(body.threadType) || typeof body.threadId !== 'string' || !body.threadId || typeof body.text !== 'string' || !body.text.trim()) return ignored('invalid private message event');\nif (!$env.N8N_DATA_API_SECRET || !$env.N8N_DATA_API_TENANT || !$env.ZALO_PERSONAL_COMMAND_SECRET) return ignored('integration secrets are not configured');\nconst state = $getWorkflowStaticData('global');\nstate.seen = state.seen || {};\nstate.cooldown = state.cooldown || {};\nconst key = body.eventId + ':' + body.sourceMessageId;\nif (state.seen[key]) return [{ json: { status: 'duplicate', eventId: body.eventId } }];\nstate.seen[key] = Date.now();\nconst dataTimestamp = String(Math.floor(Date.now() / 1000));\nconst dataSignature = 'sha256=' + crypto.createHmac('sha256', $env.N8N_DATA_API_SECRET).update(dataTimestamp + '.' + $env.N8N_DATA_API_TENANT).digest('hex');\nreturn [{ json: { status: 'valid', event: body, dataTimestamp, dataSignature } }];"
+      }
+    },
+    {
+      "id": "if-valid",
+      "name": "IF Valid",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        500,
+        0
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "status",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "valid",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "http---tikoder-config",
+      "name": "HTTP - Tikoder Config",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        750,
+        -100
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.TIKODER_DATA_API_URL || 'http://127.0.0.1:3000/api/integrations/n8n/zalo-auto-reply/data' }}",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-tikoder-data-tenant",
+              "value": "={{ $env.N8N_DATA_API_TENANT }}"
+            },
+            {
+              "name": "x-tikoder-data-timestamp",
+              "value": "={{ $('Validate Event').first().json.dataTimestamp }}"
+            },
+            {
+              "name": "x-tikoder-data-signature",
+              "value": "={{ $('Validate Event').first().json.dataSignature }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "evaluate-config",
+      "name": "Evaluate Config",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        -100
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const config = $input.first().json;\nconst body = $('Validate Event').first().json.event;\nfunction ignored(reason) { return [{ json: { status: 'ignored', reason } }]; }\nif (config.enabled !== true) return ignored('auto reply is disabled');\nfunction folded(value) { return value.normalize('NFD').replace(/\\p{M}/gu, '').replace(/[đĐ]/g, 'd').toLowerCase().replace(/\\s+/g, ' ').trim(); }\nfunction matches(text, trigger) {\n  if (typeof trigger !== 'string' || !trigger.trim()) return false;\n  return folded(text).includes(folded(trigger));\n}\nconst candidates = [];\nif (config.phone?.enabled === true && Array.isArray(config.phone.triggers) && config.phone.triggers.some(t => matches(body.text, t))) {\n  candidates.push({ type: 'phone', ruleId: 'phone', text: config.phone.text });\n}\nif (config.qr?.enabled === true && Array.isArray(config.qr.triggers) && config.qr.triggers.some(t => matches(body.text, t))) {\n  candidates.push({ type: 'qr', ruleId: 'qr', image: config.qr.image, caption: config.qr.caption || '' });\n}\nif (Array.isArray(config.custom)) {\n  for (const c of config.custom) {\n    if (c.enabled === true && Array.isArray(c.triggers) && c.triggers.some(t => matches(body.text, t))) {\n      candidates.push({ type: 'custom', ruleId: c.id, text: c.text });\n    }\n  }\n}\nif (candidates.length !== 1) return ignored(candidates.length ? 'ambiguous rules' : 'no matching rule');\nconst match = candidates[0];\nif ((match.type === 'phone' || match.type === 'custom') && (typeof match.text !== 'string' || !match.text.trim() || match.text.length > 4000)) {\n  return ignored(match.type + ' text is not configured');\n}\nif (match.type === 'qr' && (!match.image || !/^[A-Za-z0-9_-]{1,120}\\.(?:png|jpg|jpeg)$/.test(match.image.filename || '') || !['image/png', 'image/jpeg'].includes(match.image.mime))) {\n  return ignored('QR image is not configured');\n}\nconst seconds = Number($env.ZALO_PERSONAL_COOLDOWN_SECONDS || 300);\nif (!Number.isFinite(seconds) || seconds < 0) return ignored('invalid cooldown configuration');\nconst state = $getWorkflowStaticData('global');\nconst cooldownKey = body.threadId + ':' + match.ruleId;\nif (state.cooldown?.[cooldownKey] && Date.now() - state.cooldown[cooldownKey] < seconds * 1000) return ignored('cooldown');\nreturn [{\n  json: {\n    status: 'ready',\n    rule: match.ruleId,\n    ruleType: match.type,\n    cooldownKey,\n    eventId: body.eventId,\n    threadId: body.threadId,\n    text: (match.type === 'phone' || match.type === 'custom') ? match.text : '',\n    image: match.type === 'qr' ? match.image : null,\n    caption: match.type === 'qr' ? match.caption : ''\n  }\n}];"
+      }
+    },
+    {
+      "id": "if-ready",
+      "name": "IF Ready",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1250,
+        -100
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "status",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "ready",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "if-qr",
+      "name": "IF QR",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        1500,
+        -200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "rule",
+              "leftValue": "={{ $json.rule }}",
+              "rightValue": "qr",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "http---tikoder-qr",
+      "name": "HTTP - Tikoder QR",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        1750,
+        -300
+      ],
+      "parameters": {
+        "method": "GET",
+        "url": "={{ $env.TIKODER_DATA_API_IMAGE_URL || 'http://127.0.0.1:3000/api/integrations/n8n/zalo-auto-reply/data/qr' }}",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "x-tikoder-data-tenant",
+              "value": "={{ $env.N8N_DATA_API_TENANT }}"
+            },
+            {
+              "name": "x-tikoder-data-timestamp",
+              "value": "={{ $('Validate Event').first().json.dataTimestamp }}"
+            },
+            {
+              "name": "x-tikoder-data-signature",
+              "value": "={{ $('Validate Event').first().json.dataSignature }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000,
+          "response": {
+            "response": {
+              "responseFormat": "file",
+              "outputPropertyName": "data"
+            }
+          }
+        }
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "prepare-command",
+      "name": "Prepare Command",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2000,
+        -200
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const crypto = require('crypto');\nconst ready = $('Evaluate Config').first().json;\nfunction ignored(reason) { return [{ json: { status: 'ignored', reason } }]; }\nconst secret = $env.ZALO_PERSONAL_COMMAND_SECRET;\nif (!secret || ready.status !== 'ready') return ignored('command unavailable');\nconst isText = ready.ruleType === 'phone' || ready.ruleType === 'custom';\nconst command = {\n  eventId: ready.eventId + ':' + ready.rule,\n  action: isText ? 'send_text' : 'send_image',\n  threadId: ready.threadId,\n  threadType: 0\n};\nif (isText) {\n  command.text = ready.text;\n} else {\n  if (!$input.first().binary?.data) return ignored('QR image unavailable');\n  let image;\n  try { image = await this.helpers.getBinaryDataBuffer(0, 'data'); } catch (_) { return ignored('QR image unavailable'); }\n  if (!Buffer.isBuffer(image) || !image.length || image.length > 5 * 1024 * 1024) return ignored('invalid QR image');\n  command.filename = ready.image.filename;\n  command.mime = ready.image.mime;\n  command.data = image.toString('base64');\n  command.caption = ready.caption;\n}\nconst commandRaw = JSON.stringify(command);\nconst commandTimestamp = String(Math.floor(Date.now() / 1000));\nconst commandSignature = 'sha256=' + crypto.createHmac('sha256', secret).update(commandTimestamp + '.' + commandRaw).digest('hex');\nreturn [{ json: { status: 'prepared', rule: ready.rule, eventId: ready.eventId, cooldownKey: ready.cooldownKey, commandRaw, commandTimestamp, commandSignature } }];"
+      }
+    },
+    {
+      "id": "if-prepared",
+      "name": "IF Prepared",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [
+        2250,
+        -200
+      ],
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 2
+          },
+          "combinator": "and",
+          "conditions": [
+            {
+              "id": "status",
+              "leftValue": "={{ $json.status }}",
+              "rightValue": "prepared",
+              "operator": {
+                "type": "string",
+                "operation": "equals"
+              }
+            }
+          ]
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "http---adapter-command",
+      "name": "HTTP - Adapter Command",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.2,
+      "position": [
+        2500,
+        -300
+      ],
+      "parameters": {
+        "method": "POST",
+        "url": "={{ $env.ZALO_PERSONAL_COMMAND_URL || 'http://127.0.0.1:3010/command' }}",
+        "sendHeaders": true,
+        "specifyHeaders": "keypair",
+        "headerParameters": {
+          "parameters": [
+            {
+              "name": "content-type",
+              "value": "application/json"
+            },
+            {
+              "name": "x-adapter-timestamp",
+              "value": "={{ $json.commandTimestamp }}"
+            },
+            {
+              "name": "x-adapter-signature",
+              "value": "={{ $json.commandSignature }}"
+            }
+          ]
+        },
+        "options": {
+          "timeout": 10000
+        },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.commandRaw }}"
+      },
+      "onError": "continueRegularOutput"
+    },
+    {
+      "id": "result",
+      "name": "Result",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2750,
+        -300
+      ],
+      "parameters": {
+        "mode": "runOnceForAllItems",
+        "jsCode": "const result = $input.first().json;\nconst prepared = $('Prepare Command').first().json;\nif (result.status !== 'sent' || result.eventId !== prepared.eventId + ':' + prepared.rule) return [{ json: { status: 'ignored', reason: 'adapter did not confirm send' } }];\nconst state = $getWorkflowStaticData('global');\nstate.cooldown = state.cooldown || {};\nstate.cooldown[prepared.cooldownKey] = Date.now();\nreturn [{ json: { status: 'sent', eventId: prepared.eventId, rule: prepared.rule } }];"
+      }
+    },
+    {
+      "id": "respond---zalo-personal",
+      "name": "Respond - Zalo Personal",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [
+        3000,
+        0
+      ],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}",
+        "options": {
+          "responseCode": 200
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Zalo Personal Event": {
+      "main": [
+        [
+          {
+            "node": "Validate Event",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Event": {
+      "main": [
+        [
+          {
+            "node": "IF Valid",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Valid": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Tikoder Config",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - Zalo Personal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Tikoder Config": {
+      "main": [
+        [
+          {
+            "node": "Evaluate Config",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Evaluate Config": {
+      "main": [
+        [
+          {
+            "node": "IF Ready",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Ready": {
+      "main": [
+        [
+          {
+            "node": "IF QR",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - Zalo Personal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF QR": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Tikoder QR",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Prepare Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Tikoder QR": {
+      "main": [
+        [
+          {
+            "node": "Prepare Command",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Command": {
+      "main": [
+        [
+          {
+            "node": "IF Prepared",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "IF Prepared": {
+      "main": [
+        [
+          {
+            "node": "HTTP - Adapter Command",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Respond - Zalo Personal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "HTTP - Adapter Command": {
+      "main": [
+        [
+          {
+            "node": "Result",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Result": {
+      "main": [
+        [
+          {
+            "node": "Respond - Zalo Personal",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  }
+}

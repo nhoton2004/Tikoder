@@ -5,6 +5,7 @@
 
 const fs = require('fs');
 const path = require('path');
+const crypto = require('crypto');
 const { cleanDisplayText, normalizeDisplayText, normalizeTextForDisplay } = require('./displayName');
 
 const DATA_DIR = path.join(__dirname, '..', 'data', 'customers');
@@ -86,7 +87,14 @@ function writeUserCustomers(userId, customers) {
     const normalized = Array.isArray(customers)
         ? customers.map(customer => ({ ...customer, userId }))
         : [];
-    fs.writeFileSync(getUserCustomerFile(userId), JSON.stringify({ customers: normalized }, null, 2), 'utf-8');
+    const target = getUserCustomerFile(userId);
+    const temporary = target + '.' + crypto.randomBytes(8).toString('hex') + '.tmp';
+    try {
+        fs.writeFileSync(temporary, JSON.stringify({ customers: normalized }, null, 2), { encoding: 'utf8', mode: 0o600, flag: 'wx' });
+        fs.renameSync(temporary, target);
+    } finally {
+        if (fs.existsSync(temporary)) fs.unlinkSync(temporary);
+    }
 }
 
 function listCustomers(userId, query = '') {
@@ -188,6 +196,22 @@ function deleteCustomer(userId, customerId) {
     return true;
 }
 
+// Consent can only be changed through this explicit operation, never by imports.
+function setQuoteConsent(userId, customerId, value) {
+    if (!['unknown', 'granted', 'denied'].includes(value)) throw new Error('Invalid consent');
+    const customers = readUserCustomers(userId);
+    const customer = customers.find(item => item.id === customerId);
+    if (!customer) return null;
+    const previous = customer.consent || {};
+    if (value === (previous.quoteMessages || 'unknown')) return customer;
+    const now = new Date().toISOString();
+    customer.consent = { ...previous, quoteMessages: value, source: 'nhap_tay',
+        grantedAt: value === 'granted' ? now : '', optedOutAt: value === 'denied' ? now : '' };
+    customer.updatedAt = now;
+    writeUserCustomers(userId, customers);
+    return customer;
+}
+
 module.exports = {
     readUserCustomers,
     writeUserCustomers,
@@ -197,6 +221,7 @@ module.exports = {
     createCustomer,
     updateCustomer,
     deleteCustomer,
+    setQuoteConsent,
     normalizeTikTokUsername,
     getUserCustomerFile
 };

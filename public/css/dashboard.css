@@ -1101,7 +1101,7 @@
         }
 
         .dashboard-section.tab-enter {
-            animation: tabEnter 0.3s cubic-bezier(0.16, 1, 0.3, 1) both;
+            animation: tabEnter 0.3s cubic-bezier(0.16, 1, 0.3, 1) backwards;
         }
 
         @keyframes surfaceIn {
@@ -1111,19 +1111,14 @@
             }
             to {
                 opacity: 1;
-                transform: translateY(0) scale(1);
+                transform: none;
             }
         }
 
+        /* Sections can contain fixed sheets; never make them containing blocks. */
         @keyframes tabEnter {
-            from {
-                opacity: 0;
-                transform: translateY(12px);
-            }
-            to {
-                opacity: 1;
-                transform: translateY(0);
-            }
+            from { opacity: 0; }
+            to { opacity: 1; }
         }
 
         @keyframes cardFloatIn {
@@ -1906,6 +1901,25 @@
             line-height: 1;
         }
 
+        .customer-editor {
+            min-width: 0;
+        }
+
+        .customer-form-close {
+            display: none;
+        }
+
+        .customer-form-heading {
+            display: flex;
+            align-items: flex-start;
+            justify-content: space-between;
+            gap: 12px;
+        }
+
+        .customer-list-status {
+            overflow-wrap: anywhere;
+        }
+
         .settings-page {
             width: 100%;
         }
@@ -2667,8 +2681,10 @@
                 padding-bottom: calc(76px + env(safe-area-inset-bottom));
             }
 
-            .app-shell {
-                grid-template-columns: 1fr;
+            .app-shell,
+            .app-shell[data-sidebar-collapsed="true"] {
+                grid-template-columns: minmax(0, 1fr);
+                width: 100%;
                 min-height: 100dvh;
                 gap: 0;
                 padding: 0;
@@ -2684,11 +2700,16 @@
                 height: auto;
                 display: flex;
                 transform: translateX(calc(-100% - 18px));
+                visibility: hidden;
+                pointer-events: none;
+                overflow-y: auto;
                 transition: transform 0.22s ease, background 0.18s ease, border-color 0.18s ease;
             }
 
             body.sidebar-drawer-open .sidebar {
                 transform: translateX(0);
+                visibility: visible;
+                pointer-events: auto;
             }
 
             .app-shell[data-sidebar-collapsed="true"] .sidebar {
@@ -2748,10 +2769,12 @@
 
             .topbar-actions {
                 width: 100%;
-                overflow-x: auto;
+                min-width: 0;
+                flex-wrap: wrap;
+                gap: 8px;
+                overflow: visible;
                 padding-bottom: 2px;
-                -webkit-overflow-scrolling: touch;
-                justify-content: space-between;
+                justify-content: flex-start;
             }
 
             .topbar-actions > button,
@@ -2930,31 +2953,23 @@
 
             .overview-controls {
                 width: 100%;
-                display: grid !important;
-                grid-template-columns: repeat(3, minmax(0, 1fr));
+                display: flex !important;
+                flex-wrap: wrap;
+                justify-content: flex-start;
                 gap: 8px;
             }
 
             .overview-controls button,
             .overview-controls input {
-                width: 100%;
+                flex: 1 1 138px;
+                width: auto;
                 min-width: 0;
-                padding: 8px 6px;
+                max-width: 100%;
+                padding: 8px 10px;
                 border-radius: 10px;
-                font-size: 11px;
+                font-size: 16px;
             }
 
-            .overview-controls input {
-                grid-column: span 1;
-            }
-
-            .overview-controls input:nth-of-type(1) {
-                grid-column: 1 / 3;
-            }
-
-            .overview-controls input:nth-of-type(2) {
-                grid-column: 3 / 4;
-            }
 
             .overview-split-grid {
                 gap: 10px;
@@ -3069,19 +3084,266 @@
                 justify-content: flex-start;
             }
 
+            /* Let viewport overlays escape the desktop main stacking context. */
+            .main-wrap {
+                z-index: auto;
+            }
+
+            html body[data-view] .app-shell button,
+            html body[data-view] .app-shell select,
+            html body[data-view] .app-shell textarea,
+            html body[data-view] .app-shell input:not([type="hidden"]) {
+                min-height: 44px !important;
+            }
+
+            html body[data-view] .app-shell button {
+                min-width: 44px !important;
+            }
+
+            html body[data-view] .app-shell input:not([type="hidden"]),
+            html body[data-view] .app-shell select,
+            html body[data-view] .app-shell textarea,
+            #section-overview .overview-insight-card .overview-controls input {
+                font-size: 16px !important;
+            }
+
+            #section-overview .overview-insight-card .overview-controls button,
+            #section-overview .overview-insight-card .overview-controls input {
+                min-height: 44px !important;
+            }
+
+            .customers-heading {
+                flex-direction: column;
+                align-items: stretch;
+            }
+
+            .customers-heading-actions {
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            .customers-heading-actions button {
+                flex: 1 1 160px;
+                white-space: normal;
+            }
+
+            .customers-layout {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            /* Keep one semantic table; only real customer rows get labels. */
+            .customers-table {
+                min-width: 0;
+                width: 100%;
+                table-layout: auto;
+            }
+
+            .customers-table thead {
+                position: absolute;
+                width: 1px;
+                height: 1px;
+                padding: 0;
+                overflow: hidden;
+                clip-path: inset(50%);
+                white-space: nowrap;
+            }
+
+            .customers-table tbody {
+                display: block;
+            }
+
+            .customers-table tbody > tr:not([data-customer-row]),
+            .customers-table tbody > tr:not([data-customer-row]) > td[colspan] {
+                display: block;
+                width: 100%;
+                white-space: normal;
+            }
+
+            .customers-table tr[data-customer-row] {
+                display: grid;
+                min-width: 0;
+                padding: 12px;
+                gap: 8px;
+                border-bottom: 1px solid var(--line);
+            }
+
+            .customers-table tr[data-customer-row] td {
+                display: grid;
+                grid-template-columns: minmax(0, 104px) minmax(0, 1fr);
+                align-items: start;
+                gap: 10px;
+                width: auto;
+                min-width: 0;
+                max-width: none;
+                padding: 0;
+                text-align: left;
+                white-space: normal;
+                overflow-wrap: anywhere;
+            }
+
+            .customers-table tr[data-customer-row] td::before {
+                content: attr(data-label);
+                color: var(--muted);
+                font-size: 12px;
+                font-weight: 700;
+            }
+
+            .customers-table :is(.customer-table-username, .customer-table-name,
+                .customer-table-phone, .customer-table-address, .customer-display-name) {
+                white-space: normal;
+                overflow: visible;
+                overflow-wrap: anywhere;
+            }
+
+            .customers-table tr[data-customer-row] .customer-table-actions {
+                display: flex;
+                flex-wrap: wrap;
+                align-items: center;
+                gap: 8px;
+            }
+
+            .customers-table tr[data-customer-row] .customer-table-actions::before {
+                flex: 0 0 104px;
+            }
+
+            .customer-action-btn {
+                margin-left: 0;
+            }
+
+            body.customer-editor-open {
+                overflow: hidden;
+                overscroll-behavior: none;
+            }
+
+            /* This section owns a viewport-fixed sheet, not a transformed panel. */
+            #section-customers,
+            #section-customers .customers-layout {
+                animation: none;
+                transform: none;
+            }
+
+            .customer-editor {
+                display: none;
+                position: fixed;
+                inset: 0;
+                z-index: 1200;
+                box-sizing: border-box;
+                height: 100dvh;
+                padding: max(12px, env(safe-area-inset-top))
+                    max(12px, env(safe-area-inset-right))
+                    max(12px, env(safe-area-inset-bottom))
+                    max(12px, env(safe-area-inset-left));
+                background: rgba(15, 23, 42, 0.6);
+                overscroll-behavior: contain;
+            }
+
+            .customer-editor.is-open {
+                display: flex;
+                justify-content: center;
+                align-items: center;
+            }
+
+            .customer-editor #customer-form {
+                display: flex;
+                flex-direction: column;
+                width: min(100%, 560px);
+                min-height: 0;
+                max-height: 100%;
+                margin: 0;
+                overflow-y: auto;
+                overscroll-behavior: contain;
+                scroll-padding-block: 88px 84px;
+                background: var(--panel);
+                color: var(--txt);
+                animation: none;
+                transform: none;
+            }
+
+            .customer-editor #customer-form > * {
+                flex-shrink: 0;
+                min-width: 0;
+            }
+
+            .customer-editor #customer-form > .grid {
+                grid-template-columns: minmax(0, 1fr);
+            }
+
+            .customer-editor .customer-form-heading {
+                position: sticky;
+                top: -16px;
+                z-index: 1;
+                margin: -16px -16px 0;
+                padding: 16px;
+                background: var(--panel);
+                border-bottom: 1px solid var(--line);
+            }
+
+            .customer-form-close {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                flex-shrink: 0;
+            }
+
+            .customer-form-actions {
+                position: sticky;
+                bottom: -16px;
+                display: flex;
+                flex-wrap: wrap;
+                gap: 8px;
+                margin-inline: -16px;
+                padding: 12px 16px;
+                background: var(--panel);
+                border-top: 1px solid var(--line);
+            }
+
+            #history-list-content {
+                min-height: 0;
+            }
+
+            #history-list-content > .flex {
+                flex-wrap: wrap;
+                gap: 8px;
+            }
+
+            #history-list-content > .flex > div {
+                flex: 1 1 180px;
+                min-width: 0;
+                overflow-wrap: anywhere;
+            }
+
+            #history-list-content > .flex > button {
+                flex: 0 0 auto;
+                margin-left: auto;
+            }
+
             #history-modal,
             #live-sessions-modal,
             #merge-modal,
             #delivery-warning-modal {
-                padding: 8px !important;
+                padding: max(12px, env(safe-area-inset-top))
+                    max(12px, env(safe-area-inset-right))
+                    max(12px, env(safe-area-inset-bottom))
+                    max(12px, env(safe-area-inset-left)) !important;
                 align-items: stretch;
+                z-index: 1200;
+            }
+
+            #history-modal button,
+            #live-sessions-modal button,
+            #merge-modal button,
+            #delivery-warning-modal button {
+                min-width: 44px;
+                min-height: 44px !important;
             }
 
             #history-modal > div,
             #live-sessions-modal > div,
             #merge-modal > div,
             #delivery-warning-modal > div {
-                max-height: calc(100dvh - 24px) !important;
+                min-width: 0;
+                max-height: calc(100dvh - max(12px, env(safe-area-inset-top)) - max(12px, env(safe-area-inset-bottom))) !important;
                 border-radius: 12px;
             }
 
@@ -3112,9 +3374,9 @@
                 bottom: 0;
                 z-index: 1000;
                 display: grid;
-                grid-template-columns: repeat(5, minmax(0, 1fr));
+                grid-template-columns: repeat(6, minmax(0, 1fr));
                 gap: 4px;
-                padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+                padding: 8px max(8px, env(safe-area-inset-right)) calc(8px + env(safe-area-inset-bottom)) max(8px, env(safe-area-inset-left));
                 background: rgba(255, 255, 255, 0.96);
                 border-top: 1px solid var(--line);
                 box-shadow: 0 -8px 24px rgba(15, 23, 42, 0.08);
@@ -3161,14 +3423,6 @@
                 max-width: 82px !important;
             }
 
-            .overview-controls {
-                grid-template-columns: repeat(2, minmax(0, 1fr));
-            }
-
-            .overview-controls input:nth-of-type(1),
-            .overview-controls input:nth-of-type(2) {
-                grid-column: auto;
-            }
 
             .settings-card-head-between {
                 flex-direction: column;

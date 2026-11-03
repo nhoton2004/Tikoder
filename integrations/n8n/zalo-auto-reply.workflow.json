@@ -1,0 +1,138 @@
+{
+  "name": "TikTokOrder - Zalo auto reply",
+  "nodes": [
+    {
+      "id": "auto-reply-webhook",
+      "name": "Webhook - Auto Reply",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 2.1,
+      "position": [0, 0],
+      "webhookId": "tikoder-zalo-auto-reply",
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "tikoder/zalo-auto-reply",
+        "authentication": "headerAuth",
+        "responseMode": "responseNode",
+        "options": { "rawBody": true }
+      }
+    },
+    {
+      "id": "auto-reply-inspect",
+      "name": "Inspect",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [240, 0],
+      "retryOnFail": false,
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:3000/api/integrations/n8n/zalo-auto-reply/inspect",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "Content-Type", "value": "application/json" },
+          { "name": "x-tikoder-timestamp", "value": "={{ $json.headers['x-tikoder-timestamp'] }}" },
+          { "name": "x-tikoder-signature", "value": "={{ $json.headers['x-tikoder-signature'] }}" },
+          { "name": "x-tikoder-event-id", "value": "={{ $json.headers['x-tikoder-event-id'] }}" }
+        ] },
+        "sendBody": true,
+        "contentType": "binaryData",
+        "inputDataFieldName": "data",
+        "options": {
+          "timeout": 8000,
+          "redirect": { "redirect": { "followRedirects": false } },
+          "response": { "response": { "fullResponse": true, "neverError": true, "responseFormat": "json" } }
+        }
+      }
+    },
+    {
+      "id": "auto-reply-allow-command",
+      "name": "Allow Signed Command",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2,
+      "position": [480, -80],
+      "parameters": {
+        "conditions": {
+          "options": { "caseSensitive": true, "leftValue": "", "typeValidation": "strict", "version": 2 },
+          "conditions": [
+            {
+              "id": "allowed-route-and-command",
+              "leftValue": "={{ ($json.body?.route === 'phone' || $json.body?.route === 'qr') && typeof $json.body?.command?.body === 'string' && $json.body.command.body.length > 0 && typeof $json.body.command.timestamp === 'string' && $json.body.command.timestamp.length > 0 && typeof $json.body.command.signature === 'string' && $json.body.command.signature.length > 0 && typeof $json.body.command.eventId === 'string' && $json.body.command.eventId.length > 0 }}",
+              "rightValue": "",
+              "operator": { "type": "boolean", "operation": "true", "singleValue": true }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      }
+    },
+    {
+      "id": "auto-reply-send",
+      "name": "Send Signed Command",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [720, -160],
+      "retryOnFail": false,
+      "onError": "continueErrorOutput",
+      "parameters": {
+        "method": "POST",
+        "url": "http://127.0.0.1:3000/api/integrations/n8n/zalo-auto-reply/send",
+        "sendHeaders": true,
+        "headerParameters": { "parameters": [
+          { "name": "x-tikoder-timestamp", "value": "={{ $json.body.command.timestamp }}" },
+          { "name": "x-tikoder-signature", "value": "={{ $json.body.command.signature }}" },
+          { "name": "x-tikoder-event-id", "value": "={{ $json.body.command.eventId }}" }
+        ] },
+        "sendBody": true,
+        "contentType": "raw",
+        "rawContentType": "application/json",
+        "body": "={{ $json.body.command.body }}",
+        "options": {
+          "timeout": 8000,
+          "redirect": { "redirect": { "followRedirects": false } },
+          "response": { "response": { "fullResponse": true, "neverError": true, "responseFormat": "json" } }
+        }
+      }
+    },
+    {
+      "id": "auto-reply-respond",
+      "name": "Respond - Tikoder",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [960, 0],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json.body }}",
+        "options": { "responseCode": "={{ $json.statusCode }}" }
+      }
+    },
+    {
+      "id": "auto-reply-unavailable",
+      "name": "Respond - Connection Error",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1.4,
+      "position": [720, 240],
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "{\"error\":\"Tikoder connection failed or timed out; delivery outcome is unknown. Check Tikoder before retrying.\"}",
+        "options": { "responseCode": 503 }
+      }
+    }
+  ],
+  "connections": {
+    "Webhook - Auto Reply": { "main": [[{ "node": "Inspect", "type": "main", "index": 0 }]] },
+    "Inspect": { "main": [
+      [{ "node": "Allow Signed Command", "type": "main", "index": 0 }],
+      [{ "node": "Respond - Connection Error", "type": "main", "index": 0 }]
+    ] },
+    "Allow Signed Command": { "main": [
+      [{ "node": "Send Signed Command", "type": "main", "index": 0 }],
+      [{ "node": "Respond - Tikoder", "type": "main", "index": 0 }]
+    ] },
+    "Send Signed Command": { "main": [
+      [{ "node": "Respond - Tikoder", "type": "main", "index": 0 }],
+      [{ "node": "Respond - Connection Error", "type": "main", "index": 0 }]
+    ] }
+  },
+  "settings": { "executionOrder": "v1" }
+}

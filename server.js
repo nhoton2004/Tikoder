@@ -1,4 +1,4 @@
-require('dotenv').config();
+﻿require('dotenv').config();
 const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
@@ -11,6 +11,13 @@ const admin = require('firebase-admin');
 const session = require('express-session');
 const liveSessionStore = require('./utils/liveSessionStore');
 const customerStore = require('./utils/customerStore');
+const quoteQueue = require('./utils/quoteQueue');
+const historyWorkspace = require('./utils/historyOrderWorkspace');
+const n8nNotifications = require('./utils/n8nNotifications');
+const n8nZaloDispatch = require('./utils/n8nZaloDispatch');
+const zaloWeb = require('./utils/zaloWebExperimental');
+const zaloAutoReply = require('./utils/zaloAutoReplyService').createService();
+const zaloAutoReplyRoutes = require('./routes/zaloAutoReply');
 const orderExcelExporter = require('./utils/orderExcelExporter');
 const { cleanDisplayText, normalizeDisplayName, normalizeDisplayText } = require('./utils/displayName');
 const adminRoutes = require('./routes/admin');
@@ -37,17 +44,62 @@ const DEV_USER = {
 
 let serviceAccount;
 try {
-    serviceAccount = require('./firebase-service-account.json');
+    serviceAccount = JSON.parse(fs.readFileSync(process.env.FIREBASE_CREDENTIALS_FILE || path.join(__dirname, 'firebase-service-account.json'), 'utf8'));
     admin.initializeApp({
         credential: admin.credential.cert(serviceAccount)
     });
     console.log("Firebase Admin initialized.");
 } catch (e) {
+    if (process.env.NODE_ENV === 'production') throw new Error('Valid Firebase credentials are required in production');
     console.warn("Could not load firebase-service-account.json. Firebase Auth will fail.");
 }
 
 const app = express();
-app.use(cors());
+let shuttingDown = false;
+if (process.env.TRUST_PROXY) app.set('trust proxy', process.env.TRUST_PROXY.split(',').map(value => value.trim()).filter(Boolean));
+const allowedOrigins = (process.env.CORS_ORIGIN || '').split(',').map(value => value.trim()).filter(Boolean);
+const corsOptions = allowedOrigins.length ? { origin: allowedOrigins, credentials: true } : {};
+app.use(cors(corsOptions));
+app.get('/healthz', (_req, res) => res.status(shuttingDown ? 503 : 200).json({ status: shuttingDown ? 'stopping' : 'ok' }));
+app.use((_req, res, next) => shuttingDown ? res.status(503).json({ error: 'Server is stopping' }) : next());
+// Register signed raw-body callbacks before the global JSON parser.
+app.use('/api/integrations/n8n/zalo-auto-reply', zaloAutoReplyRoutes.createIntegrationRouter(zaloAutoReply));
+// n8n forwards the exact request bytes here for HMAC verification.
+app.post('/api/integrations/n8n/verify', express.raw({ type: 'application/json', limit: '64kb' }), (req, res) => {
+    const crypto = require('crypto');
+    const secret = process.env.N8N_NOTIFY_SECRET;
+    const timestamp = String(req.get('x-tikoder-timestamp') || '');
+    const signature = String(req.get('x-tikoder-signature') || '');
+    if (!secret || !Buffer.isBuffer(req.body) || !/^\d{10}$/.test(timestamp) || Math.abs(Date.now() / 1000 - Number(timestamp)) > 300 || !/^sha256=[0-9a-f]{64}$/.test(signature)) return res.status(401).json({ error: 'Xác thực thất bại' });
+    const expected = crypto.createHmac('sha256', secret).update(timestamp + '.').update(req.body).digest();
+    const actual = Buffer.from(signature.slice(7), 'hex');
+    if (!crypto.timingSafeEqual(expected, actual)) return res.status(401).json({ error: 'Xác thực thất bại' });
+    try {
+        const event = JSON.parse(req.body.toString('utf8'));
+        if (!event.eventId || req.get('x-tikoder-event-id') !== event.eventId || !['quote.pending_approval', 'quote.send_requested'].includes(event.eventType)) return res.status(400).json({ error: 'Sự kiện không hợp lệ' });
+        if (event.eventType === 'quote.send_requested') {
+            if (process.env.ZALO_WEB_EXPERIMENTAL !== 'true' || !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress)) return res.status(403).json({ error: 'Chế độ thử chỉ cho phép máy cục bộ' });
+            let request;
+            try { request = quoteQueue.findZaloEvent(event.tenantId, event.eventId, event.deliveryId); } catch (e) { return res.status(e.status || 400).json({ error: 'Không tìm thấy yêu cầu' }); }
+            if (request.delivery.status !== 'queued') return res.json({ status: request.delivery.status });
+            if (!zaloWeb.isOpen(request.uid)) return res.status(409).json({ error: 'Zalo Web chưa mở' });
+            const allowed = String(process.env.ZALO_TEST_PHONES || '').split(',').map(x => x.trim()).filter(Boolean);
+            let claimed;
+            try { claimed = quoteQueue.claimZalo(request.uid, event.deliveryId, allowed); } catch (e) { return res.status(e.status || 400).json({ error: e.message }); }
+            res.status(202).json({ status: 'accepted', eventId: event.eventId });
+            const guard = () => {
+                const current = customerStore.getCustomerById(request.uid, request.quote.customerId);
+                const phone = String(current?.contact?.zaloPhone || current?.phone || '').replace(/[\s().-]/g, '');
+                if (!current || current.consent?.quoteMessages !== 'granted' || current.consent?.optedOutAt || phone !== claimed.phone) throw new Error('Thông tin khách đã thay đổi');
+            };
+            zaloWeb.send(request.uid, claimed.phone, claimed.delivery.zaloName, claimed.delivery.renderedText, guard)
+                .catch(() => {})
+                .finally(() => { try { quoteQueue.markZaloNeedsCheck(request.uid, event.deliveryId); } catch (_) {} });
+            return;
+        }
+        res.json({ eventId: event.eventId, eventType: event.eventType, tenantId: event.tenantId, summary: event.summary, appUrl: event.appUrl });
+    } catch (_) { res.status(400).json({ error: 'Sự kiện không hợp lệ' }); }
+});
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 
@@ -56,8 +108,16 @@ if (!process.env.SESSION_SECRET) {
     console.error('❌ FATAL: SESSION_SECRET must be set in .env file');
     process.exit(1);
 }
+if (process.env.NODE_ENV === 'production' && (process.env.SESSION_SECRET.length < 32 || process.env.SESSION_SECRET.startsWith('your_'))) {
+    throw new Error('Production SESSION_SECRET must be a random secret of at least 32 characters');
+}
 
+const sessionStore = process.env.SESSION_STORE === 'sqlite'
+    ? new (require('./utils/sqliteSessionStore').SqliteSessionStore)(path.resolve(process.env.SESSION_DB_PATH || path.join(__dirname, 'data', 'sessions.sqlite')), { ttl: Number(process.env.SESSION_TIMEOUT || 86400000) })
+    : undefined;
+if (sessionStore) sessionStore.on('error', error => console.error('Session store error:', error.message));
 const sessionMiddleware = session({
+    store: sessionStore,
     secret: process.env.SESSION_SECRET,
     resave: false,
     saveUninitialized: false,
@@ -185,7 +245,7 @@ app.post('/logout', (req, res) => {
             io.in(userRoom).fetchSockets().then(sockets => {
                 sockets.forEach(sock => sock.disconnect(true));
             }).catch(() => {});
-            resetLiveRuntime(userId);
+            // Logging out closes browser sockets, not the TikTok live run.
         }
         res.json({ success: true });
     });
@@ -226,6 +286,60 @@ const requireApiAuth = (req, res, next) => {
     }
     next();
 };
+
+app.use('/api/zalo-auto-reply', zaloAutoReplyRoutes.createUiRouter(zaloAutoReply, requireApiAuth));
+
+// Quote operations are synchronous, so each read-modify-write is serialized in this process.
+app.use('/api/quotes', requireApiAuth, (req, res, next) => {
+    if (['POST', 'PATCH', 'DELETE'].includes(req.method)) {
+        const origin = req.get('origin');
+        if (!origin || origin !== req.protocol + '://' + req.get('host')) return res.status(403).json({ error: 'Origin không hợp lệ' });
+    }
+    next();
+});
+function quoteHandler(fn) { return (req, res) => { try { res.json(fn(req)); } catch (e) { if (!e.status) console.error('Lỗi báo giá:', e.message); res.status(e.status || 500).json({ error: e.status ? e.message : 'Không thể xử lý báo giá' }); } }; }
+app.get('/api/quotes', quoteHandler(req => {
+    const uid = req.session.user.uid, data = quoteQueue.read(uid);
+    return { ...data, customers: customerStore.listCustomers(uid) };
+}));
+app.post('/api/quotes', quoteHandler(req => {
+    const uid = req.session.user.uid, username = customerStore.normalizeTikTokUsername(req.body?.username);
+    let order;
+    if (req.body?.items !== undefined) {
+        const customer = customerStore.getCustomerById(uid, req.body.customerId);
+        if (!customer) historyWorkspace.fail('Không tìm thấy khách hàng', 404);
+        const items = req.body.items;
+        if (!Array.isArray(items)) historyWorkspace.fail('Danh sách món không hợp lệ');
+        return { quote: quoteQueue.create(uid, customer, { items: items.map(i => ({ text: i.label, price: i.amount })), shippingNote: req.body.shippingNote }) };
+    }
+    if (req.body?.source) {
+        const source = readHistoryWorkspace(req.session.user, req.body.source.sessionId);
+        historyWorkspace.checkVersion(source.orders, req.body.source.revision);
+        const selected = source.orders.filter(o => customerStore.normalizeTikTokUsername(o.customerUsername) === username);
+        order = { nickname: selected[0]?.customerName, items: selected.map(o => ({ id: o.id, text: o.productName, price: o.total ?? o.price })) };
+    } else order = getLiveRuntime(uid).confirmedOrders[username];
+    if (!order || !order.items?.length) { const e = new Error('Không tìm thấy đơn đang hiển thị'); e.status = 404; throw e; }
+    let customer = customerStore.findCustomerByTikTok(uid, username);
+    if (!customer) customer = customerStore.createCustomer(uid, { tiktokUsername: username, displayName: order.nickname || username });
+    return { quote: quoteQueue.create(uid, customer, order) };
+}));
+app.delete('/api/quotes/:id', quoteHandler(req => quoteQueue.remove(req.session.user.uid, req.params.id, req.body?.version)));
+app.patch('/api/quotes/:id', quoteHandler(req => ({ quote: quoteQueue.patch(req.session.user.uid, req.params.id, req.body || {}) })));
+app.post('/api/quotes/:id/approve', quoteHandler(req => {
+    if (req.body?.autoName !== undefined && (!['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.socket.remoteAddress) || !zaloWeb.isOpen(req.session.user.uid))) { const e = new Error('Hãy mở Zalo Web thử nghiệm trên máy này trước'); e.status = 400; throw e; }
+    return { delivery: quoteQueue.approve(req.session.user.uid, req.params.id, req.body?.channel, req.body?.text, req.body?.autoName, req.body?.version) };
+}));
+app.post('/api/quotes/:id/cancel', quoteHandler(req => ({ quote: quoteQueue.cancel(req.session.user.uid, req.params.id, req.body?.version) })));
+app.post('/api/quotes/delivery/:id', quoteHandler(req => ({ delivery: quoteQueue.delivery(req.session.user.uid, req.params.id, req.body?.action, req.body?.reason) })));
+function requireLocalZaloExperiment(req, res, next) {
+    const remote = req.socket.remoteAddress;
+    if (process.env.ZALO_WEB_EXPERIMENTAL !== 'true' || !['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(remote)) return res.status(403).json({ error: 'Chế độ thử Zalo chỉ dành cho máy cục bộ' });
+    next();
+}
+app.post('/api/quotes/zalo/open', requireLocalZaloExperiment, async (req, res) => {
+    try { await zaloWeb.open(req.session.user.uid); res.json({ success: true }); }
+    catch (e) { res.status(400).json({ error: e.message }); }
+});
 
 function isAdminOrSuperAdmin(user) {
     const role = String(user?.role || '').toLowerCase();
@@ -348,7 +462,9 @@ app.get('/api/live-sessions', requireApiAuth, (req, res) => {
             startedAt: s.startedAt,
             endedAt: s.endedAt,
             createdAt: s.createdAt,
-            summary: s.summary
+            summary: s.summary,
+            lastStartedAt: s.lastStartedAt,
+            runCount: s.segments?.length || 1
         }));
         const legacyList = readLegacyHistorySessions(userId, {
             includeSharedLegacy,
@@ -356,8 +472,8 @@ app.get('/api/live-sessions', requireApiAuth, (req, res) => {
             includeOwnerScope: isAdminOrSuperAdmin(user)
         });
         const combinedList = [...list, ...legacyList].sort((a, b) => {
-            const left = Date.parse(a.createdAt || a.startedAt || 0) || 0;
-            const right = Date.parse(b.createdAt || b.startedAt || 0) || 0;
+            const left = Date.parse(a.lastStartedAt || a.createdAt || a.startedAt || 0) || 0;
+            const right = Date.parse(b.lastStartedAt || b.createdAt || b.startedAt || 0) || 0;
             return right - left;
         });
         res.json({ sessions: combinedList });
@@ -385,7 +501,7 @@ app.post('/api/live-sessions/merged', requireApiAuth, (req, res) => {
         }
 
         const now = new Date();
-        const liveName = `Phiên gộp ${now.toLocaleDateString('vi-VN')} ${now.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}`;
+        const liveName = `Phiên gộp ${now.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}`;
         const newSession = liveSessionStore.createLiveSession(user.uid, {
             type: 'merged_session',
             liveName,
@@ -409,20 +525,10 @@ app.post('/api/live-sessions/merged', requireApiAuth, (req, res) => {
 app.post('/api/live-sessions', requireApiAuth, (req, res) => {
     try {
         const userId = req.session.user.uid;
-        const { liveName, tiktokUsername, startedAt, endedAt, orders } = req.body;
+        const runtime = getLiveRuntime(userId);
+        if (!runtime.currentSessionId) return res.status(409).json({ error: 'Hãy bắt đầu Live trước khi lưu' });
 
-        if (!orders || (Array.isArray(orders) && orders.length === 0) ||
-            (typeof orders === 'object' && !Array.isArray(orders) && Object.keys(orders).length === 0)) {
-            return res.status(400).json({ error: 'Không có đơn hàng để lưu' });
-        }
-
-        const newSession = liveSessionStore.createLiveSession(userId, {
-            liveName,
-            tiktokUsername,
-            startedAt,
-            endedAt,
-            orders
-        });
+        const newSession = saveSessionDataForUser(userId);
 
         console.log(`>>> Đã lưu phiên live "${newSession.liveName}" cho user ${userId} (${newSession.summary.totalOrders} đơn)`);
         res.json({ success: true, session: newSession });
@@ -430,6 +536,81 @@ app.post('/api/live-sessions', requireApiAuth, (req, res) => {
         console.error('Lỗi tạo phiên live:', error);
         res.status(500).json({ error: 'Lỗi server' });
     }
+});
+
+function readHistoryWorkspace(user, sessionId) {
+    if (typeof sessionId !== 'string' || !sessionId) historyWorkspace.fail('Thiếu lịch sử', 400);
+    const admin = isAdminOrSuperAdmin(user);
+    const session = sessionId.startsWith('legacy:')
+        ? getLegacyHistorySession(user.uid, sessionId, { includeSharedLegacy: admin, includeAllUserLegacy: admin })
+        : getVisibleStoredLiveSession(user, sessionId);
+    if (!session) historyWorkspace.fail('Không tìm thấy phiên live', 404);
+    return { session, orders: session.orders || [] };
+}
+
+function editHistoryWorkspace(user, sessionId, body) {
+    const { session, orders } = readHistoryWorkspace(user, sessionId);
+    const next = historyWorkspace.mutate(orders, body, customerStore.normalizeTikTokUsername);
+    if (sessionId.startsWith('legacy:')) {
+        const ref = parseLegacySessionRef(sessionId);
+        const fileName = safeLegacyHistoryFileName(ref.fileName);
+        const directory = ref.scope === 'shared' ? HISTORY_ROOT_DIR : getUserHistoryDir(ref.ownerUserId || user.uid);
+        const target = path.join(directory, fileName);
+        const original = JSON.parse(fs.readFileSync(target, 'utf8'));
+        const map = {};
+        for (const order of next) {
+            const username = order.customerUsername;
+            if (!Object.hasOwn(map, username)) Object.defineProperty(map, username, { enumerable: true, writable: true, value: {
+                ...(Object.values(original).find(c => customerStore.normalizeTikTokUsername(c.username) === username) || {}),
+                username, nickname: order.customerName, profilePictureUrl: order.profilePictureUrl || '', items: [], total: 0
+            } });
+            const oldIndex = orders.findIndex(o => o.id === order.id && o.customerUsername === order.customerUsername);
+            const oldItem = oldIndex < 0 ? {} : Object.values(original).flatMap(c => c.items || [])[oldIndex];
+            map[username].items.push({ ...oldItem, id: oldItem?.id || order.id, historyOrderId: order.id, text: order.productName, price: order.total ?? order.price, time: order.time, createdAt: order.createdAt });
+            map[username].total += order.total ?? order.price;
+        }
+        const temporary = target + '.tmp';
+        try { fs.writeFileSync(temporary, JSON.stringify(map, null, 2), 'utf8'); fs.renameSync(temporary, target); }
+        finally { if (fs.existsSync(temporary)) fs.unlinkSync(temporary); }
+    } else {
+        const owner = session.ownerUserId;
+        const sessions = liveSessionStore.readUserSessions(owner);
+        const stored = sessions.find(s => s.id === session.rawSessionId);
+        stored.orders = next;
+        stored.summary = liveSessionStore.calculateSessionSummary(next);
+        stored.updatedAt = new Date().toISOString();
+        stored.segments = Array.isArray(stored.segments) ? stored.segments : [];
+        if (!stored.segments.length) stored.segments.push({ startedAt: stored.startedAt, endedAt: stored.endedAt, orders: [] });
+        const byId = new Map(next.map(order => [String(order.id), order]));
+        const assigned = new Set();
+        for (const segment of stored.segments) {
+            segment.orders = (segment.orders || []).filter(order => {
+                const key = String(order.id);
+                if (!byId.has(key) || assigned.has(key)) return false;
+                assigned.add(key);
+                return true;
+            }).map(order => byId.get(String(order.id)));
+        }
+        const lastSegment = stored.segments[stored.segments.length - 1];
+        lastSegment.orders.push(...next.filter(order => !assigned.has(String(order.id))));
+        for (const segment of stored.segments) segment.summary = liveSessionStore.calculateSessionSummary(segment.orders);
+        liveSessionStore.writeUserSessions(owner, sessions);
+        // Only the exact selected active record is synchronized. Other live runs stay untouched.
+        const runtime = liveRuntimeByUser.get(owner);
+        if (runtime?.currentSessionId === stored.id) {
+            runtime.confirmedOrders = rebuildConfirmedOrders(lastSegment.orders);
+            emitToUser(owner, 'all-confirmed-orders', runtime.confirmedOrders);
+        }
+    }
+    const result = readHistoryWorkspace(user, sessionId);
+    return { ...result, revision: historyWorkspace.revision(result.orders) };
+}
+
+app.patch('/api/live-sessions/:sessionId/orders', requireApiAuth, (req, res) => {
+    const origin = req.get('origin');
+    if (!origin || origin !== req.protocol + '://' + req.get('host')) return res.status(403).json({ error: 'Origin không hợp lệ' });
+    try { res.json(editHistoryWorkspace(req.session.user, req.params.sessionId, req.body || {})); }
+    catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Không thể lưu lịch sử' }); }
 });
 
 // GET /api/live-sessions/:sessionId — Lấy chi tiết 1 phiên
@@ -457,7 +638,7 @@ app.get('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
             orders = session.orders || [];
         }
 
-        res.json({ session, orders, comments: [] }); // comments: [] - chưa lưu chi tiết
+        res.json({ session, orders, revision: historyWorkspace.revision(orders), comments: [] }); // comments: [] - chưa lưu chi tiết
     } catch (error) {
         console.error('Lỗi lấy chi tiết phiên live:', error);
         res.status(500).json({ error: 'Lỗi server' });
@@ -480,6 +661,8 @@ app.delete('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
             return res.json({ success: true });
         }
 
+        const target = getVisibleStoredLiveSession(user, req.params.sessionId);
+        if (target && !target.endedAt) return res.status(409).json({ error: 'Hãy kết thúc phiên trước khi xóa' });
         const deleted = deleteVisibleStoredLiveSession(user, req.params.sessionId);
         if (!deleted) {
             return res.status(404).json({ error: 'Không tìm thấy phiên live' });
@@ -567,7 +750,10 @@ app.post('/api/customers/import-from-history', requireApiAuth, (req, res) => {
         const existingCustomers = customerStore.readUserCustomers(userId);
         const existingTikToks = new Set(existingCustomers.map(c => customerStore.normalizeTikTokUsername(c.tiktokUsername)).filter(Boolean));
         const existingNames = new Set(existingCustomers.map(c => normalizeOrderCustomerName(c.displayName, c.tiktokUsername).toLowerCase()).filter(Boolean));
-        const sessions = liveSessionStore.readUserSessions(userId);
+        const sessions = [
+            ...liveSessionStore.readUserSessions(userId),
+            ...readLegacyHistorySessions(userId)
+        ];
         const candidates = new Map();
 
         sessions.forEach(session => {
@@ -656,6 +842,18 @@ app.get('/api/customers/:id', requireApiAuth, (req, res) => {
         console.error('Lỗi lấy chi tiết khách hàng:', error);
         res.status(500).json({ error: 'Lỗi server khi tải khách hàng' });
     }
+});
+
+app.post('/api/customers/:id/quote-consent', requireApiAuth, (req, res) => {
+    const origin = req.get('origin');
+    if (!origin || origin !== req.protocol + '://' + req.get('host')) return res.status(403).json({ error: 'Origin không hợp lệ' });
+    const value = req.body?.quoteMessages;
+    if (!['unknown', 'granted', 'denied'].includes(value)) return res.status(400).json({ error: 'Trạng thái đồng ý không hợp lệ' });
+    try {
+        const customer = customerStore.setQuoteConsent(req.session.user.uid, req.params.id, value);
+        if (!customer) return res.status(404).json({ error: 'Không tìm thấy khách hàng' });
+        res.json({ customer });
+    } catch (error) { console.error('Lỗi cập nhật đồng ý:', error.message); res.status(500).json({ error: 'Không thể cập nhật trạng thái đồng ý' }); }
 });
 
 app.post('/api/customers', requireApiAuth, (req, res) => {
@@ -835,7 +1033,7 @@ app.get('/contact', (_req, res) => {
 app.use(express.static(path.join(__dirname, 'public')));
 
 const server = http.createServer(app);
-const io = new Server(server, { cors: { origin: "*" } });
+const io = new Server(server, { cors: corsOptions });
 
 io.engine.use(sessionMiddleware);
 io.use((socket, next) => {
@@ -876,10 +1074,10 @@ function getUserHistoryDir(userId) {
     return dirPath;
 }
 
-function getSessionFileName(userId, broadcasterId) {
-    const date = new Date().toISOString().split('T')[0];
+function getSessionFileName(userId, broadcasterId, sessionId) {
     const safeBroadcasterId = customerStore.normalizeTikTokUsername(broadcasterId) || 'unknown';
-    return path.join(getUserHistoryDir(userId), `${date}_${safeBroadcasterId}.json`);
+    const id = sessionId || ('sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8));
+    return path.join(getUserHistoryDir(userId), `${id}_${safeBroadcasterId}.json`);
 }
 
 function createEmptyLiveRuntime(userId) {
@@ -888,6 +1086,9 @@ function createEmptyLiveRuntime(userId) {
         tiktokConnection: null,
         confirmedOrders: {},
         currentBroadcasterId: '',
+        currentSessionId: null,
+        currentSessionStartedAt: null,
+        connectionState: 'idle',
         processedMsgIds: new Set(),
         chatBufferByBroadcaster: new Map(),
         sockets: new Set()
@@ -910,6 +1111,8 @@ function resetLiveRuntime(userId) {
     runtime.tiktokConnection = null;
     runtime.confirmedOrders = {};
     runtime.currentBroadcasterId = '';
+    runtime.currentSessionId = null;
+    runtime.currentSessionStartedAt = null;
     runtime.processedMsgIds.clear();
     runtime.chatBufferByBroadcaster.clear();
     runtime.sockets.clear();
@@ -918,10 +1121,48 @@ function resetLiveRuntime(userId) {
 
 function saveSessionDataForUser(userId) {
     const runtime = getLiveRuntime(userId);
-    if (!runtime.currentBroadcasterId) return;
-    const fileName = getSessionFileName(userId, runtime.currentBroadcasterId);
+    if (!runtime.currentSessionId) throw new Error('Hãy bắt đầu Live trước khi sửa đơn');
     runtime.confirmedOrders = sanitizeConfirmedOrders(runtime.confirmedOrders);
-    fs.writeFileSync(fileName, JSON.stringify(runtime.confirmedOrders, null, 2));
+    return liveSessionStore.updateLiveSession(userId, runtime.currentSessionId, { orders: runtime.confirmedOrders });
+}
+
+function formatLiveName(broadcasterId, startedAt) {
+    const d = startedAt ? new Date(startedAt) : new Date();
+    return `${d.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}_${broadcasterId}`;
+}
+
+function generateRuntimeSessionId() {
+    return 'sess_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
+}
+
+function rebuildConfirmedOrders(ordersArray) {
+    const result = {};
+    (ordersArray || []).forEach(order => {
+        const username = order.customerUsername || order.tiktokUsername || '';
+        if (!username) return;
+        if (!result[username]) {
+            result[username] = {
+                username,
+                nickname: order.customerName || username,
+                profilePictureUrl: order.profilePictureUrl || '',
+                items: [],
+                total: 0
+            };
+        }
+        const item = {
+            id: order.id || (Date.now() + Math.random()),
+            text: order.productName || order.text || '',
+            price: order.total ?? order.price ?? 0,
+            time: order.time || '',
+            requestId: order.requestId || '',
+            sourceMessageId: order.sourceMessageId || '',
+            sourceBroadcasterId: order.sourceBroadcasterId || '',
+            createdAt: order.createdAt || null
+        };
+        result[username].items.push(item);
+        result[username].total += item.price;
+    });
+    return result;
 }
 
 if (fs.existsSync(CONFIG_FILE)) {
@@ -1373,8 +1614,12 @@ function readAllUserHistoryRows() {
 
 function safeLegacyHistoryFileName(fileName) {
     const name = path.basename(String(fileName || ''));
-    if (!/^\d{4}-\d{2}-\d{2}_[^/\\]+\.json$/i.test(name)) return '';
-    return name;
+    const validPatterns = [
+        /^\d{4}-\d{2}-\d{2}_[a-zA-Z0-9_.-]+\.json$/i,
+        /^session_\d+_[a-zA-Z0-9]+_[a-zA-Z0-9_.-]+\.json$/i,
+        /^sess_\d{4}-\d{2}-\d{2}_[a-zA-Z0-9]+_[a-zA-Z0-9_.-]+\.json$/i
+    ];
+    return validPatterns.some(pattern => pattern.test(name)) ? name : '';
 }
 
 function legacyHistoryFileToOrders(fileName, data) {
@@ -1388,7 +1633,7 @@ function legacyHistoryFileToOrders(fileName, data) {
             const itemTime = item.time || '';
             const timestamp = timestampFromParts(dateKey, itemTime);
             orders.push({
-                id: `legacy_${fileName}_${item.id || `${customer.username || 'unknown'}_${itemTime}`}`,
+                id: item.historyOrderId || `legacy_${fileName}_${item.id || `${customer.username || 'unknown'}_${itemTime}`}`,
                 customerName: normalizeOrderCustomerName(customer.nickname || customer.displayName || '', customer.username || customer.tiktokUsername || ''),
                 customerUsername: customerStore.normalizeTikTokUsername(customer.username || customer.tiktokUsername || ''),
                 profilePictureUrl: customer.profilePictureUrl || '',
@@ -1398,7 +1643,7 @@ function legacyHistoryFileToOrders(fileName, data) {
                 total: Number(item.price || 0),
                 note: '',
                 time: itemTime,
-                createdAt: Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : ''
+                createdAt: item.createdAt || (Number.isFinite(timestamp) ? new Date(timestamp).toISOString() : '')
             });
         });
     });
@@ -1675,12 +1920,27 @@ function normalizeOverviewRange(startQuery, endQuery) {
 }
 
 function historyMetaFromFile(fileName) {
-    const match = String(fileName || '').match(/^(\d{4}-\d{2}-\d{2})_(.+)\.json$/i);
-    if (!match) return { date: '', shop: '' };
-    return {
-        date: match[1],
-        shop: match[2].replace(/\.json$/i, '')
-    };
+    const name = safeLegacyHistoryFileName(fileName);
+    if (!name) return { date: '', shop: '' };
+
+    const datedMatch = name.match(/^(\d{4}-\d{2}-\d{2})_(.+)\.json$/i);
+    if (datedMatch) {
+        return { date: datedMatch[1], shop: datedMatch[2] };
+    }
+
+    const sessMatch = name.match(/^sess_(\d{4}-\d{2}-\d{2})_[a-zA-Z0-9]+_(.+)\.json$/i);
+    if (sessMatch) {
+        return { date: sessMatch[1], shop: sessMatch[2] };
+    }
+
+    const sessionMatch = name.match(/^session_(\d+)_[a-zA-Z0-9]+_(.+)\.json$/i);
+    if (sessionMatch) {
+        const timestamp = Number(sessionMatch[1]);
+        const date = Number.isFinite(timestamp) ? formatDateKey(new Date(timestamp)) : '';
+        return { date, shop: sessionMatch[2] };
+    }
+
+    return { date: '', shop: '' };
 }
 
 function timestampFromParts(dateKey, timeText) {
@@ -2061,10 +2321,7 @@ io.on('connection', (socket) => {
 
     socket.on('disconnect', () => {
         runtime.sockets.delete(socket.id);
-        if (runtime.sockets.size === 0 && runtime.tiktokConnection) {
-            try { runtime.tiktokConnection.disconnect(); } catch (e) {}
-            runtime.tiktokConnection = null;
-        }
+        // Refresh/reconnect must not terminate or recreate the live run.
     });
 
     socket.on('update-settings', (data) => {
@@ -2086,36 +2343,124 @@ io.on('connection', (socket) => {
         socket.emit('chat-buffer', { broadcasterId: id, comments });
     });
 
-    socket.on('start-live', (uniqueId) => {
-        const broadcasterId = customerStore.normalizeTikTokUsername(uniqueId);
+    const sendLiveState = () => {
+        socket.emit('live-state', {
+            sessionId: runtime.currentSessionId,
+            broadcasterId: runtime.currentBroadcasterId,
+            connected: runtime.connectionState === 'connected',
+            connecting: runtime.connectionState === 'connecting'
+        });
+        socket.emit('all-confirmed-orders', runtime.confirmedOrders);
+    };
+    socket.on('get-live-state', sendLiveState);
+    sendLiveState();
+
+    const endLive = () => {
+        if (!runtime.currentSessionId) return;
+        try {
+            const session = liveSessionStore.updateLiveSession(userId, runtime.currentSessionId, {
+                orders: sanitizeConfirmedOrders(runtime.confirmedOrders), endedAt: new Date().toISOString()
+            });
+            const connection = runtime.tiktokConnection;
+            runtime.tiktokConnection = null;
+            runtime.currentSessionId = null;
+            runtime.currentSessionStartedAt = null;
+            runtime.currentBroadcasterId = '';
+            runtime.connectionState = 'idle';
+            runtime.confirmedOrders = {};
+            if (connection) { try { connection.disconnect(); } catch (e) {} }
+            emitToUser(userId, 'all-confirmed-orders', {});
+            emitToUser(userId, 'status', { connected: false, broadcasterId: '', error: '' });
+            emitToUser(userId, 'session-ended', { saved: true, session });
+            emitToUser(userId, 'live-state', { sessionId: null, broadcasterId: '', connected: false });
+        } catch (error) {
+            socket.emit('session-ended', { saved: false, error: error.message });
+        }
+    };
+
+    socket.on('start-live', (payload) => {
+        // payload co the la string (backward compatible) hoac object { uniqueId, resumeSessionId }
+        const rawId = typeof payload === 'string' ? payload : payload?.uniqueId;
+        // undefined = chua quyet dinh, null = tao moi, string = resume session cu
+        const resumeSessionId = (typeof payload === 'object' && payload !== null)
+            ? payload.resumeSessionId
+            : undefined;
+
+        const broadcasterId = customerStore.normalizeTikTokUsername(rawId);
         if (!broadcasterId) {
             return socket.emit('status', { connected: false, error: 'TikTok ID không hợp lệ', broadcasterId: '' });
         }
 
-        if (runtime.tiktokConnection) {
-            try { runtime.tiktokConnection.disconnect(); } catch (e) {}
-            runtime.tiktokConnection = null;
+        if (runtime.currentSessionId && runtime.currentBroadcasterId !== broadcasterId) {
+            return socket.emit('status', { connected: runtime.connectionState === 'connected', error: 'Hãy kết thúc phiên hiện tại trước khi đổi chủ live', broadcasterId: runtime.currentBroadcasterId });
+        }
+        if (runtime.tiktokConnection) return sendLiveState();
+
+        // Ask even when the last run was explicitly ended.
+        if (!runtime.currentSessionId && resumeSessionId === undefined) {
+            let allSessions;
+            try { allSessions = liveSessionStore.readUserSessions(userId); } catch (error) {
+                return socket.emit('status', { connected: false, error: error.message, broadcasterId });
+            }
+            const lastSession = allSessions.find(s =>
+                s.tiktokUsername === broadcasterId && s.type === 'live_session'
+            );
+            if (lastSession) {
+                return socket.emit('ask-resume-session', {
+                    broadcasterId,
+                    session: {
+                        id: lastSession.id,
+                        liveName: lastSession.liveName,
+                        startedAt: lastSession.startedAt,
+                        endedAt: lastSession.endedAt,
+                        summary: lastSession.summary || { totalOrders: 0, totalRevenue: 0 }
+                    }
+                });
+            }
+        }
+
+        const now = new Date();
+
+        if (!runtime.currentSessionId) {
+            try {
+                const session = liveSessionStore.startLiveSession(userId, {
+                    broadcasterId, resumeSessionId,
+                    startedAt: now.toISOString(), liveName: formatLiveName(broadcasterId, now)
+                });
+                runtime.confirmedOrders = rebuildConfirmedOrders(session.currentSegmentOrders || []);
+                runtime.currentSessionId = session.id;
+                runtime.currentSessionStartedAt = now.toISOString();
+            } catch (error) {
+                return socket.emit('status', { connected: false, error: error.message, broadcasterId });
+            }
         }
 
         runtime.currentBroadcasterId = broadcasterId;
         runtime.processedMsgIds.clear();
-
-        const fileName = getSessionFileName(userId, broadcasterId);
-        if (fs.existsSync(fileName)) {
-            runtime.confirmedOrders = sanitizeConfirmedOrders(JSON.parse(fs.readFileSync(fileName)));
-        } else {
-            runtime.confirmedOrders = {};
-        }
         emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
 
         const userConnection = new WebcastPushConnection(broadcasterId);
         runtime.tiktokConnection = userConnection;
+        runtime.connectionState = 'connecting';
+        emitToUser(userId, 'live-state', { sessionId: runtime.currentSessionId, broadcasterId, connected: false, connecting: true });
+        userConnection.on('streamEnd', () => {
+            if (runtime.tiktokConnection === userConnection) endLive();
+        });
+        userConnection.on('disconnected', () => {
+            if (runtime.tiktokConnection !== userConnection) return;
+            runtime.tiktokConnection = null;
+            runtime.connectionState = 'disconnected';
+            emitToUser(userId, 'status', { connected: false, broadcasterId, error: 'Mất kết nối. Bấm Bắt đầu Live để kết nối lại phiên hiện tại.' });
+        });
 
         userConnection.connect().then(state => {
             if (runtime.tiktokConnection !== userConnection) return;
+            runtime.connectionState = 'connected';
             emitToUser(userId, 'status', { connected: true, roomId: state.roomId, broadcasterId });
         }).catch(err => {
             if (runtime.tiktokConnection !== userConnection) return;
+            runtime.tiktokConnection = null;
+            runtime.connectionState = 'disconnected';
             console.error(`TikTok Connection Error [${userId}]:`, err);
             let errorMessage = "Lỗi không xác định";
 
@@ -2132,9 +2477,14 @@ io.on('connection', (socket) => {
 
         userConnection.on('chat', (data) => {
             if (runtime.tiktokConnection !== userConnection) return;
-            if (runtime.processedMsgIds.has(data.msgId)) return;
-            runtime.processedMsgIds.add(data.msgId);
-            setTimeout(() => runtime.processedMsgIds.delete(data.msgId), 120000);
+            if (data.msgId != null && String(data.msgId)) {
+                const messageId = String(data.msgId);
+                if (runtime.processedMsgIds.has(messageId)) return;
+                runtime.processedMsgIds.add(messageId);
+                setTimeout(() => {
+                    if (runtime.tiktokConnection === userConnection) runtime.processedMsgIds.delete(messageId);
+                }, 120000);
+            }
 
             const commenterUsername = customerStore.normalizeTikTokUsername(data.uniqueId || data.username || '');
             const nickname = cleanDisplayText(data.nickname || data.displayName || '');
@@ -2162,35 +2512,69 @@ io.on('connection', (socket) => {
         });
     });
 
-    socket.on('confirm-item', (data) => {
+    socket.on('end-live', endLive);
+
+    socket.on('confirm-item', (data = {}, acknowledge) => {
+        const reply = result => { if (typeof acknowledge === 'function') acknowledge(result); };
+        if (!runtime.currentSessionId) return reply({ ok: false, error: 'Hãy bắt đầu Live trước khi chốt đơn' });
         const username = customerStore.normalizeTikTokUsername(data.uniqueId || data.username || '');
-        if (!username) return;
+        if (!username) return reply({ ok: false, error: 'Khách hàng không hợp lệ' });
+        const sourceMessageId = typeof data.sourceMessageId === 'string' ? data.sourceMessageId : '';
+        const requestId = typeof data.requestId === 'string' ? data.requestId : '';
+        const sourceBroadcasterId = customerStore.normalizeTikTokUsername(data.sourceBroadcasterId || '');
+        if (sourceMessageId && (!sourceBroadcasterId || sourceBroadcasterId !== runtime.currentBroadcasterId)) {
+            return reply({ ok: false, error: 'Phiên live đã thay đổi. Vui lòng tải lại bình luận.' });
+        }
+        const existing = Object.values(runtime.confirmedOrders).flatMap(customer => customer.items || []).find(item =>
+            (requestId && item.requestId === requestId) ||
+            (sourceMessageId && item.sourceMessageId === sourceMessageId && item.sourceBroadcasterId === sourceBroadcasterId)
+        );
+        if (existing) return reply({ ok: true, duplicate: true });
         const nickname = cleanDisplayText(data.nickname || data.displayName || '') || displayFallbackFromUsername(username) || username;
         const profilePictureUrl = normalizeDisplayText(data.profilePictureUrl || '');
         const comment = normalizeDisplayText(data.comment || '');
         const price = Number(data.price || 0);
+        if (!Number.isFinite(price) || price <= 0) return reply({ ok: false, error: 'Giá không hợp lệ' });
+        const previousOrders = JSON.parse(JSON.stringify(runtime.confirmedOrders));
         if (!runtime.confirmedOrders[username]) {
             runtime.confirmedOrders[username] = { username, nickname, profilePictureUrl, items: [], total: 0 };
         }
-        const newItem = { id: Date.now() + Math.random(), text: comment, price, time: new Date().toLocaleTimeString('vi-VN') };
+        const newItem = { id: Date.now() + Math.random(), text: comment, price, time: new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false }), createdAt: new Date().toISOString(), requestId, sourceMessageId, sourceBroadcasterId };
         runtime.confirmedOrders[username].items.push(newItem);
         runtime.confirmedOrders[username].total += price;
-        saveSessionDataForUser(userId);
+        try {
+            saveSessionDataForUser(userId);
+        } catch (error) {
+            runtime.confirmedOrders = previousOrders;
+            console.error('Không thể lưu đơn:', error);
+            return reply({ ok: false, error: 'Không thể lưu đơn. Vui lòng thử lại.' });
+        }
         emitToUser(userId, 'order-confirmed', runtime.confirmedOrders[username]);
+        reply({ ok: true });
         printBill(newItem, runtime.confirmedOrders[username], userId);
     });
 
-    socket.on('replace-confirmed-orders', (payload = {}) => {
-        runtime.confirmedOrders = sanitizeConfirmedOrders(payload.orders || {});
-        const broadcasterId = customerStore.normalizeTikTokUsername(payload.broadcasterId || '');
-        if (broadcasterId) {
-            runtime.currentBroadcasterId = broadcasterId;
-            saveSessionDataForUser(userId);
+    const onOrderMutation = (event, handler) => socket.on(event, (...args) => {
+        const previousOrders = JSON.parse(JSON.stringify(runtime.confirmedOrders));
+        try { handler(...args); } catch (error) {
+            runtime.confirmedOrders = previousOrders;
+            socket.emit('system-status', `Không thể lưu đơn: ${error.message}`);
+            socket.emit('all-confirmed-orders', previousOrders);
         }
+    });
+
+    onOrderMutation('replace-confirmed-orders', (payload = {}) => {
+        const broadcasterId = customerStore.normalizeTikTokUsername(payload.broadcasterId || '');
+        if (!runtime.currentSessionId || broadcasterId !== runtime.currentBroadcasterId) {
+            return socket.emit('system-status', 'Hãy bắt đầu Live đúng chủ live trước khi tải đơn');
+        }
+        runtime.confirmedOrders = sanitizeConfirmedOrders(payload.orders || {});
+        saveSessionDataForUser(userId);
         emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
     });
 
-    socket.on('delete-customer', (username) => {
+    onOrderMutation('delete-customer', (username) => {
+        if (!runtime.currentSessionId) return;
         const normalizedUsername = customerStore.normalizeTikTokUsername(username);
         if (runtime.confirmedOrders[normalizedUsername]) {
             delete runtime.confirmedOrders[normalizedUsername];
@@ -2199,7 +2583,8 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('delete-item', ({ username, itemId }) => {
+    onOrderMutation('delete-item', ({ username, itemId }) => {
+        if (!runtime.currentSessionId) return;
         const normalizedUsername = customerStore.normalizeTikTokUsername(username);
         if (runtime.confirmedOrders[normalizedUsername]) {
             const index = runtime.confirmedOrders[normalizedUsername].items.findIndex(i => i.id === itemId);
@@ -2213,7 +2598,8 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('edit-item', ({ username, itemId, text, price }) => {
+    onOrderMutation('edit-item', ({ username, itemId, text, price }) => {
+        if (!runtime.currentSessionId) return;
         const normalizedUsername = customerStore.normalizeTikTokUsername(username);
         if (runtime.confirmedOrders[normalizedUsername]) {
             const item = runtime.confirmedOrders[normalizedUsername].items.find(i => i.id === itemId);
@@ -2228,7 +2614,8 @@ io.on('connection', (socket) => {
         }
     });
 
-    socket.on('edit-item-price', ({ username, itemId, newPrice }) => {
+    onOrderMutation('edit-item-price', ({ username, itemId, newPrice }) => {
+        if (!runtime.currentSessionId) return;
         const normalizedUsername = customerStore.normalizeTikTokUsername(username);
         if (runtime.confirmedOrders[normalizedUsername]) {
             const item = runtime.confirmedOrders[normalizedUsername].items.find(i => i.id === itemId);
@@ -2287,16 +2674,47 @@ io.on('connection', (socket) => {
         const historyDir = isSharedFile ? HISTORY_ROOT_DIR : getUserHistoryDir(userId);
         const filePath = path.join(historyDir, safeFileName);
         if (!fs.existsSync(filePath)) return;
-        runtime.confirmedOrders = sanitizeConfirmedOrders(JSON.parse(fs.readFileSync(filePath)));
-        const match = safeFileName.match(/^\d{4}-\d{2}-\d{2}_(.+)\.json$/);
-        if (match) {
-            runtime.currentBroadcasterId = customerStore.normalizeTikTokUsername(match[1]);
+        try {
+            // Compatibility read only. Edits use the ownership/version-checked history API.
+            const orders = sanitizeConfirmedOrders(JSON.parse(fs.readFileSync(filePath, 'utf8')));
+            socket.emit('history-data', { fileName: isSharedFile ? `shared:${safeFileName}` : safeFileName, data: orders });
+        } catch (error) {
+            socket.emit('system-status', `Không thể đọc lịch sử: ${error.message}`);
         }
-        socket.emit('history-data', { fileName: isSharedFile ? `shared:${safeFileName}` : safeFileName, data: runtime.confirmedOrders });
     });
 });
 
+let stopNotifications;
+let stopDispatch;
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running at http://0.0.0.0:${PORT}`);
+    quoteQueue.recoverZaloSending();
+    stopNotifications = n8nNotifications.start();
+    stopDispatch = n8nZaloDispatch.start();
+    zaloAutoReply.start();
 });
+
+async function shutdown() {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    const deadline = setTimeout(() => { console.error('Shutdown deadline exceeded'); process.exit(1); }, 25000);
+    try {
+        zaloAutoReply.stop();
+        for (const runtime of liveRuntimeByUser.values()) {
+            try { runtime.tiktokConnection?.disconnect(); } catch (_) { /* continue closing */ }
+        }
+        await Promise.all([
+            stopNotifications?.(), stopDispatch?.(),
+            new Promise(resolve => io.close(resolve))
+        ]);
+        sessionStore?.close();
+        clearTimeout(deadline);
+        process.exit(0);
+    } catch (error) {
+        console.error('Shutdown failed:', error.message);
+        process.exit(1);
+    }
+}
+process.on('SIGTERM', shutdown);
+process.on('SIGINT', shutdown);

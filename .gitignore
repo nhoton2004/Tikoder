@@ -10,3 +10,8 @@ history/
 
 # Config with potential secrets
 config.local.json
+.env.*
+!.env.example
+backups/
+deploy/secrets/
+*.sqlite*

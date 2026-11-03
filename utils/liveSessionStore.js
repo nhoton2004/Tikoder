@@ -26,17 +26,19 @@ function readUserSessions(userId) {
     if (!fs.existsSync(filePath)) return [];
     try {
         const data = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-        return data.sessions || [];
+        if (!Array.isArray(data.sessions)) throw new Error('Định dạng lịch sử không hợp lệ');
+        return data.sessions;
     } catch (e) {
-        console.error(`Lỗi đọc file sessions của user ${userId}:`, e.message);
-        return [];
+        throw new Error(`Không thể đọc lịch sử của user ${userId}: ${e.message}`);
     }
 }
 
 function writeUserSessions(userId, sessions) {
     const filePath = getUserSessionFile(userId);
     ensureDir();
-    fs.writeFileSync(filePath, JSON.stringify({ sessions }, null, 2), 'utf-8');
+    const temporaryPath = `${filePath}.tmp`;
+    fs.writeFileSync(temporaryPath, JSON.stringify({ sessions }, null, 2), 'utf-8');
+    fs.renameSync(temporaryPath, filePath);
 }
 
 /**
@@ -110,8 +112,11 @@ function flattenConfirmedOrders(confirmedOrders) {
             const customerName = cleanDisplayText(customer.nickname || customer.displayName || '') || username;
             customer.items.forEach(item => {
                 flat.push({
-                    id: `order_${item.id || Date.now() + Math.random()}`,
+                    id: item.id || `order_${Date.now() + Math.random()}`,
                     customerName,
+                    requestId: item.requestId || '',
+                    sourceMessageId: item.sourceMessageId || '',
+                    sourceBroadcasterId: item.sourceBroadcasterId || '',
                     customerUsername: username,
                     profilePictureUrl: customer.profilePictureUrl || '',
                     productName: normalizeDisplayText(item.text || ''),
@@ -120,7 +125,7 @@ function flattenConfirmedOrders(confirmedOrders) {
                     total: item.price || 0,
                     note: '',
                     time: item.time || '',
-                    createdAt: new Date().toISOString()
+                    createdAt: item.createdAt || null
                 });
             });
         }
@@ -162,13 +167,13 @@ function createLiveSession(userId, data) {
     const now = new Date().toISOString();
 
     const newSession = {
-        id: generateSessionId(),
+        id: data.id || generateSessionId(),
         userId,
         type: data.type || 'live_session',
         liveName: data.liveName || `Phiên live ${new Date().toLocaleDateString('vi-VN')}`,
         tiktokUsername: data.tiktokUsername || '',
         startedAt: data.startedAt || now,
-        endedAt: data.endedAt || now,
+        endedAt: data.endedAt === null ? null : (data.endedAt || now),
         createdAt: now,
         orders,
         summary
@@ -178,6 +183,10 @@ function createLiveSession(userId, data) {
         newSession.sourceSessionIds = data.sourceSessionIds;
     }
 
+    if (sessions.some(session => session.id === newSession.id)) {
+        throw new Error('ID phiên live đã tồn tại');
+    }
+    if (Array.isArray(data.segments)) newSession.segments = data.segments;
     sessions.unshift(newSession); // Mới nhất lên đầu
     writeUserSessions(userId, sessions);
 
@@ -265,7 +274,111 @@ function mergeLiveSessions(userId, sessionIds) {
     };
 }
 
+function uniqueOrdersById(orders) {
+    const seen = new Set();
+    return (orders || []).filter(order => {
+        const id = order?.id;
+        if (id === undefined || id === null || seen.has(String(id))) return false;
+        seen.add(String(id));
+        return true;
+    });
+}
+
+function rebuildSessionOrders(session) {
+    return uniqueOrdersById((session.segments || []).flatMap(segment => segment.orders || []));
+}
+
+/** Update only an existing active history. Orders are the current run snapshot. */
+function updateLiveSession(userId, sessionId, data) {
+    const sessions = readUserSessions(userId);
+    const session = sessions.find(s => s.id === sessionId);
+    if (!session || session.endedAt || session.type !== 'live_session') {
+        throw new Error('Không có phiên live đang hoạt động');
+    }
+    session.segments = Array.isArray(session.segments) ? session.segments : [];
+    if (!session.segments.length) {
+        session.segments.push({ startedAt: session.startedAt, endedAt: null, orders: session.orders || [] });
+    }
+    const segment = session.segments[session.segments.length - 1];
+    if (data.orders !== undefined) {
+        segment.orders = Array.isArray(data.orders) ? data.orders : flattenConfirmedOrders(data.orders);
+        segment.summary = calculateSessionSummary(segment.orders);
+        session.orders = rebuildSessionOrders(session);
+        session.summary = calculateSessionSummary(session.orders);
+    }
+    if (data.endedAt) {
+        session.endedAt = data.endedAt;
+        if (!segment.endedAt) segment.endedAt = data.endedAt;
+    }
+    writeUserSessions(userId, sessions);
+    return session;
+}
+
+/** One history, multiple runs. Closed runs keep immutable order snapshots.
+ * Top-level orders are the cumulative history; each segment stores only its own run.
+ */
+function startLiveSession(userId, { broadcasterId, resumeSessionId, liveName, startedAt }) {
+    const now = startedAt || new Date().toISOString();
+    const segment = { startedAt: now, endedAt: null, orders: [], summary: calculateSessionSummary([]) };
+    if (!resumeSessionId) {
+        const created = createLiveSession(userId, {
+            liveName, tiktokUsername: broadcasterId, startedAt: now, endedAt: null,
+            orders: [], segments: [segment]
+        });
+        return { ...created, currentSegmentOrders: [] };
+    }
+    const sessions = readUserSessions(userId);
+    const session = sessions.find(s => s.id === resumeSessionId);
+    if (!session || session.tiktokUsername !== broadcasterId || session.type !== 'live_session') {
+        throw new Error('Lịch sử không thuộc tài khoản hoặc chủ live này');
+    }
+    session.segments = session.segments || [];
+    if (!session.segments.length || !session.endedAt) {
+        const previous = session.segments[session.segments.length - 1];
+        if (previous && !previous.endedAt) {
+            previous.interruptedAt = now;
+            previous.orders = previous.orders || session.orders || [];
+            previous.summary = calculateSessionSummary(previous.orders);
+        } else if (!previous) {
+            session.segments.push({ startedAt: session.startedAt, endedAt: session.endedAt,
+                ...(!session.endedAt ? { interruptedAt: now } : {}),
+                orders: session.orders || [], summary: session.summary });
+        }
+    }
+    // Older records stored cumulative snapshots in each segment. Convert each to
+    // that run's delta by stable order ID so a resumed runtime starts empty.
+    // Older records may have a top-level order absent from every segment snapshot.
+    // Preserve it in the last historical segment before rebuilding the cumulative list.
+    if (session.segments.length && Array.isArray(session.orders)) {
+        const knownIds = new Set(session.segments.flatMap(prior => prior.orders || []).map(order => String(order?.id ?? '')));
+        const missing = session.orders.filter(order => order?.id !== undefined && !knownIds.has(String(order.id)));
+        session.segments[session.segments.length - 1].orders.push(...missing);
+    }
+    const seen = new Set();
+    for (const prior of session.segments) {
+        const snapshot = Array.isArray(prior.orders) ? prior.orders : [];
+        prior.orders = snapshot.filter(order => {
+            const key = String(order?.id ?? '');
+            if (!key || seen.has(key)) return false;
+            seen.add(key);
+            return true;
+        });
+        prior.summary = calculateSessionSummary(prior.orders);
+    }
+    session.orders = rebuildSessionOrders(session);
+    session.summary = calculateSessionSummary(session.orders);
+    session.segments.push(segment);
+    session.endedAt = null;
+    session.lastStartedAt = now;
+    sessions.splice(sessions.indexOf(session), 1);
+    sessions.unshift(session);
+    writeUserSessions(userId, sessions);
+    return { ...session, currentSegmentOrders: [] };
+}
+
 module.exports = {
+    startLiveSession,
+    updateLiveSession,
     readUserSessions,
     writeUserSessions,
     createLiveSession,
