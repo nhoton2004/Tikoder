@@ -63,6 +63,7 @@
         let overviewData = null;
         let overviewComparison = null;
         let overviewRefreshTimer = null;
+        let overviewStatusEl = null;
         let customerSearchTimer = null;
         let activeBroadcasterId = '';
         let currentUserUid = '';
@@ -748,16 +749,33 @@
             return `${match[3]}/${match[2]}/${match[1]}`;
         }
 
+        function businessTodayKey() {
+            const parts = new Intl.DateTimeFormat('en-US', {
+                timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit'
+            }).formatToParts(new Date());
+            const byType = Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+            return `${byType.year}-${byType.month}-${byType.day}`;
+        }
+
+        function dateKeyOffset(dateKey, days) {
+            const match = String(dateKey || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+            if (!match) return '';
+            const date = new Date(Date.UTC(Number(match[1]), Number(match[2]) - 1, Number(match[3])));
+            date.setUTCDate(date.getUTCDate() + days);
+            return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}-${String(date.getUTCDate()).padStart(2, '0')}`;
+        }
+
+        function dateKeyDayDifference(start, end) {
+            const startMs = Date.parse(`${start}T00:00:00Z`);
+            const endMs = Date.parse(`${end}T00:00:00Z`);
+            return Number.isFinite(startMs) && Number.isFinite(endMs) ? Math.floor((endMs - startMs) / 86400000) : 0;
+        }
+
         function setOverviewRange(mode) {
-            const today = new Date();
-            let start = new Date(today);
-            if (mode === 'today') {
-                start = new Date(today);
-            } else {
-                start.setDate(start.getDate() - (Number(mode || 7) - 1));
-            }
-            overviewStartInput.value = toDateInputValue(start);
-            overviewEndInput.value = toDateInputValue(today);
+            const today = businessTodayKey();
+            const start = mode === 'today' ? today : dateKeyOffset(today, -(Number(mode || 7) - 1));
+            overviewStartInput.value = formatApiDate(start);
+            overviewEndInput.value = formatApiDate(today);
             overviewRangeButtons.forEach(btn => {
                 btn.classList.toggle('bg-red-50', btn.dataset.range === mode);
                 btn.classList.toggle('border-red-200', btn.dataset.range === mode);
@@ -790,6 +808,11 @@
         }
 
         function buildComparisonLine(comparison = {}) {
+            if (comparison.unavailable) {
+                return currentLang === 'en'
+                    ? 'Previous-period comparison unavailable.'
+                    : 'Không thể tải dữ liệu kỳ trước để so sánh.';
+            }
             const ordersDiff = Number(comparison.ordersDiff || 0);
             const revenueDiff = Number(comparison.revenueDiff || 0);
             const hasPreviousData = Boolean(comparison.hasPreviousData);
@@ -898,56 +921,141 @@
             renderOverviewLatestOrders();
         }
 
+        function ensureOverviewStatusElement() {
+            if (overviewStatusEl && document.body.contains(overviewStatusEl)) return overviewStatusEl;
+            let el = document.getElementById('overview-status');
+            if (!el) {
+                el = document.createElement('div');
+                el.id = 'overview-status';
+                el.className = 'mt-2 flex items-center justify-between gap-2 rounded-xl bg-red-50 px-3 py-2 text-sm font-bold text-red-600';
+                el.setAttribute('role', 'status');
+                const host = document.querySelector('#section-overview .overview-insight-card') || document.getElementById('section-overview');
+                if (!host) return null;
+                host.insertBefore(el, host.firstChild);
+            }
+            if (!el.querySelector('.overview-status-message')) {
+                const message = document.createElement('span');
+                message.className = 'overview-status-message';
+                el.appendChild(message);
+            }
+            if (!el.querySelector('.overview-status-retry')) {
+                const retry = document.createElement('button');
+                retry.type = 'button';
+                retry.className = 'overview-status-retry rounded-lg border border-red-200 bg-white px-3 py-1 text-xs font-bold text-red-600';
+                retry.textContent = 'Thử lại';
+                retry.hidden = true;
+                retry.addEventListener('click', () => {
+                    if (retry.disabled) return;
+                    retry.disabled = true;
+                    refreshOverviewData();
+                });
+                el.appendChild(retry);
+            }
+            overviewStatusEl = el;
+            return el;
+        }
+
+        function setOverviewStatus(message, showRetry = false) {
+            const el = ensureOverviewStatusElement();
+            if (!el) return;
+            const messageEl = el.querySelector('.overview-status-message');
+            const retryEl = el.querySelector('.overview-status-retry');
+            const text = String(message || '');
+            if (messageEl) messageEl.textContent = text;
+            el.style.display = text ? 'flex' : 'none';
+            if (retryEl) {
+                retryEl.hidden = !showRetry;
+                retryEl.disabled = false;
+            }
+        }
+
+        const OVERVIEW_REQUEST_TIMEOUT_MS = 15000;
+
+        async function fetchOverviewPayload(params) {
+            const controller = typeof AbortController === 'function' ? new AbortController() : null;
+            const timer = controller
+                ? setTimeout(() => controller.abort(), OVERVIEW_REQUEST_TIMEOUT_MS)
+                : null;
+            try {
+                const res = await fetch(`/api/overview?${params.toString()}`, controller ? { signal: controller.signal } : undefined);
+                let payload = null;
+                try {
+                    payload = await res.json();
+                } catch (e) {
+                    payload = null;
+                }
+                if (!res.ok) throw new Error(payload?.error || 'Load overview error');
+                if (!payload || typeof payload !== 'object') throw new Error('Invalid overview payload');
+                return payload;
+            } finally {
+                if (timer) clearTimeout(timer);
+            }
+        }
+
         async function refreshOverviewData(showLoading = true) {
             const startDate = parseDisplayDate(overviewStartInput.value);
             const endDate = parseDisplayDate(overviewEndInput.value);
             if (!startDate || !endDate) return;
-            if (showLoading) {
-                document.getElementById('overview-top-shop-list').innerHTML = `<p class="text-gray-400 text-sm">${currentLang === 'en' ? 'Loading...' : 'Đang tải...'}</p>`;
+            const topShopContainer = document.getElementById('overview-top-shop-list');
+            if (showLoading && topShopContainer) {
+                topShopContainer.innerHTML = `<p class="text-gray-400 text-sm">${currentLang === 'en' ? 'Loading...' : 'Đang tải...'}</p>`;
             }
+
+            const daySpan = Math.max(1, dateKeyDayDifference(startDate, endDate) + 1);
+            const previousEnd = dateKeyOffset(startDate, -1);
+            const previousStart = dateKeyOffset(previousEnd, -(daySpan - 1));
+            const params = new URLSearchParams({ start: startDate, end: endDate });
+            const previousParams = new URLSearchParams({ start: previousStart, end: previousEnd });
+
+            const previousPromise = fetchOverviewPayload(previousParams);
+            previousPromise.catch(() => {});
+
+            let currentData;
             try {
-                const startObj = toLocalDate(startDate);
-                const endObj = toLocalDate(endDate);
-                if (!startObj || !endObj) return;
-                const daySpan = Math.max(1, Math.floor((endObj - startObj) / 86400000) + 1);
-                const previousEndObj = new Date(startObj);
-                previousEndObj.setDate(previousEndObj.getDate() - 1);
-                const previousStartObj = new Date(previousEndObj);
-                previousStartObj.setDate(previousStartObj.getDate() - (daySpan - 1));
+                currentData = await fetchOverviewPayload(params);
+            } catch (e) {
+                console.warn('Overview load error:', e);
+                if (overviewData) {
+                    renderOverview(overviewData, overviewComparison);
+                    setOverviewStatus('Dữ liệu chưa cập nhật.');
+                } else {
+                    if (topShopContainer) topShopContainer.innerHTML = '';
+                    setOverviewStatus('Không thể tải dữ liệu tổng quan.', true);
+                }
+                return;
+            }
 
-                const params = new URLSearchParams({
-                    start: startDate,
-                    end: endDate
-                });
-                const previousParams = new URLSearchParams({
-                    start: toDateInputValue(previousStartObj),
-                    end: toDateInputValue(previousEndObj)
-                });
+            const currentSummary = currentData?.summary || {};
+            const currentOrders = Number(currentSummary.orders || 0);
+            const currentRevenue = Number(currentSummary.revenue || 0);
 
-                const [currentRes, previousRes] = await Promise.all([
-                    fetch(`/api/overview?${params.toString()}`),
-                    fetch(`/api/overview?${previousParams.toString()}`)
-                ]);
-                const [currentData, previousData] = await Promise.all([currentRes.json(), previousRes.json()]);
-                if (!currentRes.ok) throw new Error(currentData.error || 'Load overview error');
+            overviewData = currentData;
+            overviewComparison = {
+                hasCurrentData: currentOrders > 0 || currentRevenue > 0,
+                unavailable: true
+            };
+            setOverviewStatus('');
+            renderOverview(currentData, overviewComparison);
 
-                const previousSummary = previousRes.ok ? (previousData?.summary || {}) : {};
-                const currentSummary = currentData?.summary || {};
+            try {
+                const previousData = await previousPromise;
+                const previousSummary = previousData?.summary || {};
                 const previousOrders = Number(previousSummary.orders || 0);
                 const previousRevenue = Number(previousSummary.revenue || 0);
-                const currentOrders = Number(currentSummary.orders || 0);
-                const currentRevenue = Number(currentSummary.revenue || 0);
                 overviewComparison = {
                     ordersDiff: currentOrders - previousOrders,
                     revenueDiff: currentRevenue - previousRevenue,
                     hasPreviousData: previousOrders > 0 || previousRevenue > 0,
                     hasCurrentData: currentOrders > 0 || currentRevenue > 0
                 };
-                overviewData = currentData;
-                renderOverview(currentData, overviewComparison);
             } catch (e) {
-                console.warn('Overview load error:', e);
+                console.warn('Overview comparison load error:', e);
+                overviewComparison = {
+                    hasCurrentData: currentOrders > 0 || currentRevenue > 0,
+                    unavailable: true
+                };
             }
+            renderOverview(currentData, overviewComparison);
         }
 
         function renderOverviewChart(containerId, daily, metric) {
@@ -1193,13 +1301,21 @@
             if (!loadedHistorySource) return;
             const source = loadedHistorySource;
             const request = historyLoadRequest;
+            const pendingKey = getScopedStorageKey('pendingHistoryMutation');
+            const signature = JSON.stringify({ sessionId: source.sessionId, action, payload });
+            let pending;
+            try { pending = JSON.parse(sessionStorage.getItem(pendingKey) || 'null'); } catch (_) {}
+            if (pending && pending.signature !== signature) return alert('Có thao tác lịch sử chưa rõ kết quả. Hãy thử lại thao tác đó trước khi sửa tiếp.');
+            const body = pending?.body || { ...payload, action, revision: source.revision, requestId: newOrderRequestId() };
+            if (pendingKey) sessionStorage.setItem(pendingKey, JSON.stringify({ signature, body }));
             historySaving = true;
             try {
                 const response = await fetch('/api/live-sessions/' + encodeURIComponent(source.sessionId) + '/orders', {
                     method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ ...payload, action, revision: source.revision })
+                    body: JSON.stringify(body)
                 });
                 const data = await response.json();
+                if (pendingKey) sessionStorage.removeItem(pendingKey);
                 if (!response.ok) throw new Error(data.error || 'Không thể lưu lịch sử');
                 if (request !== historyLoadRequest || loadedHistorySource !== source) return;
                 showLoadedHistory(normalizeSessionOrdersArray(data.orders), data.session.liveName, { sessionId: source.sessionId, revision: data.revision });
@@ -1470,6 +1586,7 @@
         }
 
         let currentLiveSessionId = null;
+        let currentLiveSegmentStartedAt = null;
         const btnEndLive = document.getElementById('btn-end-live');
         const liveUi = { connected: false, connecting: false, pending: null, error: '' };
         let liveRequestTimer;
@@ -1527,6 +1644,7 @@
         socket.emit('get-live-state');
         socket.on('live-state', data => {
             currentLiveSessionId = data.sessionId || null;
+            currentLiveSegmentStartedAt = data.segmentStartedAt || null;
             liveUi.connected = !!data.connected;
             liveUi.connecting = !!data.connecting;
             liveUi.error = '';
@@ -1538,6 +1656,48 @@
                 socket.emit('get-chat-buffer', { broadcasterId: data.broadcasterId });
             }
         });
+        socket.on('recovery-options', data => {
+            clearLiveRequest();
+            if (document.getElementById('live-recovery-dialog')) return;
+            const dialog = document.createElement('dialog');
+            dialog.id = 'live-recovery-dialog';
+            dialog.style.cssText = 'max-width:560px;width:90%;padding:24px;border-radius:16px';
+            const title = document.createElement('h2');
+            title.textContent = 'Khôi phục phiên Live chưa kết thúc';
+            const info = document.createElement('p');
+            info.textContent = 'Chọn phiên để tiếp tục, hoặc xác nhận đóng các phiên dưới đây và tạo phiên mới. Kết nối TikTok chỉ bắt đầu sau lựa chọn của bạn.';
+            const select = document.createElement('select');
+            select.style.cssText = 'width:100%;margin:16px 0';
+            for (const session of data.sessions || []) {
+                const option = document.createElement('option');
+                option.value = session.id;
+                option.textContent = session.liveName + ' — ' + formatVnTimestamp(session.lastActivityAt || session.startedAt) + (session.stale ? ' (phiên cũ)' : '') + (session.ambiguous ? ' (segment cần đối soát)' : '');
+                option.disabled = session.ambiguous;
+                select.appendChild(option);
+            }
+            const resume = document.createElement('button'); resume.textContent = 'Tiếp tục phiên đã chọn';
+            const fresh = document.createElement('button'); fresh.textContent = 'Đóng tất cả phiên trên, tạo phiên mới';
+            const cancel = document.createElement('button'); cancel.textContent = 'Để sau';
+            for (const button of [resume, fresh, cancel]) button.style.cssText = 'display:block;margin:12px 0;padding:8px 12px;border:1px solid #ccc;border-radius:8px';
+            resume.disabled = !data.sessions.some(session => !session.ambiguous);
+            const close = () => { dialog.close(); dialog.remove(); };
+            resume.onclick = () => {
+                const session = data.sessions.find(session => session.id === select.value && !session.ambiguous);
+                if (!session) return;
+                close(); beginLiveRequest('start');
+                socket.emit('start-live', { uniqueId: session.broadcasterId, resumeSessionId: session.id, recoveryConfirmed: true });
+            };
+            fresh.onclick = () => {
+                const id = tiktokIdInput.value.trim().replace('@', '') || data.sessions[0]?.broadcasterId;
+                if (!id || !confirm('Đóng tất cả phiên được liệt kê tại thời điểm hiện tại và tạo phiên mới?')) return;
+                close(); beginLiveRequest('start');
+                socket.emit('start-live', { uniqueId: id, resumeSessionId: null, closeSessionIds: data.sessions.map(session => session.id), recoveryConfirmed: true });
+            };
+            cancel.onclick = close;
+            dialog.oncancel = () => { dialog.remove(); };
+            dialog.append(title, info, select, resume, fresh, cancel);
+            document.body.appendChild(dialog); dialog.showModal();
+        });
         socket.on('ask-resume-session', data => {
             const reuse = confirm(`Dùng lại lịch sử gần nhất của @${data.broadcasterId}?\n${data.session.liveName}\nBắt đầu: ${formatVnTimestamp(data.session.startedAt)}\n${data.session.endedAt ? 'Kết thúc: ' + formatVnTimestamp(data.session.endedAt) : 'Chưa kết thúc'}\n\nOK: Dùng lại (giữ các lượt cũ). Hủy: Tạo lịch sử mới.`);
             beginLiveRequest('start');
@@ -1547,7 +1707,7 @@
             if (!currentLiveSessionId || liveUi.pending || liveUi.connecting) return;
             if (confirm(currentLang === 'en' ? 'End this live run?' : 'Kết thúc phiên Live hiện tại?')) {
                 beginLiveRequest('end');
-                socket.emit('end-live');
+                socket.emit('end-live', { sessionId: currentLiveSessionId });
             }
         };
         if (btnEndLive) btnEndLive.addEventListener('click', requestEndLive);
@@ -1620,6 +1780,47 @@
             return Array.from(bytes, byte => byte.toString(16).padStart(2, '0')).join('');
         }
 
+        function readPendingLiveMutations() {
+            try { return JSON.parse(sessionStorage.getItem(getScopedStorageKey('pendingLiveMutations')) || '{}'); }
+            catch (_) { return {}; }
+        }
+        function sendLiveMutation(event, fields, callback) {
+            const storageKey = getScopedStorageKey('pendingLiveMutations');
+            const payload = { ...fields, requestId: fields.requestId || newOrderRequestId(), sessionId: currentLiveSessionId, segmentStartedAt: currentLiveSegmentStartedAt };
+            const pending = readPendingLiveMutations();
+            // Reuse the complete original payload when a button retries an
+            // uncertain request. Changing its contents would conflict with receipt.
+            const original = pending[payload.requestId];
+            const request = original || { event, payload };
+            pending[payload.requestId] = request;
+            if (storageKey) sessionStorage.setItem(storageKey, JSON.stringify(pending));
+            const send = () => socket.timeout(10000).emit(request.event, request.payload, (error, result) => {
+                if (callback) callback(error, result);
+                if (error) {
+                    if (!callback && confirm('Chưa nhận được phản hồi. Thử lại đúng thao tác vừa gửi?')) send();
+                    return;
+                }
+                const remaining = readPendingLiveMutations();
+                delete remaining[payload.requestId];
+                if (storageKey) sessionStorage.setItem(storageKey, JSON.stringify(remaining));
+                if (!callback && !result?.ok) alert(result?.error || 'Không thể lưu đơn');
+            });
+            send();
+        }
+        socket.on('connect', () => {
+            const key = getScopedStorageKey('pendingLiveMutations');
+            const pending = readPendingLiveMutations();
+            if (!Object.keys(pending).length || !confirm('Có thao tác chưa nhận được phản hồi. Gửi lại cùng mã yêu cầu để kiểm tra kết quả?')) return;
+            for (const { event, payload } of Object.values(pending)) {
+                socket.timeout(10000).emit(event, payload, (error, result) => {
+                    if (!error) {
+                        const remaining = readPendingLiveMutations(); delete remaining[payload.requestId];
+                        if (key) sessionStorage.setItem(key, JSON.stringify(remaining));
+                    }
+                    if (error || !result?.ok) alert(result?.error || 'Chưa nhận được phản hồi; yêu cầu vẫn được giữ để thử lại.');
+                });
+            }
+        });
         function refreshConfirmButtons() {
             const items = Object.values(liveOrdersData).flatMap(order =>
                 (order.items || []).map(item => ({ item, username: order.username }))
@@ -1657,13 +1858,14 @@
                 button.disabled = true;
                 button.dataset.requestId ||= newOrderRequestId();
                 const username = normalizeTikTokUsername(uniqueId);
-                socket.timeout(10000).emit('confirm-item', {
+                sendLiveMutation('confirm-item', {
                     uniqueId: username,
                     nickname: cleanDisplayText(nickname),
                     profilePictureUrl: normalizeDisplayText(profilePictureUrl),
                     comment: normalizeDisplayText(comment),
                     price,
                     requestId: button.dataset.requestId,
+                    sessionId: currentLiveSessionId, segmentStartedAt: currentLiveSegmentStartedAt,
                     sourceMessageId: button.dataset.sourceMessageId,
                     sourceBroadcasterId: button.dataset.sourceBroadcasterId
                 }, (error, result) => {
@@ -2109,14 +2311,14 @@
             const msg = currentLang === 'en' ? `Delete all orders for ${handle}?` : `Xóa toàn bộ đơn của khách ${handle}?`;
             if (confirm(msg)) {
                 if (loadedHistoryName) return mutateHistory('delete-customer', { username });
-                socket.emit('delete-customer', normalizeTikTokUsername(username));
+                sendLiveMutation('delete-customer', { username: normalizeTikTokUsername(username) });
             }
         };
         window.deleteItem = (username, itemId) => {
             const msg = currentLang === 'en' ? 'Delete this item?' : 'Xóa món hàng này?';
             if (confirm(msg)) {
                 if (loadedHistoryName) return mutateHistory('delete', { username, itemId });
-                socket.emit('delete-item', { username: normalizeTikTokUsername(username), itemId });
+                sendLiveMutation('delete-item', { username: normalizeTikTokUsername(username), itemId });
             }
         };
         window.addOrderItem = (username) => {
@@ -2130,7 +2332,7 @@
             const price = parseFloat(prompt(pricePrompt, ''));
             if (!Number.isSafeInteger(price) || (loadedHistoryName ? price < 0 : price <= 0)) return;
             if (loadedHistoryName) return mutateHistory('add', { username: normalizedUsername, text: comment, price });
-            socket.emit('confirm-item', {
+            sendLiveMutation('confirm-item', {
                 uniqueId: normalizedUsername,
                 nickname: customer.nickname || customer.displayName || normalizedUsername,
                 profilePictureUrl: customer.profilePictureUrl || '',
@@ -2147,7 +2349,7 @@
             const price = parseFloat(prompt(pricePrompt, oldPrice));
             if (Number.isSafeInteger(price) && (loadedHistoryName ? price >= 0 : price > 0)) {
                 if (loadedHistoryName) return mutateHistory('edit', { username, itemId, text, price });
-                socket.emit('edit-item', { username: normalizeTikTokUsername(username), itemId, text, price });
+                sendLiveMutation('edit-item', { username: normalizeTikTokUsername(username), itemId, text, price });
             }
         };
 
@@ -2318,6 +2520,12 @@
                 const revenue = s.summary ? formatMoney(s.summary.totalRevenue) : '0đ';
                 const orders = s.summary ? s.summary.totalOrders : 0;
                 const qty = s.summary ? s.summary.totalQuantity : 0;
+                const dailySummary = Array.isArray(s.dailySummary) ? s.dailySummary : [];
+                const dailyBreakdown = dailySummary.length
+                    ? `<div class="mt-2 flex flex-wrap gap-1 text-[10px] text-slate-600">${dailySummary.map(day =>
+                        `<span class="rounded bg-amber-50 px-2 py-0.5 font-bold">${escapeHtml(formatApiDate(day.date))}: ${Number(day.orders || 0)} đơn • ${escapeHtml(formatMoney(day.revenue || 0))}</span>`
+                    ).join('')}</div>`
+                    : '';
                 const isLegacy = s.source === 'legacy_history';
                 const ownerDisplay = s.ownerUserId
                     ? (s.ownerUserId === currentUserUid
@@ -2364,6 +2572,7 @@
                                     <span class="rounded bg-blue-50 px-2 py-0.5 font-bold text-blue-600">${orders} đơn</span>
                                     <span class="rounded bg-red-50 px-2 py-0.5 font-bold text-red-600">Tổng: ${revenue}</span>
                                 </div>
+                                 ${dailyBreakdown}
                                 ${ownerBadge}
                             </div>
                             <div class="text-right">
