@@ -15,3 +15,10 @@ config.local.json
 backups/
 deploy/secrets/
 *.sqlite*
+
+# Live recovery runtime artifacts and derived index cache
+data/live-sessions/*.lock
+data/live-sessions/*.guard
+data/live-sessions/*.tmp
+data/live-sessions/*.bak
+data/live-history/**/projection.json

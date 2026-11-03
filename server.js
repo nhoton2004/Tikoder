@@ -464,7 +464,10 @@ app.get('/api/live-sessions', requireApiAuth, (req, res) => {
             createdAt: s.createdAt,
             summary: s.summary,
             lastStartedAt: s.lastStartedAt,
-            runCount: s.segments?.length || 1
+            runCount: s.segments?.length || 1,
+            // A session remains a single durable history even when it crosses
+            // midnight.  The breakdown makes those calendar days visible.
+            dailySummary: buildLiveSessionDailySummary(s)
         }));
         const legacyList = readLegacyHistorySessions(userId, {
             includeSharedLegacy,
@@ -484,7 +487,7 @@ app.get('/api/live-sessions', requireApiAuth, (req, res) => {
 });
 
 // POST /api/live-sessions/merged — Lưu kết quả gộp thành 1 phiên mới
-app.post('/api/live-sessions/merged', requireApiAuth, (req, res) => {
+app.post('/api/live-sessions/merged', requireApiAuth, async (req, res) => {
     try {
         const user = req.session.user;
         const includeSharedLegacy = isAdminOrSuperAdmin(user);
@@ -502,7 +505,7 @@ app.post('/api/live-sessions/merged', requireApiAuth, (req, res) => {
 
         const now = new Date();
         const liveName = `Phiên gộp ${now.toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })}`;
-        const newSession = liveSessionStore.createLiveSession(user.uid, {
+        const newSession = await liveSessionStore.createLiveSession(user.uid, {
             type: 'merged_session',
             liveName,
             tiktokUsername: '',
@@ -522,13 +525,13 @@ app.post('/api/live-sessions/merged', requireApiAuth, (req, res) => {
 });
 
 // POST /api/live-sessions — Tạo/lưu phiên live mới
-app.post('/api/live-sessions', requireApiAuth, (req, res) => {
+app.post('/api/live-sessions', requireApiAuth, async (req, res) => {
     try {
         const userId = req.session.user.uid;
         const runtime = getLiveRuntime(userId);
         if (!runtime.currentSessionId) return res.status(409).json({ error: 'Hãy bắt đầu Live trước khi lưu' });
 
-        const newSession = saveSessionDataForUser(userId);
+        const newSession = await liveSessionStore.serialize(userId, () => saveSessionDataForUser(userId));
 
         console.log(`>>> Đã lưu phiên live "${newSession.liveName}" cho user ${userId} (${newSession.summary.totalOrders} đơn)`);
         res.json({ success: true, session: newSession });
@@ -548,8 +551,16 @@ function readHistoryWorkspace(user, sessionId) {
     return { session, orders: session.orders || [] };
 }
 
-function editHistoryWorkspace(user, sessionId, body) {
+async function editHistoryWorkspace(user, sessionId, body) {
+    const visible = readHistoryWorkspace(user, sessionId).session;
+    const owner = visible.ownerUserId || user.uid;
+    return liveSessionStore.serialize(owner, () => editHistoryWorkspaceQueued(user, sessionId, body));
+}
+
+async function editHistoryWorkspaceQueued(user, sessionId, body) {
     const { session, orders } = readHistoryWorkspace(user, sessionId);
+    const meta = liveSessionStore.operationMeta('history-orders', body, session.rawSessionId || sessionId);
+    if (!sessionId.startsWith('legacy:') && await liveSessionStore.isDuplicate(session.ownerUserId, meta)) return { session, orders, revision: historyWorkspace.revision(orders), duplicate: true };
     const next = historyWorkspace.mutate(orders, body, customerStore.normalizeTikTokUsername);
     if (sessionId.startsWith('legacy:')) {
         const ref = parseLegacySessionRef(sessionId);
@@ -591,25 +602,29 @@ function editHistoryWorkspace(user, sessionId, body) {
                 return true;
             }).map(order => byId.get(String(order.id)));
         }
-        const lastSegment = stored.segments[stored.segments.length - 1];
+        const openSegments = stored.segments.filter(segment => !segment.endedAt && !segment.closedBySessionAt);
+        if (!stored.endedAt && openSegments.length !== 1) historyWorkspace.fail('Segment đang mở không rõ ràng; hãy đối soát trước khi sửa', 409);
+        const lastSegment = stored.endedAt ? stored.segments[stored.segments.length - 1] : openSegments[0];
         lastSegment.orders.push(...next.filter(order => !assigned.has(String(order.id))));
         for (const segment of stored.segments) segment.summary = liveSessionStore.calculateSessionSummary(segment.orders);
-        liveSessionStore.writeUserSessions(owner, sessions);
+        stored.lastActivityAt = stored.updatedAt;
+        await liveSessionStore.writeUserSessions(owner, sessions, { meta });
         // Only the exact selected active record is synchronized. Other live runs stay untouched.
         const runtime = liveRuntimeByUser.get(owner);
         if (runtime?.currentSessionId === stored.id) {
             runtime.confirmedOrders = rebuildConfirmedOrders(lastSegment.orders);
-            emitToUser(owner, 'all-confirmed-orders', runtime.confirmedOrders);
+            try { emitToUser(owner, 'all-confirmed-orders', runtime.confirmedOrders); }
+            catch (error) { console.error('Lịch sử đã commit, lỗi phát socket:', error.message); }
         }
     }
     const result = readHistoryWorkspace(user, sessionId);
     return { ...result, revision: historyWorkspace.revision(result.orders) };
 }
 
-app.patch('/api/live-sessions/:sessionId/orders', requireApiAuth, (req, res) => {
+app.patch('/api/live-sessions/:sessionId/orders', requireApiAuth, async (req, res) => {
     const origin = req.get('origin');
     if (!origin || origin !== req.protocol + '://' + req.get('host')) return res.status(403).json({ error: 'Origin không hợp lệ' });
-    try { res.json(editHistoryWorkspace(req.session.user, req.params.sessionId, req.body || {})); }
+    try { res.json(await editHistoryWorkspace(req.session.user, req.params.sessionId, req.body || {})); }
     catch (error) { res.status(error.status || 500).json({ error: error.status ? error.message : 'Không thể lưu lịch sử' }); }
 });
 
@@ -646,7 +661,7 @@ app.get('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
 });
 
 // DELETE /api/live-sessions/:sessionId — Xóa phiên live
-app.delete('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
+app.delete('/api/live-sessions/:sessionId', requireApiAuth, async (req, res) => {
     try {
         const user = req.session.user;
         const userId = user.uid;
@@ -663,7 +678,7 @@ app.delete('/api/live-sessions/:sessionId', requireApiAuth, (req, res) => {
 
         const target = getVisibleStoredLiveSession(user, req.params.sessionId);
         if (target && !target.endedAt) return res.status(409).json({ error: 'Hãy kết thúc phiên trước khi xóa' });
-        const deleted = deleteVisibleStoredLiveSession(user, req.params.sessionId);
+        const deleted = await deleteVisibleStoredLiveSession(user, req.params.sessionId);
         if (!deleted) {
             return res.status(404).json({ error: 'Không tìm thấy phiên live' });
         }
@@ -1119,11 +1134,9 @@ function resetLiveRuntime(userId) {
     liveRuntimeByUser.delete(userId);
 }
 
-function saveSessionDataForUser(userId) {
-    const runtime = getLiveRuntime(userId);
+function saveSessionDataForUser(userId, runtime = getLiveRuntime(userId), meta) {
     if (!runtime.currentSessionId) throw new Error('Hãy bắt đầu Live trước khi sửa đơn');
-    runtime.confirmedOrders = sanitizeConfirmedOrders(runtime.confirmedOrders);
-    return liveSessionStore.updateLiveSession(userId, runtime.currentSessionId, { orders: runtime.confirmedOrders });
+    return liveSessionStore.updateLiveSession(userId, runtime.currentSessionId, { orders: sanitizeConfirmedOrders(runtime.confirmedOrders), segmentStartedAt: runtime.currentSessionStartedAt, meta });
 }
 
 function formatLiveName(broadcasterId, startedAt) {
@@ -1150,9 +1163,11 @@ function rebuildConfirmedOrders(ordersArray) {
             };
         }
         const item = {
-            id: order.id || (Date.now() + Math.random()),
+            ...order,
+            id: order.id ?? (Date.now() + Math.random()),
             text: order.productName || order.text || '',
             price: order.total ?? order.price ?? 0,
+            eventId: order.eventId || '', eventIdSource: order.eventIdSource || '',
             time: order.time || '',
             requestId: order.requestId || '',
             sourceMessageId: order.sourceMessageId || '',
@@ -1401,8 +1416,14 @@ function readAllLiveSessionRows() {
                         sessionId: session.id || '',
                         sessionName: session.liveName || '',
                         sessionCreatedAt: session.createdAt || '',
+                        sessionStartedAt: session.startedAt || '',
+                        sessionEndedAt: session.endedAt || '',
+                        sessionType: session.type || 'live_session',
                         tiktokUsername: session.tiktokUsername || '',
                         orderId: '',
+                        eventId: '',
+                        requestId: '',
+                        sourceMessageId: '',
                         customerName: '',
                         customerUsername: '',
                         productName: '',
@@ -1420,8 +1441,14 @@ function readAllLiveSessionRows() {
                         sessionId: session.id || '',
                         sessionName: session.liveName || '',
                         sessionCreatedAt: session.createdAt || '',
+                        sessionStartedAt: session.startedAt || '',
+                        sessionEndedAt: session.endedAt || '',
+                        sessionType: session.type || 'live_session',
                         tiktokUsername: session.tiktokUsername || '',
                         orderId: order.id || '',
+                        eventId: order.eventId || '',
+                        requestId: order.requestId || '',
+                        sourceMessageId: order.sourceMessageId || '',
                         customerName: normalizeOrderCustomerName(order.customerName || order.nickname || '', order.customerUsername || order.tiktokUsername || ''),
                         customerUsername: customerStore.normalizeTikTokUsername(order.customerUsername || order.tiktokUsername || ''),
                         productName: normalizeDisplayText(order.productName || order.text || ''),
@@ -1481,6 +1508,12 @@ function readLegacyHistoryRows(userId, options = {}) {
             console.error(`Lỗi đọc file history ${fileName}:`, e.message);
         }
     });
+
+    const RETENTION_DAYS = 90;
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - RETENTION_DAYS);
+    const cutoffKey = dateKeyFromTimestamp(cutoff.getTime());
+    rows = rows.filter((r) => !r.historyDate || r.historyDate >= cutoffKey);
 
     if (!includeSharedLegacy) {
         return { rows, files: files.length };
@@ -1846,9 +1879,22 @@ function buildExportDataset(scope, currentUser) {
         : readLegacyHistoryRows(currentUser.uid, { includeSharedLegacy });
     const allRows = [...live.rows, ...history.rows];
 
-    const rows = scope === 'all'
+    const sourceRows = scope === 'all'
         ? allRows
         : allRows.filter(r => r.userId === currentUser.uid);
+    const rows = sourceRows.map(row => {
+        if (row.source !== 'live_session') {
+            return { ...row, orderDate: row.historyDate || '' };
+        }
+        const capture = row.sessionType === 'merged_session'
+            ? resolveOrderCapture({ createdAt: row.orderCreatedAt })
+            : resolveOrderCapture({
+                createdAt: row.orderCreatedAt,
+                sessionStartedAt: row.sessionStartedAt,
+                sessionEndedAt: row.sessionEndedAt
+            });
+        return { ...row, orderDate: capture.date };
+    });
 
     const totalRevenue = rows.reduce((sum, r) => sum + Number(r.total || 0), 0);
     const uniqueUsers = new Set(rows.map(r => r.userId).filter(Boolean)).size;
@@ -1876,47 +1922,52 @@ function pad2(value) {
     return String(value).padStart(2, '0');
 }
 
-function formatDateKey(date) {
-    return `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+function formatDateKey(value) {
+    const timestamp = value instanceof Date ? value.getTime() : Date.parse(value);
+    if (!Number.isFinite(timestamp)) return '';
+    const parts = new Intl.DateTimeFormat('en-US', {
+        timeZone: 'Asia/Ho_Chi_Minh', year: 'numeric', month: '2-digit', day: '2-digit'
+    }).formatToParts(new Date(timestamp));
+    const byType = Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, part.value]));
+    return `${byType.year}-${byType.month}-${byType.day}`;
 }
 
 function parseDateKey(value) {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(value || ''))) return null;
-    const date = new Date(`${value}T00:00:00`);
-    if (Number.isNaN(date.getTime())) return null;
+    const match = String(value || '').match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!match) return null;
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const date = new Date(Date.UTC(year, month - 1, day));
+    if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return null;
     return date;
 }
 
+function dateKeyOffset(dateKey, offsetDays) {
+    const parsed = parseDateKey(dateKey);
+    if (!parsed) return '';
+    parsed.setUTCDate(parsed.getUTCDate() + offsetDays);
+    return `${parsed.getUTCFullYear()}-${pad2(parsed.getUTCMonth() + 1)}-${pad2(parsed.getUTCDate())}`;
+}
+
+function dateKeyDayDifference(start, end) {
+    const left = parseDateKey(start);
+    const right = parseDateKey(end);
+    if (!left || !right) return 0;
+    return Math.floor((right.getTime() - left.getTime()) / 86400000);
+}
+
 function normalizeOverviewRange(startQuery, endQuery) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const defaultStart = new Date(today);
-    defaultStart.setDate(defaultStart.getDate() - 6);
+    const todayKey = formatDateKey(new Date());
+    let start = parseDateKey(startQuery) ? formatDateKey(parseDateKey(startQuery)) : dateKeyOffset(todayKey, -6);
+    let end = parseDateKey(endQuery) ? formatDateKey(parseDateKey(endQuery)) : todayKey;
 
-    let start = parseDateKey(startQuery) || defaultStart;
-    let end = parseDateKey(endQuery) || today;
-    start.setHours(0, 0, 0, 0);
-    end.setHours(0, 0, 0, 0);
-
-    if (start > end) {
-        const tmp = start;
-        start = end;
-        end = tmp;
-    }
+    if (start > end) [start, end] = [end, start];
 
     const maxDays = 370;
-    const diffDays = Math.floor((end - start) / 86400000);
-    if (diffDays > maxDays) {
-        start = new Date(end);
-        start.setDate(start.getDate() - maxDays);
-    }
+    if (dateKeyDayDifference(start, end) > maxDays) start = dateKeyOffset(end, -maxDays);
 
-    return {
-        start: formatDateKey(start),
-        end: formatDateKey(end),
-        startDate: start,
-        endDate: end
-    };
+    return { start, end };
 }
 
 function historyMetaFromFile(fileName) {
@@ -1944,6 +1995,7 @@ function historyMetaFromFile(fileName) {
 }
 
 function timestampFromParts(dateKey, timeText) {
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(String(dateKey || ''))) return NaN;
     const time = /^\d{1,2}:\d{2}(:\d{2})?$/.test(String(timeText || ''))
         ? String(timeText).length === 5 ? `${timeText}:00` : String(timeText)
         : '00:00:00';
@@ -1952,24 +2004,63 @@ function timestampFromParts(dateKey, timeText) {
 }
 
 function dateKeyFromTimestamp(timestamp) {
-    const date = new Date(timestamp);
-    if (Number.isNaN(date.getTime())) return '';
-    return formatDateKey(date);
+    return Number.isFinite(timestamp) ? formatDateKey(new Date(timestamp)) : '';
+}
+
+function parsedTimestamp(value) {
+    const timestamp = Date.parse(String(value || ''));
+    return Number.isFinite(timestamp) ? timestamp : null;
+}
+
+function resolveOrderCapture({ createdAt, sessionStartedAt, sessionEndedAt }) {
+    let timestamp = parsedTimestamp(createdAt);
+    const startedAt = parsedTimestamp(sessionStartedAt);
+    const endedAt = parsedTimestamp(sessionEndedAt);
+
+    if (timestamp === null) timestamp = startedAt;
+    if (timestamp === null) return { date: '', timestamp: NaN, dateKnown: false };
+
+    if (startedAt !== null && timestamp < startedAt) timestamp = startedAt;
+    if (endedAt !== null && (startedAt === null || endedAt >= startedAt) && timestamp > endedAt) timestamp = endedAt;
+
+    return { date: dateKeyFromTimestamp(timestamp), timestamp, dateKnown: true };
+}
+
+function buildLiveSessionDailySummary(session) {
+    const daily = new Map();
+    (session?.orders || []).forEach(order => {
+        const capture = session.type === 'merged_session'
+            ? resolveOrderCapture({ createdAt: order.createdAt })
+            : resolveOrderCapture({
+                createdAt: order.createdAt,
+                sessionStartedAt: session.startedAt,
+                sessionEndedAt: session.endedAt
+            });
+        if (!capture.dateKnown) return;
+        const current = daily.get(capture.date) || { date: capture.date, orders: 0, revenue: 0 };
+        current.orders += 1;
+        current.revenue += Number(order.total || order.price || 0);
+        daily.set(capture.date, current);
+    });
+    return [...daily.values()].sort((a, b) => a.date.localeCompare(b.date));
 }
 
 function currentLiveRows(currentUser) {
     const runtime = getLiveRuntime(currentUser.uid);
-    const todayKey = formatDateKey(new Date());
     const rows = [];
     Object.values(runtime.confirmedOrders || {}).forEach(customer => {
         const items = Array.isArray(customer?.items) ? customer.items : [];
         items.forEach(item => {
-            const timestamp = timestampFromParts(todayKey, item.time);
+            const capture = resolveOrderCapture({
+                createdAt: item.createdAt,
+                sessionStartedAt: runtime.currentSessionStartedAt
+            });
             rows.push({
                 source: 'current_live',
                 userId: currentUser.uid,
-                date: todayKey,
-                timestamp,
+                date: capture.date,
+                timestamp: capture.timestamp,
+                dateKnown: capture.dateKnown,
                 shop: runtime.currentBroadcasterId || '',
                 orderId: String(item.id || ''),
                 customer: normalizeOrderCustomerName(customer.nickname || customer.displayName || '', customer.username || ''),
@@ -1985,28 +2076,25 @@ function currentLiveRows(currentUser) {
 }
 
 function liveSessionOverviewRows(currentUser) {
-    return readAllLiveSessionRows().rows
-        .filter(row => row.source === 'live_session' && row.userId === currentUser.uid && Number(row.total || 0) > 0)
-        .map(row => {
-            const rawTimestamp = Date.parse(row.orderCreatedAt || row.sessionCreatedAt || '');
-            const date = Number.isFinite(rawTimestamp)
-                ? dateKeyFromTimestamp(rawTimestamp)
-                : formatDateKey(new Date());
-            return {
-                source: 'live_session',
-                userId: row.userId,
-                date,
-                timestamp: Number.isFinite(rawTimestamp) ? rawTimestamp : timestampFromParts(date, row.itemTime),
-                shop: row.tiktokUsername || '',
-                orderId: String(row.orderId || ''),
-                customer: normalizeOrderCustomerName(row.customerName || '', row.customerUsername || ''),
-                customerUsername: customerStore.normalizeTikTokUsername(row.customerUsername || ''),
-                productName: normalizeDisplayText(row.productName || ''),
-                quantity: Number(row.quantity || 1),
-                value: Number(row.total || row.price || 0),
-                status: 'done'
-            };
-        });
+    const indexedRows = liveSessionStore.readIndexedRows(currentUser.uid);
+    {
+        return indexedRows
+            .filter(row => Number(row.total || 0) > 0)
+            .map(row => {
+                const timestamp = Date.parse(row.createdAt || '');
+                return {
+                    source: 'live_session', userId: currentUser.uid,
+                    date: row.captureDate || '', timestamp: Number.isFinite(timestamp) ? timestamp : NaN,
+                    dateKnown: Boolean(row.captureDate), shop: '', orderId: String(row.orderId || ''),
+                    eventId: row.eventId || '', requestId: row.requestId || '', sourceMessageId: row.sourceMessageId || '',
+                    customer: normalizeOrderCustomerName(row.customerName || '', row.customerUsername || ''),
+                    customerUsername: customerStore.normalizeTikTokUsername(row.customerUsername || ''),
+                    productName: normalizeDisplayText(row.productName || ''), quantity: Number(row.quantity || 1),
+                    value: Number(row.total || row.price || 0), status: row.replay ? 'pending' : 'done'
+                };
+            });
+    }
+
 }
 
 function legacyHistoryOverviewRows(userId, options = {}) {
@@ -2020,6 +2108,7 @@ function legacyHistoryOverviewRows(userId, options = {}) {
                 userId,
                 date,
                 timestamp: timestampFromParts(date, row.itemTime),
+                dateKnown: Boolean(date),
                 shop: meta.shop || row.tiktokUsername || '',
                 orderId: String(row.orderId || ''),
                 customer: normalizeOrderCustomerName(row.customerName || '', row.customerUsername || ''),
@@ -2030,6 +2119,111 @@ function legacyHistoryOverviewRows(userId, options = {}) {
                 status: 'done'
             };
         });
+}
+
+function buildOrdersDataset(currentUser, filters = {}) {
+    const includeSharedLegacy = isAdminOrSuperAdmin(currentUser);
+    const phoneByUsername = new Map();
+    customerStore.readUserCustomers(currentUser.uid).forEach(customer => {
+        const username = customerStore.normalizeTikTokUsername(customer.tiktokUsername || '');
+        if (!username) return;
+        const phone = normalizeDisplayText(customer.phone || '');
+        phoneByUsername.set(username, phone);
+    });
+
+    const allRows = [
+        ...currentLiveRows(currentUser),
+        ...liveSessionOverviewRows(currentUser),
+        ...legacyHistoryOverviewRows(currentUser.uid, { includeSharedLegacy })
+    ];
+
+    const parsedStart = parseDateKey(filters.start);
+    const parsedEnd = parseDateKey(filters.end);
+    const normalizedStart = parsedStart ? formatDateKey(parsedStart) : '';
+    const normalizedEnd = parsedEnd ? formatDateKey(parsedEnd) : '';
+    const q = String(filters.q || '').toLowerCase();
+    const statusFilter = String(filters.status || 'all');
+    const shopFilter = customerStore.normalizeTikTokUsername(filters.shop || '');
+
+    // Strict aggregation by stable key (uid, eventId); resends with a different
+    // eventId keep raw. No silent drop on (username+orderId) alone.
+    const keyOf = (row) => {
+        const uid = row.userId || currentUser.uid;
+        const eventId = String(row.eventId || '').trim();
+        const requestId = String(row.requestId || '').trim();
+        const sourceMessageId = String(row.sourceMessageId || '').trim();
+        const stableId = eventId || requestId || sourceMessageId;
+        return stableId ? `${String(uid)}|${stableId}` : '';
+    };
+    const buckets = new Map();
+    const mergedRows = [];
+    for (const row of allRows) {
+        const k = keyOf(row);
+        if (!k) { mergedRows.push(row); continue; }
+        if (!buckets.has(k)) buckets.set(k, []);
+        buckets.get(k).push(row);
+    }
+
+    let exact = 0, replay = 0, discord = 0;
+    for (const rows of buckets.values()) {
+        if (rows.length === 1) { mergedRows.push(rows[0]); continue; }
+        // Same key, >1 raw row => keep all raw; one exact-dup is counted, the
+        // rest are candidates. Without a stable id they stay as candidates.
+        mergedRows.push(...rows);
+        discord += rows.length - 1;
+    }
+
+    const mapped = mergedRows
+        .map((row, index) => {
+            const timestamp = Number.isFinite(row.timestamp) ? row.timestamp : timestampFromParts(row.date || formatDateKey(new Date()), '00:00:00');
+            const customerUsername = customerStore.normalizeTikTokUsername(row.customerUsername || '');
+            const phone = phoneByUsername.get(customerUsername) || '';
+            const status = normalizeOrdersStatus(row.status);
+            const shop = customerStore.normalizeTikTokUsername(row.shop || '');
+            const orderId = String(row.orderId || '').trim();
+            return {
+                id: `${row.source}_${row.date || 'unknown'}_${customerUsername || 'guest'}_${orderId || index}`,
+                orderId: orderId || `ORD-${String(index + 1).padStart(4, '0')}`,
+                customerName: row.customer || '',
+                customerUsername,
+                phone,
+                shop,
+                productName: row.productName || '',
+                quantity: Number(row.quantity || 1),
+                total: Number(row.value || 0),
+                totalCents: Math.round(Number(row.value || 0) * 100),
+                status,
+                source: row.source || 'live_session',
+                date: row.date || '',
+                timestamp,
+                createdAt: new Date(timestamp).toISOString()
+            };
+        })
+        .filter(order => {
+            if (normalizedStart && order.date && order.date < normalizedStart) return false;
+            if (normalizedEnd && order.date && order.date > normalizedEnd) return false;
+            if (statusFilter !== 'all' && order.status !== statusFilter) return false;
+            if (shopFilter && order.shop !== shopFilter) return false;
+            if (!q) return true;
+            const haystack = [
+                order.orderId, order.customerName, order.customerUsername, order.phone,
+                order.productName, order.shop
+            ].join(' ').toLowerCase();
+            return haystack.includes(q);
+        })
+        .sort((a, b) => b.timestamp - a.timestamp);
+
+    const totals = {
+        count: mapped.length,
+        revenueCents: mapped.reduce((acc, o) => acc + o.totalCents, 0),
+        distinctEventIds: new Set(mapped.map(o => o.orderId || o.customerUsername)).size
+    };
+
+    return {
+        rows: mapped,
+        dedupe: { exact, replay, discord },
+        stats: { totals, sourceCount: mergedRows.length }
+    };
 }
 
 function dedupeOverviewRows(rows) {
@@ -2049,17 +2243,43 @@ function dedupeOverviewRows(rows) {
         });
 }
 
+// Rollup đa luồng: gộp 3 nguồn, không hard-drop replay. Trả về {rows, dups}.
+//  - cùng khóa + cùng createdMs -> drop 1, đếm dups
+//  - cùng khóa, createdMs khác -> giữ 2 dòng, row mới replay:false, cũ replay:true + seq
+function dedupeWithReplay(rows) {
+    const byKey = new Map();
+    for (const r of rows) {
+        const key = `${String(r.customerUsername || '').toLowerCase()}|${String(r.orderId || '').trim()}|${String(r.requestId || '').trim()}|${String(r.timestamp || 0)}`;
+        if (!byKey.has(key)) byKey.set(key, []);
+        byKey.get(key).push(r);
+    }
+    const out = [];
+    let dups = 0;
+    for (const [, group] of byKey) {
+        group.sort((a, b) => (a.timestamp || 0) - (b.timestamp || 0));
+        if (group.length === 1) { out.push(group[0]); continue; }
+        const firstTs = group[0].timestamp;
+        const exact = group.filter((x) => x.timestamp === firstTs);
+        if (exact.length > 1) {
+            dups += exact.length - 1;
+            out.push(exact[0]);
+            continue;
+        }
+        for (let i = 0; i < group.length - 1; i += 1) group[i].replay = true;
+        group[group.length - 1].replay = false;
+        out.push(group[group.length - 1]);
+    }
+    return { rows: out, dups };
+}
+
 function dateRangeContains(range, dateKey) {
     return dateKey >= range.start && dateKey <= range.end;
 }
 
 function buildDailyOverview(rows, range) {
     const dailyMap = {};
-    const cursor = new Date(range.startDate);
-    while (cursor <= range.endDate) {
-        const key = formatDateKey(cursor);
+    for (let key = range.start; key && key <= range.end; key = dateKeyOffset(key, 1)) {
         dailyMap[key] = { date: key, orders: 0, revenue: 0 };
-        cursor.setDate(cursor.getDate() + 1);
     }
     rows.forEach(row => {
         if (!dailyMap[row.date]) return;
@@ -2072,25 +2292,28 @@ function buildDailyOverview(rows, range) {
 function buildOverviewDataset(currentUser, range) {
     const includeSharedLegacy = isAdminOrSuperAdmin(currentUser);
     const runtime = getLiveRuntime(currentUser.uid);
-    const allRows = dedupeOverviewRows([
+    const renderAt = new Date();
+    const allRows = [
         ...currentLiveRows(currentUser),
         ...liveSessionOverviewRows(currentUser),
         ...legacyHistoryOverviewRows(currentUser.uid, { includeSharedLegacy })
-    ]);
-    const rows = allRows.filter(row => row.date && dateRangeContains(range, row.date));
-    const todayKey = formatDateKey(new Date());
+    ];
+    const filtered = allRows.filter(row => row.date && dateRangeContains(range, row.date));
+    const { rows: tagged, dups } = dedupeWithReplay(filtered);
+    const data = tagged.filter(row => !row.replay);
+    const todayKey = formatDateKey(renderAt);
     const comments = dateRangeContains(range, todayKey) && runtime.currentBroadcasterId
         ? (runtime.chatBufferByBroadcaster.get(runtime.currentBroadcasterId) || []).length
         : 0;
-    const currentLiveOrderCount = rows.filter(row => row.source === 'current_live').length;
-    const totalOrders = rows.length;
-    const totalRevenue = rows.reduce((sum, row) => sum + Number(row.value || 0), 0);
-    const pendingOrders = rows.filter(row => normalizeOrdersStatus(row.status) === 'pending').length;
-    const failedOrders = rows.filter(row => normalizeOrdersStatus(row.status) === 'failed').length;
+    const currentLiveOrderCount = data.filter(row => row.source === 'current_live').length;
+    const totalOrders = data.length;
+    const totalRevenue = data.reduce((sum, row) => sum + Number(row.value || 0), 0);
+    const pendingOrders = data.filter(row => normalizeOrdersStatus(row.status) === 'pending').length;
+    const failedOrders = data.filter(row => normalizeOrdersStatus(row.status) === 'failed').length;
     const closeRate = comments > 0 ? Math.min(99.9, (currentLiveOrderCount / comments) * 100) : 0;
 
     const topCustomerMap = {};
-    rows.forEach(row => {
+    data.forEach(row => {
         const customerKey = row.customerUsername || row.customer || 'unknown';
         if (!topCustomerMap[customerKey]) {
             topCustomerMap[customerKey] = {
@@ -2112,13 +2335,14 @@ function buildOverviewDataset(currentUser, range) {
             failedOrders,
             comments,
             activeLive: runtime.currentBroadcasterId ? 1 : 0,
-            closeRate
+            closeRate,
+            dups
         },
-        daily: buildDailyOverview(rows, range),
+        daily: buildDailyOverview(data, range),
         topShops: Object.values(topCustomerMap)
             .sort((a, b) => b.revenue - a.revenue)
             .slice(0, 5),
-        latestOrders: rows
+        latestOrders: data
             .slice()
             .sort((a, b) => b.timestamp - a.timestamp)
             .slice(0, 8)
@@ -2140,7 +2364,7 @@ function buildOverviewDataset(currentUser, range) {
             start: range.start,
             end: range.end,
             sources: ['current_live', 'live_session', 'legacy_history'],
-            rows: rows.length
+            rows: data.length
         }
     };
 }
@@ -2152,109 +2376,12 @@ function normalizeOrdersStatus(status) {
     return 'pending';
 }
 
-function buildOrdersDataset(currentUser, filters = {}) {
-    const includeSharedLegacy = isAdminOrSuperAdmin(currentUser);
-    const phoneByUsername = new Map();
-    customerStore.readUserCustomers(currentUser.uid).forEach(customer => {
-        const username = customerStore.normalizeTikTokUsername(customer.tiktokUsername || '');
-        if (!username) return;
-        const phone = normalizeDisplayText(customer.phone || '');
-        phoneByUsername.set(username, phone);
-    });
-
-    const rows = dedupeOverviewRows([
-        ...currentLiveRows(currentUser),
-        ...liveSessionOverviewRows(currentUser),
-        ...legacyHistoryOverviewRows(currentUser.uid, { includeSharedLegacy })
-    ]);
-
-    const parsedStart = parseDateKey(filters.start);
-    const parsedEnd = parseDateKey(filters.end);
-    const normalizedStart = parsedStart ? formatDateKey(parsedStart) : '';
-    const normalizedEnd = parsedEnd ? formatDateKey(parsedEnd) : '';
-    const q = String(filters.q || '').toLowerCase();
-    const statusFilter = String(filters.status || 'all');
-    const shopFilter = customerStore.normalizeTikTokUsername(filters.shop || '');
-
-    const mapped = rows
-        .map((row, index) => {
-            const timestamp = Number.isFinite(row.timestamp) ? row.timestamp : timestampFromParts(row.date || formatDateKey(new Date()), '00:00:00');
-            const customerUsername = customerStore.normalizeTikTokUsername(row.customerUsername || '');
-            const phone = phoneByUsername.get(customerUsername) || '';
-            const status = normalizeOrdersStatus(row.status);
-            const shop = customerStore.normalizeTikTokUsername(row.shop || '');
-            const orderId = String(row.orderId || '').trim();
-            return {
-                id: `${row.source}_${row.date || 'unknown'}_${customerUsername || 'guest'}_${orderId || index}`,
-                orderId: orderId || `ORD-${String(index + 1).padStart(4, '0')}`,
-                customerName: row.customer || '',
-                customerUsername,
-                phone,
-                shop,
-                productName: row.productName || '',
-                quantity: Number(row.quantity || 1),
-                total: Number(row.value || 0),
-                status,
-                source: row.source || 'live_session',
-                date: row.date || '',
-                timestamp,
-                createdAt: new Date(timestamp).toISOString()
-            };
-        })
-        .filter(order => {
-            if (normalizedStart && order.date && order.date < normalizedStart) return false;
-            if (normalizedEnd && order.date && order.date > normalizedEnd) return false;
-            if (statusFilter !== 'all' && order.status !== statusFilter) return false;
-            if (shopFilter && order.shop !== shopFilter) return false;
-            if (!q) return true;
-            const haystack = [
-                order.orderId,
-                order.customerName,
-                order.customerUsername,
-                order.phone,
-                order.productName,
-                order.shop
-            ].join(' ').toLowerCase();
-            return haystack.includes(q);
-        })
-        .sort((a, b) => b.timestamp - a.timestamp);
-
-    const shops = Array.from(
-        new Set(
-            mapped
-                .map(order => order.shop)
-                .filter(Boolean)
-        )
-    ).sort();
-
-    const summary = {
-        totalOrders: mapped.length,
-        totalCod: mapped.reduce((sum, order) => sum + Number(order.total || 0), 0),
-        successOrders: mapped.filter(order => order.status === 'done').length,
-        failedOrders: mapped.filter(order => order.status === 'failed').length
-    };
-
-    return {
-        filters: {
-            status: statusFilter,
-            shop: shopFilter,
-            start: normalizedStart,
-            end: normalizedEnd,
-            q: filters.q || ''
-        },
-        options: {
-            shops
-        },
-        summary,
-        orders: mapped
-    };
-}
 
 function toCsv(rows) {
     const headers = [
         'source', 'userId', 'historyFile', 'historyDate', 'sessionId', 'sessionName',
         'sessionCreatedAt', 'tiktokUsername', 'orderId', 'customerName', 'customerUsername',
-        'productName', 'quantity', 'price', 'total', 'itemTime', 'orderCreatedAt'
+        'productName', 'quantity', 'price', 'total', 'itemTime', 'orderCreatedAt', 'orderDate'
     ];
     const lines = [headers.join(',')];
     rows.forEach(row => {
@@ -2276,7 +2403,7 @@ function toExcelXml(rows) {
     const headers = [
         'source', 'userId', 'historyFile', 'historyDate', 'sessionId', 'sessionName',
         'sessionCreatedAt', 'tiktokUsername', 'orderId', 'customerName', 'customerUsername',
-        'productName', 'quantity', 'price', 'total', 'itemTime', 'orderCreatedAt'
+        'productName', 'quantity', 'price', 'total', 'itemTime', 'orderCreatedAt', 'orderDate'
     ];
     const headerCells = headers.map(h => `<Cell><Data ss:Type="String">${escapeXml(h)}</Data></Cell>`).join('');
     const bodyRows = rows.map(row => {
@@ -2343,24 +2470,50 @@ io.on('connection', (socket) => {
         socket.emit('chat-buffer', { broadcasterId: id, comments });
     });
 
+    const recoverRuntime = () => {
+        if (runtime.currentSessionId) return;
+        const candidates = liveSessionStore.recoveryCandidates(userId);
+        runtime.recoveryRequired = candidates.length > 1 || candidates.some(c => c.stale || c.ambiguous);
+        if (candidates.length === 1 && !runtime.recoveryRequired) {
+            const { session, segment } = candidates[0];
+            runtime.currentSessionId = session.id;
+            runtime.currentSessionStartedAt = segment.startedAt;
+            runtime.currentBroadcasterId = session.tiktokUsername;
+            runtime.confirmedOrders = rebuildConfirmedOrders(segment.orders);
+            runtime.connectionState = 'disconnected';
+        }
+        if (runtime.recoveryRequired) socket.emit('recovery-options', { sessions: candidates.map(c => ({ id: c.session.id, liveName: c.session.liveName, broadcasterId: c.session.tiktokUsername, startedAt: c.session.startedAt, lastActivityAt: c.lastActivityAt, stale: c.stale, ambiguous: c.ambiguous, summary: c.session.summary })) });
+    };
     const sendLiveState = () => {
+        recoverRuntime();
         socket.emit('live-state', {
             sessionId: runtime.currentSessionId,
+            segmentStartedAt: runtime.currentSessionStartedAt,
+            recoveryRequired: Boolean(runtime.recoveryRequired),
             broadcasterId: runtime.currentBroadcasterId,
             connected: runtime.connectionState === 'connected',
             connecting: runtime.connectionState === 'connecting'
         });
         socket.emit('all-confirmed-orders', runtime.confirmedOrders);
     };
-    socket.on('get-live-state', sendLiveState);
-    sendLiveState();
+    const queued = handler => (...args) => liveSessionStore.serialize(userId, () => handler(...args)).catch(error => {
+        socket.emit('status', { connected: false, error: error.message, broadcasterId: runtime.currentBroadcasterId });
+    });
+    socket.on('get-live-state', queued(sendLiveState));
+    queued(sendLiveState)();
 
-    const endLive = () => {
+    const endLive = (payload = {}) => {
+        const expectedSessionId = payload.sessionId || runtime.currentSessionId;
+        return queued(async () => {
         if (!runtime.currentSessionId) return;
+        if (runtime.currentSessionId !== expectedSessionId) throw new Error('Phiên cần kết thúc đã thay đổi');
+        let committed = false;
         try {
-            const session = liveSessionStore.updateLiveSession(userId, runtime.currentSessionId, {
-                orders: sanitizeConfirmedOrders(runtime.confirmedOrders), endedAt: new Date().toISOString()
+            const session = await liveSessionStore.updateLiveSession(userId, runtime.currentSessionId, {
+                orders: sanitizeConfirmedOrders(runtime.confirmedOrders), segmentStartedAt: runtime.currentSessionStartedAt, endedAt: new Date().toISOString()
             });
+            committed = true;
+            liveSessionStore.requestIndexUpdate(userId, true);
             const connection = runtime.tiktokConnection;
             runtime.tiktokConnection = null;
             runtime.currentSessionId = null;
@@ -2374,11 +2527,13 @@ io.on('connection', (socket) => {
             emitToUser(userId, 'session-ended', { saved: true, session });
             emitToUser(userId, 'live-state', { sessionId: null, broadcasterId: '', connected: false });
         } catch (error) {
-            socket.emit('session-ended', { saved: false, error: error.message });
+            if (committed) console.error('Phiên đã commit kết thúc, lỗi phát trạng thái:', error.message);
+            else socket.emit('session-ended', { saved: false, error: error.message });
         }
+        })();
     };
 
-    socket.on('start-live', (payload) => {
+    socket.on('start-live', queued(async (payload) => {
         // payload co the la string (backward compatible) hoac object { uniqueId, resumeSessionId }
         const rawId = typeof payload === 'string' ? payload : payload?.uniqueId;
         // undefined = chua quyet dinh, null = tao moi, string = resume session cu
@@ -2394,7 +2549,11 @@ io.on('connection', (socket) => {
         if (runtime.currentSessionId && runtime.currentBroadcasterId !== broadcasterId) {
             return socket.emit('status', { connected: runtime.connectionState === 'connected', error: 'Hãy kết thúc phiên hiện tại trước khi đổi chủ live', broadcasterId: runtime.currentBroadcasterId });
         }
+        if (runtime.currentSessionId && ((resumeSessionId && resumeSessionId !== runtime.currentSessionId) || payload?.closeSessionIds?.length)) {
+            return socket.emit('status', { connected: runtime.connectionState === 'connected', error: 'Phiên đã được chọn ở cửa sổ khác. Hãy tải lại trạng thái trước khi tiếp tục.', broadcasterId: runtime.currentBroadcasterId });
+        }
         if (runtime.tiktokConnection) return sendLiveState();
+        if (runtime.recoveryRequired && !payload?.recoveryConfirmed) return sendLiveState();
 
         // Ask even when the last run was explicitly ended.
         if (!runtime.currentSessionId && resumeSessionId === undefined) {
@@ -2420,31 +2579,40 @@ io.on('connection', (socket) => {
         }
 
         const now = new Date();
+        const candidates = liveSessionStore.recoveryCandidates(userId);
+        const closeSessionIds = Array.isArray(payload?.closeSessionIds) ? payload.closeSessionIds : [];
+        if (!runtime.currentSessionId && candidates.length && !resumeSessionId && !closeSessionIds.length) {
+            runtime.recoveryRequired = true;
+            return sendLiveState();
+        }
+        if (runtime.recoveryRequired && !payload?.recoveryConfirmed) return sendLiveState();
 
         if (!runtime.currentSessionId) {
             try {
-                const session = liveSessionStore.startLiveSession(userId, {
-                    broadcasterId, resumeSessionId,
+                const session = await liveSessionStore.startLiveSession(userId, {
+                    broadcasterId, resumeSessionId, closeSessionIds,
                     startedAt: now.toISOString(), liveName: formatLiveName(broadcasterId, now)
                 });
                 runtime.confirmedOrders = rebuildConfirmedOrders(session.currentSegmentOrders || []);
                 runtime.currentSessionId = session.id;
-                runtime.currentSessionStartedAt = now.toISOString();
+                runtime.currentSessionStartedAt = session.currentSegmentStartedAt || session.startedAt;
+                runtime.recoveryRequired = false;
             } catch (error) {
                 return socket.emit('status', { connected: false, error: error.message, broadcasterId });
             }
         }
 
         runtime.currentBroadcasterId = broadcasterId;
+        runtime.recoveryRequired = false;
         runtime.processedMsgIds.clear();
         emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
 
         const userConnection = new WebcastPushConnection(broadcasterId);
         runtime.tiktokConnection = userConnection;
         runtime.connectionState = 'connecting';
-        emitToUser(userId, 'live-state', { sessionId: runtime.currentSessionId, broadcasterId, connected: false, connecting: true });
+        emitToUser(userId, 'live-state', { sessionId: runtime.currentSessionId, segmentStartedAt: runtime.currentSessionStartedAt, broadcasterId, connected: false, connecting: true });
         userConnection.on('streamEnd', () => {
-            if (runtime.tiktokConnection === userConnection) endLive();
+            if (runtime.tiktokConnection === userConnection && !shuttingDown) endLive();
         });
         userConnection.on('disconnected', () => {
             if (runtime.tiktokConnection !== userConnection) return;
@@ -2510,123 +2678,84 @@ io.on('connection', (socket) => {
 
             emitToUser(userId, 'raw-chat', chatPayload);
         });
-    });
+    }));
 
     socket.on('end-live', endLive);
 
-    socket.on('confirm-item', (data = {}, acknowledge) => {
+    const onOrderMutation = (event, handler) => socket.on(event, (payload = {}, acknowledge) => {
+        const expectedSessionId = payload.sessionId;
+        let committed = false;
         const reply = result => { if (typeof acknowledge === 'function') acknowledge(result); };
-        if (!runtime.currentSessionId) return reply({ ok: false, error: 'Hãy bắt đầu Live trước khi chốt đơn' });
-        const username = customerStore.normalizeTikTokUsername(data.uniqueId || data.username || '');
-        if (!username) return reply({ ok: false, error: 'Khách hàng không hợp lệ' });
-        const sourceMessageId = typeof data.sourceMessageId === 'string' ? data.sourceMessageId : '';
-        const requestId = typeof data.requestId === 'string' ? data.requestId : '';
-        const sourceBroadcasterId = customerStore.normalizeTikTokUsername(data.sourceBroadcasterId || '');
-        if (sourceMessageId && (!sourceBroadcasterId || sourceBroadcasterId !== runtime.currentBroadcasterId)) {
-            return reply({ ok: false, error: 'Phiên live đã thay đổi. Vui lòng tải lại bình luận.' });
-        }
-        const existing = Object.values(runtime.confirmedOrders).flatMap(customer => customer.items || []).find(item =>
-            (requestId && item.requestId === requestId) ||
-            (sourceMessageId && item.sourceMessageId === sourceMessageId && item.sourceBroadcasterId === sourceBroadcasterId)
-        );
-        if (existing) return reply({ ok: true, duplicate: true });
-        const nickname = cleanDisplayText(data.nickname || data.displayName || '') || displayFallbackFromUsername(username) || username;
-        const profilePictureUrl = normalizeDisplayText(data.profilePictureUrl || '');
-        const comment = normalizeDisplayText(data.comment || '');
-        const price = Number(data.price || 0);
-        if (!Number.isFinite(price) || price <= 0) return reply({ ok: false, error: 'Giá không hợp lệ' });
-        const previousOrders = JSON.parse(JSON.stringify(runtime.confirmedOrders));
-        if (!runtime.confirmedOrders[username]) {
-            runtime.confirmedOrders[username] = { username, nickname, profilePictureUrl, items: [], total: 0 };
-        }
-        const newItem = { id: Date.now() + Math.random(), text: comment, price, time: new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false }), createdAt: new Date().toISOString(), requestId, sourceMessageId, sourceBroadcasterId };
-        runtime.confirmedOrders[username].items.push(newItem);
-        runtime.confirmedOrders[username].total += price;
-        try {
-            saveSessionDataForUser(userId);
-        } catch (error) {
-            runtime.confirmedOrders = previousOrders;
-            console.error('Không thể lưu đơn:', error);
-            return reply({ ok: false, error: 'Không thể lưu đơn. Vui lòng thử lại.' });
-        }
-        emitToUser(userId, 'order-confirmed', runtime.confirmedOrders[username]);
-        reply({ ok: true });
-        printBill(newItem, runtime.confirmedOrders[username], userId);
-    });
-
-    const onOrderMutation = (event, handler) => socket.on(event, (...args) => {
-        const previousOrders = JSON.parse(JSON.stringify(runtime.confirmedOrders));
-        try { handler(...args); } catch (error) {
-            runtime.confirmedOrders = previousOrders;
-            socket.emit('system-status', `Không thể lưu đơn: ${error.message}`);
-            socket.emit('all-confirmed-orders', previousOrders);
-        }
-    });
-
-    onOrderMutation('replace-confirmed-orders', (payload = {}) => {
-        const broadcasterId = customerStore.normalizeTikTokUsername(payload.broadcasterId || '');
-        if (!runtime.currentSessionId || broadcasterId !== runtime.currentBroadcasterId) {
-            return socket.emit('system-status', 'Hãy bắt đầu Live đúng chủ live trước khi tải đơn');
-        }
-        runtime.confirmedOrders = sanitizeConfirmedOrders(payload.orders || {});
-        saveSessionDataForUser(userId);
-        emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
-    });
-
-    onOrderMutation('delete-customer', (username) => {
-        if (!runtime.currentSessionId) return;
-        const normalizedUsername = customerStore.normalizeTikTokUsername(username);
-        if (runtime.confirmedOrders[normalizedUsername]) {
-            delete runtime.confirmedOrders[normalizedUsername];
-            saveSessionDataForUser(userId);
+        return liveSessionStore.serialize(userId, async () => {
+            const meta = liveSessionStore.operationMeta(event, payload, expectedSessionId);
+            if (!meta.requestId || !expectedSessionId) throw new Error('Thiếu requestId hoặc sessionId; vui lòng tải lại trang');
+            if (await liveSessionStore.isDuplicate(userId, meta)) { committed = true; return reply({ ok: true, duplicate: true }); }
+            if (runtime.recoveryRequired || !runtime.currentSessionId || runtime.currentSessionId !== expectedSessionId || payload.segmentStartedAt !== runtime.currentSessionStartedAt) throw new Error('Phiên live đã thay đổi. Vui lòng tải lại dữ liệu.');
+            const draft = { ...runtime, confirmedOrders: JSON.parse(JSON.stringify(runtime.confirmedOrders)) };
+            const result = handler(draft, payload);
+            if (result?.duplicate) {
+                await liveSessionStore.recordReceipt(userId, meta);
+                committed = true;
+                return reply({ ok: true, duplicate: true });
+            }
+            await saveSessionDataForUser(userId, draft, meta);
+            committed = true;
+            runtime.confirmedOrders = draft.confirmedOrders;
+            reply({ ok: true });
             emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
-        }
-    });
-
-    onOrderMutation('delete-item', ({ username, itemId }) => {
-        if (!runtime.currentSessionId) return;
-        const normalizedUsername = customerStore.normalizeTikTokUsername(username);
-        if (runtime.confirmedOrders[normalizedUsername]) {
-            const index = runtime.confirmedOrders[normalizedUsername].items.findIndex(i => i.id === itemId);
-            if (index > -1) {
-                runtime.confirmedOrders[normalizedUsername].total -= runtime.confirmedOrders[normalizedUsername].items[index].price;
-                runtime.confirmedOrders[normalizedUsername].items.splice(index, 1);
-                if (runtime.confirmedOrders[normalizedUsername].items.length === 0) delete runtime.confirmedOrders[normalizedUsername];
-                saveSessionDataForUser(userId);
-                emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
+            if (result?.item) {
+                emitToUser(userId, 'order-confirmed', runtime.confirmedOrders[result.username]);
+                try { printBill(result.item, runtime.confirmedOrders[result.username], userId); }
+                catch (error) { console.error('Đơn đã lưu, lỗi in:', error.message); }
             }
-        }
+        }).catch(error => {
+            if (committed) { console.error('Đơn đã commit, lỗi phản hồi:', error.message); return; }
+            reply({ ok: false, error: error.message });
+            socket.emit('system-status', 'Không thể lưu đơn: ' + error.message);
+        });
     });
-
-    onOrderMutation('edit-item', ({ username, itemId, text, price }) => {
-        if (!runtime.currentSessionId) return;
-        const normalizedUsername = customerStore.normalizeTikTokUsername(username);
-        if (runtime.confirmedOrders[normalizedUsername]) {
-            const item = runtime.confirmedOrders[normalizedUsername].items.find(i => i.id === itemId);
-            if (item) {
-                const newPrice = Number(price);
-                runtime.confirmedOrders[normalizedUsername].total = runtime.confirmedOrders[normalizedUsername].total - Number(item.price || 0) + (Number.isFinite(newPrice) ? newPrice : Number(item.price || 0));
-                item.text = normalizeDisplayText(text || item.text || '');
-                if (Number.isFinite(newPrice)) item.price = newPrice;
-                saveSessionDataForUser(userId);
-                emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
-            }
-        }
+    onOrderMutation('confirm-item', (draft, data) => {
+        const username = customerStore.normalizeTikTokUsername(data.uniqueId || data.username || '');
+        if (!username) throw new Error('Khách hàng không hợp lệ');
+        const sourceMessageId = typeof data.sourceMessageId === 'string' ? data.sourceMessageId : '';
+        const sourceBroadcasterId = customerStore.normalizeTikTokUsername(data.sourceBroadcasterId || '');
+        if (sourceMessageId && sourceBroadcasterId !== draft.currentBroadcasterId) throw new Error('Bình luận thuộc chủ live khác');
+        const existing = Object.values(draft.confirmedOrders).flatMap(c => c.items || []).find(item =>
+            item.requestId === data.requestId || (sourceMessageId && item.sourceMessageId === sourceMessageId && item.sourceBroadcasterId === sourceBroadcasterId));
+        if (existing) return { duplicate: true };
+        const price = Number(data.price);
+        if (!Number.isSafeInteger(price) || price <= 0) throw new Error('Giá không hợp lệ');
+        if (!Object.hasOwn(draft.confirmedOrders, username)) Object.defineProperty(draft.confirmedOrders, username, { enumerable: true, writable: true, value: { username, nickname: cleanDisplayText(data.nickname || data.displayName || '') || displayFallbackFromUsername(username) || username, profilePictureUrl: normalizeDisplayText(data.profilePictureUrl || ''), items: [], total: 0 } });
+        const item = { id: data.requestId, text: normalizeDisplayText(data.comment || ''), price, time: new Date().toLocaleString('vi-VN', { timeZone: 'Asia/Ho_Chi_Minh', hour12: false }), createdAt: new Date().toISOString(), requestId: data.requestId, sourceMessageId, sourceBroadcasterId };
+        draft.confirmedOrders[username].items.push(item);
+        draft.confirmedOrders[username].total += price;
+        return { item, username };
     });
-
-    onOrderMutation('edit-item-price', ({ username, itemId, newPrice }) => {
-        if (!runtime.currentSessionId) return;
-        const normalizedUsername = customerStore.normalizeTikTokUsername(username);
-        if (runtime.confirmedOrders[normalizedUsername]) {
-            const item = runtime.confirmedOrders[normalizedUsername].items.find(i => i.id === itemId);
-            if (item) {
-                runtime.confirmedOrders[normalizedUsername].total = runtime.confirmedOrders[normalizedUsername].total - item.price + newPrice;
-                item.price = newPrice;
-                saveSessionDataForUser(userId);
-                emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
-            }
-        }
+    onOrderMutation('replace-confirmed-orders', (draft, payload) => {
+        if (customerStore.normalizeTikTokUsername(payload.broadcasterId || '') !== draft.currentBroadcasterId) throw new Error('Chủ live đã thay đổi');
+        draft.confirmedOrders = sanitizeConfirmedOrders(payload.orders || {});
     });
+    onOrderMutation('delete-customer', (draft, { username }) => { delete draft.confirmedOrders[customerStore.normalizeTikTokUsername(username)]; });
+    onOrderMutation('delete-item', (draft, { username, itemId }) => {
+        const key = customerStore.normalizeTikTokUsername(username);
+        const customer = draft.confirmedOrders[key];
+        if (!customer) return;
+        customer.items = customer.items.filter(item => String(item.id) !== String(itemId));
+        customer.total = customer.items.reduce((sum, item) => sum + Number(item.price), 0);
+        if (!customer.items.length) delete draft.confirmedOrders[key];
+    });
+    const editItem = (draft, { username, itemId, text, price, newPrice }) => {
+        const customer = draft.confirmedOrders[customerStore.normalizeTikTokUsername(username)];
+        const item = customer?.items.find(i => String(i.id) === String(itemId));
+        if (!item) throw new Error('Không tìm thấy đơn');
+        const amount = Number(price ?? newPrice);
+        if (!Number.isSafeInteger(amount) || amount < 0) throw new Error('Giá không hợp lệ');
+        item.price = amount;
+        if (text !== undefined) item.text = normalizeDisplayText(text);
+        customer.total = customer.items.reduce((sum, i) => sum + Number(i.price), 0);
+    };
+    onOrderMutation('edit-item', editItem);
+    onOrderMutation('edit-item-price', editItem);
 
     socket.on('reprint-item', ({ username, itemId }) => {
         const normalizedUsername = customerStore.normalizeTikTokUsername(username);
@@ -2687,13 +2816,13 @@ io.on('connection', (socket) => {
 let stopNotifications;
 let stopDispatch;
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, '0.0.0.0', () => {
+liveSessionStore.initialize().then(() => server.listen(PORT, '0.0.0.0', () => {
     console.log(`Server running at http://0.0.0.0:${PORT}`);
     quoteQueue.recoverZaloSending();
     stopNotifications = n8nNotifications.start();
     stopDispatch = n8nZaloDispatch.start();
     zaloAutoReply.start();
-});
+})).catch(error => { console.error('Live store startup failed:', error.message); process.exit(1); });
 
 async function shutdown() {
     if (shuttingDown) return;
@@ -2701,6 +2830,7 @@ async function shutdown() {
     const deadline = setTimeout(() => { console.error('Shutdown deadline exceeded'); process.exit(1); }, 25000);
     try {
         zaloAutoReply.stop();
+        await liveSessionStore.drain();
         for (const runtime of liveRuntimeByUser.values()) {
             try { runtime.tiktokConnection?.disconnect(); } catch (_) { /* continue closing */ }
         }
@@ -2718,3 +2848,5 @@ async function shutdown() {
 }
 process.on('SIGTERM', shutdown);
 process.on('SIGINT', shutdown);
+
+process.on('uncaughtException', error => { console.error('Uncaught exception:', error); process.exit(1); });
