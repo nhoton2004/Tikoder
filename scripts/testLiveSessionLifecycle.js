@@ -88,6 +88,50 @@ function serverFixture(t) {
 }
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
+async function recoveryFixture(t) {
+    const f = serverFixture(t);
+    for (const id of ['A', 'B']) await f.store.createLiveSession('a', { id, endedAt: null, tiktokUsername: 'shop', lastActivityAt: '2020-01-01T00:00:00Z', orders: [] });
+    const s = f.socket('a'); await s.send('get-live-state');
+    return { ...f, s, request: (ids, requestId) => ({ uniqueId: 'new-host', resumeSessionId: null, closeSessionIds: ids, recoveryConfirmed: true, recoveryOfferId: s.last('recovery-options').offerId, requestId }) };
+}
+
+test('Socket.IO selected-close atomically selects C in runtime, preserves B and deduplicates lost ACK retry', async t => {
+    const {store,s,runtimeByUser,request} = await recoveryFixture(t);
+    const b = JSON.stringify(store.getLiveSessionById('a','B'));
+    const payload = request(['A'],'selected-close'); let result;
+    await s.send('start-live',payload,value=>{result=value;});assert.equal(result.ok,true);
+    const current = runtimeByUser.get('a').currentSessionId;
+    assert.equal(result.sessionId,current);assert.ok(current!=='A'&&current!=='B');
+    assert.ok(store.getLiveSessionById('a','A').endedAt);assert.equal(JSON.stringify(store.getLiveSessionById('a','B')),b);
+    const before = JSON.stringify(store.readRecord('a'));
+    await s.send('start-live',payload,value=>{result=value;});assert.equal(result.duplicate,true);assert.equal(JSON.stringify(store.readRecord('a')),before);
+});
+
+test('Socket.IO rejects another tab stale recovery after runtime selection, without partial commit', async t => {
+    const {store,s,socket,request} = await recoveryFixture(t);
+    const stale = request(['B'],'stale-tab');const other=socket('a');await other.send('get-live-state');
+    await other.send('start-live',{uniqueId:'shop',resumeSessionId:'A',recoveryConfirmed:true,recoveryOfferId:other.last('recovery-options').offerId,requestId:'choose-A'});
+    const before=JSON.stringify(store.readRecord('a'));let result;
+    await s.send('start-live',stale,value=>{result=value;});assert.equal(result.ok,false);assert.equal(JSON.stringify(store.readRecord('a')),before);
+});
+
+test('Socket.IO close-all does not expand its offered list when another open history appears', async t => {
+    const {store,s,request} = await recoveryFixture(t);const payload=request(['A','B'],'listed-only');
+    await store.createLiveSession('a',{id:'later',endedAt:null,tiktokUsername:'later',orders:[]});
+    const later=JSON.stringify(store.getLiveSessionById('a','later'));let result;
+    await s.send('start-live',payload,value=>{result=value;});assert.equal(result.ok,true);assert.equal(JSON.stringify(store.getLiveSessionById('a','later')),later);
+});
+
+test('ambiguous segment cannot resume but can be explicitly closed; changed offer and foreign IDs fail closed', async t => {
+    const f=serverFixture(t);
+    await f.store.createLiveSession('a',{id:'M',endedAt:null,tiktokUsername:'shop',lastActivityAt:'2020-01-01',orders:[],segments:[{startedAt:'2020-01-01',endedAt:null,orders:[]},{startedAt:'2020-01-02',endedAt:null,orders:[]}]});
+    await f.store.createLiveSession('b',{id:'foreign',endedAt:null,tiktokUsername:'shop',orders:[]});
+    const s=f.socket('a');await s.send('get-live-state');const offer=s.last('recovery-options');assert.equal(offer.sessions[0].ambiguous,true);
+    const before=JSON.stringify(f.store.readRecord('a'));let result;
+    await s.send('start-live',{uniqueId:'shop',resumeSessionId:'M',recoveryConfirmed:true,recoveryOfferId:offer.offerId,requestId:'resume-M'},r=>{result=r;});assert.equal(result.ok,false);assert.equal(JSON.stringify(f.store.readRecord('a')),before);
+    await s.send('start-live',{uniqueId:'shop',resumeSessionId:null,closeSessionIds:['M','foreign'],recoveryConfirmed:true,recoveryOfferId:offer.offerId,requestId:'invalid'},r=>{result=r;});assert.equal(result.ok,false);assert.equal(JSON.stringify(f.store.readRecord('a')),before);
+    await s.send('start-live',{uniqueId:'shop',resumeSessionId:null,closeSessionIds:['M'],recoveryConfirmed:true,recoveryOfferId:offer.offerId,requestId:'close-M'},r=>{result=r;});assert.equal(result.ok,true);assert.ok(f.store.getLiveSessionById('a','M').endedAt);
+});
 
 test('store honors IDs/null end, rejects duplicates and updates only active records', async t => {
     const { store } = fixture(t);
@@ -417,7 +461,7 @@ test('stale/multiple recovery requires an explicit selection and a delayed reque
     assert.equal(runtimeByUser.get('a').currentSessionId, null);
     await s.send('start-live', { uniqueId: 'shop', resumeSessionId: 'old-one' });
     assert.equal(connectors.length, 0);
-    await s.send('start-live', { uniqueId: 'shop', resumeSessionId: null, closeSessionIds: ['old-one', 'old-two'], recoveryConfirmed: true });
+    await s.send('start-live', { uniqueId: 'shop', resumeSessionId: null, closeSessionIds: ['old-one', 'old-two'], recoveryConfirmed: true, recoveryOfferId: s.last('recovery-options').offerId, requestId: 'close-both' });
     const current = runtimeByUser.get('a').currentSessionId;
     assert.ok(current && current !== 'old-one');
     assert.equal(store.getLiveSessionById('a', 'old-one').closeReason, 'recovery-user-closed');

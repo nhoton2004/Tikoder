@@ -16,6 +16,49 @@ function fixture(t) {
     return { directory, store };
 }
 const order = (id, price = 100) => ({ id, customerUsername: 'buyer', productName: id, price, total: price, createdAt: '2026-11-04T00:00:00Z' });
+function recoveryRequest(store, ids, requestId = 'recovery-request') {
+    const versions = Object.fromEntries(store.readUserSessions('a').filter(s => !s.endedAt).map(s => [s.id, require('node:crypto').createHash('sha256').update(JSON.stringify(s)).digest('hex')]));
+    const payload = { closeSessionIds: ids, uniqueId: 'new-shop', requestId };
+    return { broadcasterId: 'new-shop', closeSessionIds: ids, recovery: { confirmed: true, versions }, meta: store.operationMeta('recovery-start', payload, '') };
+}
+
+test('selected recovery closes A and creates one C while preserving B, including retry and reload', async t => {
+    const { store, directory } = fixture(t);
+    for (const id of ['A', 'B']) await store.createLiveSession('a', { id, endedAt: null, type: 'live_session', tiktokUsername: 'shop', orders: [order(id)] });
+    const beforeB = JSON.stringify(store.getLiveSessionById('a', 'B'));
+    const request = recoveryRequest(store, ['A']);
+    const created = await store.startLiveSession('a', request);
+    assert.ok(store.getLiveSessionById('a', 'A').endedAt);
+    assert.equal(store.getLiveSessionById('a', 'A').closeReason, 'recovery-user-closed');
+    assert.equal(JSON.stringify(store.getLiveSessionById('a', 'B')), beforeB);
+    assert.notEqual(created.id, 'A'); assert.notEqual(created.id, 'B');
+    assert.equal((await store.startLiveSession('a', request)).duplicate, true);
+    const reloaded = loadStore(directory); t.after(() => reloaded.dispose());
+    assert.equal(reloaded.readUserSessions('a').length, 3);
+    assert.equal(JSON.stringify(reloaded.getLiveSessionById('a', 'B')), beforeB);
+    assert.equal((await reloaded.startLiveSession('a', request)).duplicate, true);
+    await assert.rejects(store.startLiveSession('a', { broadcasterId: 'ordinary' }), /Còn phiên mở/);
+});
+
+test('recovery close-all is limited to the offered IDs; stale/foreign/invalid requests commit nothing', async t => {
+    const { store } = fixture(t);
+    for (const id of ['A', 'B']) await store.createLiveSession('a', { id, endedAt: null, tiktokUsername: 'shop', orders: [] });
+    const all = recoveryRequest(store, ['A', 'B']);
+    await store.createLiveSession('a', { id: 'appeared-later', endedAt: null, tiktokUsername: 'later', orders: [] });
+    await store.startLiveSession('a', all);
+    assert.equal(store.getLiveSessionById('a', 'appeared-later').endedAt, null);
+    const unchanged = JSON.stringify(store.readRecord('a'));
+    for (const ids of [['A'], ['appeared-later', 'foreign'], ['appeared-later', 'appeared-later'], []]) {
+        await assert.rejects(store.startLiveSession('a', recoveryRequest(store, ids, 'invalid-' + JSON.stringify(ids))));
+        assert.equal(JSON.stringify(store.readRecord('a')), unchanged);
+    }
+    await assert.rejects(store.startLiveSession('a', { broadcasterId: 'shop', closeSessionIds: ['appeared-later'] }));
+    const stale = recoveryRequest(store, ['appeared-later'], 'stale');
+    await store.updateLiveSession('a', 'appeared-later', { orders: [order('changed')] });
+    const changed = JSON.stringify(store.readRecord('a'));
+    await assert.rejects(store.startLiveSession('a', stale));
+    assert.equal(JSON.stringify(store.readRecord('a')), changed);
+});
 
 test('atomic rename retries transient Windows locks after closing synced handle', async t => {
     const { directory } = fixture(t);
@@ -146,7 +189,7 @@ test('recovery selects the actual open segment, preserves identity, and closes a
     await store.updateLiveSession('a', 'multi', { orders: [order('open'), order('new')], segmentStartedAt: now });
     await store.serialize('a', async () => { const record = store.readRecord('a'); record.sessions[0].lastActivityAt = '2020-01-01T00:00:00Z'; await store.writeUserSessions('a', record.sessions); });
     assert.equal(store.recoveryCandidates('a')[0].stale, true);
-    const fresh = await store.startLiveSession('a', { broadcasterId: 'shop', closeSessionIds: ['multi'] });
+    const fresh = await store.startLiveSession('a', recoveryRequest(store, ['multi']));
     const closed = store.getLiveSessionById('a', 'multi');
     assert.equal(closed.closeReason, 'recovery-user-closed');
     assert.equal(closed.endedAt, fresh.startedAt);

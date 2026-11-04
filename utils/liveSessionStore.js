@@ -138,16 +138,27 @@ function updateLiveSession(userId, sessionId, data = {}) {
         return session;
     }, data.meta);
 }
-function startLiveSession(userId, { broadcasterId, resumeSessionId, liveName, startedAt, closeSessionIds = [] }) {
+function recoveryVersion(session) { return crypto.createHash('sha256').update(JSON.stringify(session)).digest('hex'); }
+function startLiveSession(userId, { broadcasterId, resumeSessionId, liveName, startedAt, closeSessionIds = [], recovery, meta }) {
     return mutate(userId, sessions => {
         const now = startedAt || new Date().toISOString();
+        if (!Array.isArray(closeSessionIds) || closeSessionIds.some(id => typeof id !== 'string' || !id) || new Set(closeSessionIds).size !== closeSessionIds.length) throw new Error('Danh sách phiên cần đóng không hợp lệ');
+        const recoveryCreate = recovery?.confirmed === true && closeSessionIds.length > 0;
+        if (closeSessionIds.length && !recoveryCreate) throw new Error('Đóng phiên cũ cần xác nhận recovery');
+        if (recovery) {
+            if (!recovery.confirmed || !meta?.requestId || (resumeSessionId && closeSessionIds.length) || (!resumeSessionId && !closeSessionIds.length)) throw new Error('Yêu cầu recovery không hợp lệ');
+            for (const id of resumeSessionId ? [resumeSessionId] : closeSessionIds) {
+                const selected = sessions.find(s => s.id === id && s.type === 'live_session' && !s.endedAt && (!s.userId || s.userId === userId));
+                if (!selected || !Object.hasOwn(recovery.versions || {}, id) || recoveryVersion(selected) !== recovery.versions[id]) throw new Error('Phiên đã thay đổi hoặc không thuộc lựa chọn. Hãy tải lại recovery.');
+            }
+        }
         for (const id of closeSessionIds) {
             const old = sessions.find(s => s.id === id && !s.endedAt && s.type === 'live_session');
             if (!old) throw new Error('Phiên cần đóng không còn mở');
             old.endedAt = now;
             old.closeReason = 'recovery-user-closed';
             old.lastActivityAt = now;
-            (old.segments || []).filter(s => !s.endedAt).forEach(s => { s.endedAt = now; s.closeReason = old.closeReason; });
+            (old.segments || []).filter(s => !s.endedAt && !s.closedBySessionAt).forEach(s => { s.endedAt = now; s.closeReason = old.closeReason; });
         }
         if (resumeSessionId) {
             const session = sessions.find(s => s.id === resumeSessionId);
@@ -176,11 +187,11 @@ function startLiveSession(userId, { broadcasterId, resumeSessionId, liveName, st
             session.lastActivityAt = now;
             return { ...session, currentSegmentOrders: [], currentSegmentStartedAt: now };
         }
-        if (sessions.some(s => !s.endedAt && s.type === 'live_session')) throw new Error('Còn phiên mở; hãy chọn tiếp tục hoặc đóng trước khi tạo phiên mới');
+        if (!recoveryCreate && sessions.some(s => !s.endedAt && s.type === 'live_session')) throw new Error('Còn phiên mở; hãy chọn tiếp tục hoặc đóng trước khi tạo phiên mới');
         const session = { id: generateSessionId(), userId, type: 'live_session', liveName, tiktokUsername: broadcasterId, startedAt: now, endedAt: null, createdAt: now, lastActivityAt: now, orders: [], summary: calculateSessionSummary([]), segments: [{ id: crypto.randomUUID(), startedAt: now, endedAt: null, orders: [] }] };
         sessions.unshift(session);
         return { ...session, currentSegmentOrders: [], currentSegmentStartedAt: now };
-    });
+    }, meta);
 }
 function recoveryCandidates(userId, now = Date.now()) {
     const configured = Number(process.env.LIVE_RECOVERY_STALE_HOURS || 12);
@@ -299,4 +310,4 @@ async function dispose() {
     await Promise.allSettled([...indexJobs.values()].map(job => job.task).filter(Boolean));
     await Promise.allSettled([...indexBuilds.values()]);
 }
-module.exports = { ...projection, readUserSessions, readRecord, writeUserSessions, createLiveSession, getLiveSessionById, deleteLiveSession, updateLiveSession, startLiveSession, readIndexedRows, migrationAudit, migrateUserIndexes, DATA_DIR, HISTORY_DIR, ARCHIVE_DIR, archiveOldIndexes, serialize, operationMeta, isDuplicate, recordReceipt, recoveryCandidates, requestIndexUpdate, recoverBackup, initialize, drain, dispose };
+module.exports = { ...projection, readUserSessions, readRecord, writeUserSessions, createLiveSession, getLiveSessionById, deleteLiveSession, updateLiveSession, startLiveSession, readIndexedRows, migrationAudit, migrateUserIndexes, DATA_DIR, HISTORY_DIR, ARCHIVE_DIR, archiveOldIndexes, serialize, operationMeta, isDuplicate, recordReceipt, recoveryVersion, recoveryCandidates, requestIndexUpdate, recoverBackup, initialize, drain, dispose };

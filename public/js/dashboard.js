@@ -1661,41 +1661,74 @@
             if (document.getElementById('live-recovery-dialog')) return;
             const dialog = document.createElement('dialog');
             dialog.id = 'live-recovery-dialog';
-            dialog.style.cssText = 'max-width:560px;width:90%;padding:24px;border-radius:16px';
+            dialog.style.cssText = 'max-width:560px;width:90%;max-height:90vh;overflow:auto;padding:24px;border-radius:16px';
             const title = document.createElement('h2');
             title.textContent = 'Khôi phục phiên Live chưa kết thúc';
             const info = document.createElement('p');
-            info.textContent = 'Chọn phiên để tiếp tục, hoặc xác nhận đóng các phiên dưới đây và tạo phiên mới. Kết nối TikTok chỉ bắt đầu sau lựa chọn của bạn.';
+            info.textContent = 'Chọn phiên để tiếp tục hoặc đóng. Các phiên không được chọn sẽ được giữ nguyên khi chỉ đóng một phiên.';
             const select = document.createElement('select');
             select.style.cssText = 'width:100%;margin:16px 0';
             for (const session of data.sessions || []) {
                 const option = document.createElement('option');
                 option.value = session.id;
                 option.textContent = session.liveName + ' — ' + formatVnTimestamp(session.lastActivityAt || session.startedAt) + (session.stale ? ' (phiên cũ)' : '') + (session.ambiguous ? ' (segment cần đối soát)' : '');
-                option.disabled = session.ambiguous;
                 select.appendChild(option);
             }
+            const hostLabel = document.createElement('label'); hostLabel.textContent = 'Chủ live của phiên mới';
+            const host = document.createElement('input'); host.type = 'text'; host.setAttribute('aria-label', 'Chủ live của phiên mới');
+            host.style.cssText = 'display:block;width:100%;padding:8px;border:1px solid #ccc;border-radius:8px;margin:8px 0';
             const resume = document.createElement('button'); resume.textContent = 'Tiếp tục phiên đã chọn';
+            const selectedClose = document.createElement('button'); selectedClose.textContent = 'Đóng phiên đã chọn, tạo mới';
             const fresh = document.createElement('button'); fresh.textContent = 'Đóng tất cả phiên trên, tạo phiên mới';
             const cancel = document.createElement('button'); cancel.textContent = 'Để sau';
-            for (const button of [resume, fresh, cancel]) button.style.cssText = 'display:block;margin:12px 0;padding:8px 12px;border:1px solid #ccc;border-radius:8px';
-            resume.disabled = !data.sessions.some(session => !session.ambiguous);
+            const retry = document.createElement('button'); retry.textContent = 'Thử lại yêu cầu'; retry.hidden = true;
+            const reload = document.createElement('button'); reload.textContent = 'Tải lại lựa chọn'; reload.hidden = true;
+            const status = document.createElement('p'); status.setAttribute('role', 'status');
+            const buttons = [resume, selectedClose, fresh, cancel, retry, reload];
+            for (const button of buttons) { button.type = 'button'; button.style.cssText = 'width:100%;margin:8px 0;padding:8px 12px;border:1px solid #ccc;border-radius:8px'; }
+            let busy = false, request = null;
+            const selected = () => data.sessions.find(session => session.id === select.value);
+            const render = () => {
+                for (const button of buttons) button.disabled = busy;
+                select.disabled = busy; host.disabled = busy;
+                resume.disabled = busy || !selected() || selected().ambiguous;
+                selectedClose.disabled = busy || !selected(); fresh.disabled = busy || !data.sessions.length;
+            };
+            select.onchange = () => { host.value = selected()?.broadcasterId || ''; render(); };
+            select.onchange();
             const close = () => { dialog.close(); dialog.remove(); };
+            const submit = payload => {
+                if (busy) return;
+                request = payload; busy = true; render(); status.textContent = 'Đang xử lý lựa chọn...';
+                socket.timeout(10000).emit('start-live', request, (error, result) => {
+                    if (!error && result?.ok) { close(); return; }
+                    busy = false; clearLiveRequest(); render();
+                    status.textContent = result?.error || 'Chưa nhận được phản hồi. Có thể thử lại cùng yêu cầu hoặc tải lại lựa chọn.';
+                    retry.hidden = false; reload.hidden = false;
+                });
+            };
+            const makeRequest = payload => ({ ...payload, recoveryConfirmed: true, recoveryOfferId: data.offerId, requestId: newOrderRequestId() });
             resume.onclick = () => {
-                const session = data.sessions.find(session => session.id === select.value && !session.ambiguous);
-                if (!session) return;
-                close(); beginLiveRequest('start');
-                socket.emit('start-live', { uniqueId: session.broadcasterId, resumeSessionId: session.id, recoveryConfirmed: true });
+                const session = selected();
+                if (busy || !session || session.ambiguous) return;
+                submit(makeRequest({ uniqueId: session.broadcasterId, resumeSessionId: session.id }));
             };
-            fresh.onclick = () => {
-                const id = tiktokIdInput.value.trim().replace('@', '') || data.sessions[0]?.broadcasterId;
-                if (!id || !confirm('Đóng tất cả phiên được liệt kê tại thời điểm hiện tại và tạo phiên mới?')) return;
-                close(); beginLiveRequest('start');
-                socket.emit('start-live', { uniqueId: id, resumeSessionId: null, closeSessionIds: data.sessions.map(session => session.id), recoveryConfirmed: true });
+            const closeAndCreate = all => {
+                const session = selected();
+                if (busy || !session) return;
+                const targetHost = host.value.trim().replace(/^@/, '');
+                if (!targetHost) { status.textContent = 'Hãy nhập chủ live cho phiên mới.'; return; }
+                const closing = all ? data.sessions : [session];
+                if (!confirm(`Đóng ${closing.map(s => s.liveName || s.id).join(', ')} tại thời điểm hiện tại và tạo phiên mới cho @${targetHost}?`)) return;
+                submit(makeRequest({ uniqueId: targetHost, resumeSessionId: null, closeSessionIds: closing.map(s => s.id) }));
             };
-            cancel.onclick = close;
-            dialog.oncancel = () => { dialog.remove(); };
-            dialog.append(title, info, select, resume, fresh, cancel);
+            selectedClose.onclick = () => closeAndCreate(false);
+            fresh.onclick = () => closeAndCreate(true);
+            retry.onclick = () => { if (request) submit(request); };
+            reload.onclick = () => { if (!busy) { close(); socket.emit('get-recovery-options'); } };
+            cancel.onclick = () => { if (!busy) close(); };
+            dialog.oncancel = event => { if (busy) event.preventDefault(); else dialog.remove(); };
+            dialog.append(title, info, select, hostLabel, host, resume, selectedClose, fresh, cancel, status, retry, reload);
             document.body.appendChild(dialog); dialog.showModal();
         });
         socket.on('ask-resume-session', data => {

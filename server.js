@@ -1103,6 +1103,7 @@ function createEmptyLiveRuntime(userId) {
         currentBroadcasterId: '',
         currentSessionId: null,
         currentSessionStartedAt: null,
+        selectionVersion: 0,
         connectionState: 'idle',
         processedMsgIds: new Set(),
         chatBufferByBroadcaster: new Map(),
@@ -1513,15 +1514,15 @@ function readLegacyHistoryRows(userId, options = {}) {
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - RETENTION_DAYS);
     const cutoffKey = dateKeyFromTimestamp(cutoff.getTime());
-    rows = rows.filter((r) => !r.historyDate || r.historyDate >= cutoffKey);
+    const activeRows = rows.filter((r) => !r.historyDate || r.historyDate >= cutoffKey);
 
     if (!includeSharedLegacy) {
-        return { rows, files: files.length };
+        return { rows: activeRows, files: files.length };
     }
 
     const shared = readSharedLegacyHistoryRows();
     return {
-        rows: [...rows, ...shared.rows],
+        rows: [...activeRows, ...shared.rows],
         files: files.length + shared.files
     };
 }
@@ -2470,6 +2471,13 @@ io.on('connection', (socket) => {
         socket.emit('chat-buffer', { broadcasterId: id, comments });
     });
 
+    let recoveryOffer = null;
+    const offerRecovery = (candidates) => {
+        const versions = Object.fromEntries(candidates.map(c => [c.session.id, liveSessionStore.recoveryVersion(c.session)]));
+        const signature = JSON.stringify([versions, runtime.selectionVersion || 0]);
+        if (!recoveryOffer || recoveryOffer.signature !== signature) recoveryOffer = { id: generateRuntimeSessionId(), signature, versions, selectionVersion: runtime.selectionVersion || 0 };
+        socket.emit('recovery-options', { offerId: recoveryOffer.id, sessions: candidates.map(c => ({ id: c.session.id, liveName: c.session.liveName, broadcasterId: c.session.tiktokUsername, startedAt: c.session.startedAt, lastActivityAt: c.lastActivityAt, stale: c.stale, ambiguous: c.ambiguous, summary: c.session.summary })) });
+    };
     const recoverRuntime = () => {
         if (runtime.currentSessionId) return;
         const candidates = liveSessionStore.recoveryCandidates(userId);
@@ -2481,8 +2489,9 @@ io.on('connection', (socket) => {
             runtime.currentBroadcasterId = session.tiktokUsername;
             runtime.confirmedOrders = rebuildConfirmedOrders(segment.orders);
             runtime.connectionState = 'disconnected';
+            runtime.selectionVersion = (runtime.selectionVersion || 0) + 1;
         }
-        if (runtime.recoveryRequired) socket.emit('recovery-options', { sessions: candidates.map(c => ({ id: c.session.id, liveName: c.session.liveName, broadcasterId: c.session.tiktokUsername, startedAt: c.session.startedAt, lastActivityAt: c.lastActivityAt, stale: c.stale, ambiguous: c.ambiguous, summary: c.session.summary })) });
+        if (runtime.recoveryRequired) offerRecovery(candidates);
     };
     const sendLiveState = () => {
         recoverRuntime();
@@ -2497,9 +2506,15 @@ io.on('connection', (socket) => {
         socket.emit('all-confirmed-orders', runtime.confirmedOrders);
     };
     const queued = handler => (...args) => liveSessionStore.serialize(userId, () => handler(...args)).catch(error => {
+        const acknowledge = args.at(-1);
+        if (typeof acknowledge === 'function') acknowledge({ ok: false, error: error.message, reloadRecovery: true });
         socket.emit('status', { connected: false, error: error.message, broadcasterId: runtime.currentBroadcasterId });
     });
     socket.on('get-live-state', queued(sendLiveState));
+    socket.on('get-recovery-options', queued(() => {
+        sendLiveState();
+        if (!runtime.currentSessionId && !runtime.recoveryRequired) offerRecovery(liveSessionStore.recoveryCandidates(userId));
+    }));
     queued(sendLiveState)();
 
     const endLive = (payload = {}) => {
@@ -2517,6 +2532,7 @@ io.on('connection', (socket) => {
             const connection = runtime.tiktokConnection;
             runtime.tiktokConnection = null;
             runtime.currentSessionId = null;
+            runtime.selectionVersion = (runtime.selectionVersion || 0) + 1;
             runtime.currentSessionStartedAt = null;
             runtime.currentBroadcasterId = '';
             runtime.connectionState = 'idle';
@@ -2533,7 +2549,24 @@ io.on('connection', (socket) => {
         })();
     };
 
-    socket.on('start-live', queued(async (payload) => {
+    socket.on('start-live', queued(async (payload, acknowledge) => {
+        const reply = data => { if (typeof acknowledge === 'function') acknowledge(data); };
+        const recoveryIntent = payload?.recoveryConfirmed === true;
+        const rejectStart = error => {
+            reply({ ok: false, error: error.message, reloadRecovery: true });
+            socket.emit('status', { connected: runtime.connectionState === 'connected', error: error.message, broadcasterId: runtime.currentBroadcasterId });
+        };
+        let recovery, recoveryMeta;
+        if (recoveryIntent) {
+            recoveryMeta = liveSessionStore.operationMeta('recovery-start', payload, payload.recoveryOfferId || '');
+            if (!recoveryMeta.requestId || !payload.recoveryOfferId) return rejectStart(new Error('Thiếu mã yêu cầu recovery. Hãy tải lại lựa chọn.'));
+            if (await liveSessionStore.isDuplicate(userId, recoveryMeta)) {
+                reply({ ok: true, duplicate: true });
+                return sendLiveState();
+            }
+            if (!recoveryOffer || recoveryOffer.id !== payload.recoveryOfferId || recoveryOffer.selectionVersion !== (runtime.selectionVersion || 0) || runtime.currentSessionId) return rejectStart(new Error('Phiên đã được chọn hoặc lựa chọn recovery đã cũ. Hãy tải lại trạng thái.'));
+            recovery = { confirmed: true, versions: recoveryOffer.versions };
+        } else if (payload?.closeSessionIds?.length) return rejectStart(new Error('Đóng phiên cũ cần xác nhận recovery'));
         // payload co the la string (backward compatible) hoac object { uniqueId, resumeSessionId }
         const rawId = typeof payload === 'string' ? payload : payload?.uniqueId;
         // undefined = chua quyet dinh, null = tao moi, string = resume session cu
@@ -2543,7 +2576,7 @@ io.on('connection', (socket) => {
 
         const broadcasterId = customerStore.normalizeTikTokUsername(rawId);
         if (!broadcasterId) {
-            return socket.emit('status', { connected: false, error: 'TikTok ID không hợp lệ', broadcasterId: '' });
+            return rejectStart(new Error('TikTok ID không hợp lệ'));
         }
 
         if (runtime.currentSessionId && runtime.currentBroadcasterId !== broadcasterId) {
@@ -2580,7 +2613,8 @@ io.on('connection', (socket) => {
 
         const now = new Date();
         const candidates = liveSessionStore.recoveryCandidates(userId);
-        const closeSessionIds = Array.isArray(payload?.closeSessionIds) ? payload.closeSessionIds : [];
+        const closeSessionIds = payload?.closeSessionIds === undefined ? [] : payload.closeSessionIds;
+        if (!Array.isArray(closeSessionIds)) return rejectStart(new Error('Danh sách phiên cần đóng không hợp lệ'));
         if (!runtime.currentSessionId && candidates.length && !resumeSessionId && !closeSessionIds.length) {
             runtime.recoveryRequired = true;
             return sendLiveState();
@@ -2590,20 +2624,22 @@ io.on('connection', (socket) => {
         if (!runtime.currentSessionId) {
             try {
                 const session = await liveSessionStore.startLiveSession(userId, {
-                    broadcasterId, resumeSessionId, closeSessionIds,
+                    broadcasterId, resumeSessionId, closeSessionIds, recovery, meta: recoveryMeta,
                     startedAt: now.toISOString(), liveName: formatLiveName(broadcasterId, now)
                 });
                 runtime.confirmedOrders = rebuildConfirmedOrders(session.currentSegmentOrders || []);
                 runtime.currentSessionId = session.id;
                 runtime.currentSessionStartedAt = session.currentSegmentStartedAt || session.startedAt;
                 runtime.recoveryRequired = false;
+                runtime.selectionVersion = (runtime.selectionVersion || 0) + 1;
             } catch (error) {
-                return socket.emit('status', { connected: false, error: error.message, broadcasterId });
+                return rejectStart(error);
             }
         }
 
         runtime.currentBroadcasterId = broadcasterId;
         runtime.recoveryRequired = false;
+        reply({ ok: true, sessionId: runtime.currentSessionId });
         runtime.processedMsgIds.clear();
         emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
 
