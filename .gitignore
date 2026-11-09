@@ -3,7 +3,6 @@ node_modules/
 
 # Secrets & Environment
 .env
-.env.example
 config.local.json
 config.json
 firebase-service-account.json
@@ -33,3 +32,17 @@ package-lock.json
 
 # CocoIndex Code (ccc)
 /.cocoindex_code/
+
+# Config with potential secrets
+.env.*
+!.env.example
+backups/
+deploy/secrets/
+*.sqlite*
+
+# Live recovery runtime artifacts and derived index cache
+data/live-sessions/*.lock
+data/live-sessions/*.guard
+data/live-sessions/*.tmp
+data/live-sessions/*.bak
+data/live-history/**/projection.json

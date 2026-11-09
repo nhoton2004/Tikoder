@@ -1,432 +1,341 @@
-/**
- * Live Session Store — per-user SQLite storage.
- * API tương thích ngược với JSON file version.
- */
-
-const { getDb } = require('./db');
-const { cleanDisplayText, normalizeDisplayName, normalizeDisplayText } = require('./displayName');
-
-// ── Field mapping ──────────────────────────────────────────────
-function rowToSession(row) {
-    if (!row) return null;
-    return {
-        id: row.id,
-        userId: row.user_id,
-        type: row.type || 'live_session',
-        liveName: row.live_name || '',
-        tiktokUsername: row.tiktok_username || '',
-        startedAt: row.started_at || '',
-        endedAt: row.ended_at || '',
-        createdAt: row.created_at || '',
-        status: row.status || 'ended',
-        resumedAt: row.resumed_at || '',
-        resumeCount: Number(row.resume_count || 0),
-        lastActivityAt: row.last_activity_at || '',
-        endedReason: row.ended_reason || '',
-        revision: Number(row.revision || 0),
-        summary: typeof row.summary === 'string' ? JSON.parse(row.summary || '{}') : (row.summary || {}),
-        orders: []
-    };
+'use strict';
+const fs = require('node:fs');
+const path = require('node:path');
+const crypto = require('node:crypto');
+const { promisify } = require('node:util');
+const gzip = promisify(require('node:zlib').gzip);
+const persistence = require('./livePersistence');
+const projection = require('./liveSessionProjection');
+const { cleanDisplayText } = require('./displayName');
+const { rawRow, calculateSessionSummary, flattenConfirmedOrders, rebuildSessionOrders, generateSessionId } = projection;
+const DATA_DIR = path.join(__dirname, '..', 'data', 'live-sessions');
+const HISTORY_DIR = path.join(__dirname, '..', 'data', 'live-history');
+const ARCHIVE_DIR = path.join(__dirname, '..', 'archive', 'live-history');
+const indexJobs = new Map();
+const indexBuilds = new Map();
+let disposed = false;
+const clone = value => JSON.parse(JSON.stringify(value));
+function safeId(value) {
+    if (typeof value !== 'string' || !/^[a-zA-Z0-9_-]+$/.test(value)) throw new Error('User ID không hợp lệ');
+    return value;
 }
-
-function rowToOrder(row) {
-    if (!row) return null;
-    return {
-        id: row.id,
-        customerName: row.customer_name || '',
-        customerUsername: row.customer_username || '',
-        profilePictureUrl: row.profile_picture_url || '',
-        productName: row.product_name || '',
-        quantity: row.quantity || 1,
-        price: row.price || 0,
-        total: row.total || 0,
-        note: row.note || '',
-        time: row.item_time || '',
-        createdAt: row.created_at || ''
-    };
+function filePath(userId) { return path.join(DATA_DIR, `${safeId(userId)}.json`); }
+function validateRecord(parsed) {
+    if (!parsed || !Array.isArray(parsed.sessions) || (parsed.revision !== undefined && (!Number.isSafeInteger(parsed.revision) || parsed.revision < 0))) throw new Error('Dữ liệu phiên live không hợp lệ');
+    if (parsed.receipts !== undefined && (!parsed.receipts || Array.isArray(parsed.receipts) || typeof parsed.receipts !== 'object')) throw new Error('Dữ liệu request receipts không hợp lệ');
+    if (parsed.sessions.some(s => !s || typeof s.id !== 'string' || (s.orders !== undefined && !Array.isArray(s.orders)) || (s.segments !== undefined && !Array.isArray(s.segments)))) throw new Error('Schema phiên live không hợp lệ');
+    return { schemaVersion: 2, revision: 0, receipts: {}, ...parsed };
 }
-
-// ── Public API ─────────────────────────────────────────────────
-
-function readUserSessions(userId) {
-    const db = getDb();
-    const sessions = db.prepare('SELECT * FROM live_sessions WHERE user_id = ? ORDER BY created_at DESC').all(userId);
-    const getOrders = db.prepare('SELECT * FROM orders WHERE session_id = ? ORDER BY created_at');
-    return sessions.map(s => {
-        const session = rowToSession(s);
-        session.orders = getOrders.all(s.id).map(rowToOrder);
+function readError(error, target) {
+    if (error.code === 'ENOENT') return { schemaVersion: 2, revision: 0, sessions: [], receipts: {} };
+    error.message = `Không thể đọc nguồn ${target}: ${error.message}. Kiểm tra backup .bak; không ghi đè nguồn lỗi.`;
+    throw error;
+}
+function readRecord(userId) {
+    const target = filePath(userId);
+    try { return validateRecord(JSON.parse(fs.readFileSync(target, 'utf8'))); }
+    catch (error) { return readError(error, target); }
+}
+async function readRecordAsync(userId) {
+    const target = filePath(userId);
+    try { return validateRecord(JSON.parse(await fs.promises.readFile(target, 'utf8'))); }
+    catch (error) { return readError(error, target); }
+}
+function readUserSessions(userId) { return readRecord(userId).sessions; }
+function serialize(userId, operation) { return persistence.serialize(DATA_DIR, safeId(userId), operation); }
+function checkReceipt(record, meta) {
+    const found = meta?.requestId && Object.hasOwn(record.receipts || {}, meta.requestId) && record.receipts[meta.requestId];
+    if (!found) return false;
+    if (found.fingerprint !== meta.fingerprint) throw Object.assign(new Error('requestId đã được dùng cho thao tác khác'), { status: 409 });
+    return true;
+}
+function operationMeta(event, payload, sessionId) {
+    if (payload?.requestId && (typeof payload.requestId !== 'string' || payload.requestId.length > 128)) throw new Error('requestId không hợp lệ');
+    return { requestId: payload?.requestId || '', sessionId, fingerprint: crypto.createHash('sha256').update(JSON.stringify({ event, sessionId, payload })).digest('hex') };
+}
+async function isDuplicate(userId, meta) { return checkReceipt(await readRecordAsync(userId), meta); }
+function recordReceipt(userId, meta) { return mutate(userId, () => ({ duplicate: true }), meta); }
+async function commitRecord(userId, previous, next, meta) {
+    const target = filePath(userId);
+    next.revision = previous.revision + 1;
+    next.schemaVersion = 2;
+    next.commitId = crypto.randomUUID();
+    next.receipts ||= {};
+    if (meta?.requestId) Object.defineProperty(next.receipts, meta.requestId, { enumerable: true, configurable: true, writable: true, value: { fingerprint: meta.fingerprint, sessionId: meta.sessionId, revision: next.revision } });
+    // Backup failure occurs BEFORE source commit. Source rename is the commit point.
+    if (previous.revision || previous.sessions.length) await persistence.atomicWrite(target + '.bak', previous);
+    await persistence.atomicWrite(target, next);
+    requestIndexUpdate(userId);
+}
+function writeUserSessions(userId, sessions, options = {}) {
+    if (!persistence.isSerialized(DATA_DIR, userId) && options.expectedRevision === undefined) return Promise.reject(new Error('Snapshot write yêu cầu expectedRevision hoặc hàng đợi đọc–sửa–ghi'));
+    return serialize(userId, async () => {
+        const previous = await readRecordAsync(userId);
+        if (options.expectedRevision !== undefined && previous.revision !== options.expectedRevision) throw new Error('Nguồn đã thay đổi; đọc lại trước khi ghi');
+        if (checkReceipt(previous, options.meta)) return { duplicate: true };
+        await commitRecord(userId, previous, { ...clone(previous), sessions: clone(sessions) }, options.meta);
+        return { revision: previous.revision + 1 };
+    });
+}
+function mutate(userId, operation, meta) {
+    return serialize(userId, async () => {
+        const previous = await readRecordAsync(userId);
+        if (checkReceipt(previous, meta)) return { duplicate: true };
+        const next = clone(previous);
+        const result = operation(next.sessions);
+        await commitRecord(userId, previous, next, meta);
+        return result;
+    });
+}
+function createLiveSession(userId, data = {}) {
+    return mutate(userId, sessions => {
+        const now = new Date().toISOString();
+        const id = data.id || generateSessionId();
+        if (sessions.some(s => s.id === id)) throw new Error('ID phiên live đã tồn tại');
+        const orders = Array.isArray(data.orders) ? data.orders : flattenConfirmedOrders(data.orders || {});
+        const session = { id, userId, type: data.type || 'live_session', liveName: data.liveName || 'Phiên live', tiktokUsername: data.tiktokUsername || '', startedAt: data.startedAt || now, endedAt: data.endedAt === null ? null : (data.endedAt || now), createdAt: now, lastActivityAt: data.lastActivityAt || now, orders, summary: data.summary || calculateSessionSummary(orders) };
+        if (Array.isArray(data.segments)) session.segments = data.segments;
+        if (Array.isArray(data.sourceSessionIds)) session.sourceSessionIds = data.sourceSessionIds;
+        sessions.unshift(session);
         return session;
     });
 }
-
-function writeUserSessions(userId, sessions) {
-    const db = getDb();
-    const del = db.transaction(() => {
-        db.prepare('DELETE FROM orders WHERE session_id IN (SELECT id FROM live_sessions WHERE user_id = ?)').run(userId);
-        db.prepare('DELETE FROM live_sessions WHERE user_id = ?').run(userId);
-    });
-    del();
-    for (const s of sessions) {
-        createLiveSession(userId, s);
-    }
-}
-
-function calculateSessionSummary(orders) {
-    let totalOrders = 0, totalQuantity = 0, totalRevenue = 0;
-    if (Array.isArray(orders)) {
-        totalOrders = orders.length;
-        orders.forEach(o => {
-            totalQuantity += (o.quantity || 1);
-            totalRevenue += (o.total || o.price || 0);
-        });
-    } else if (typeof orders === 'object' && orders !== null) {
-        Object.values(orders).forEach(customer => {
-            if (customer.items && Array.isArray(customer.items)) {
-                totalOrders += customer.items.length;
-                customer.items.forEach(item => {
-                    totalQuantity += 1;
-                    totalRevenue += (item.price || 0);
-                });
-            }
-        });
-    }
-    return { totalOrders, totalQuantity, totalRevenue };
-}
-
-function calculateProductSummary(orders) {
-    const productMap = {};
-    const processItem = (item) => {
-        const name = item.text || item.productName || 'Không rõ';
-        if (!productMap[name]) {
-            productMap[name] = { productName: name, totalQuantity: 0, totalOrders: 0, totalRevenue: 0 };
-        }
-        productMap[name].totalOrders += 1;
-        productMap[name].totalQuantity += (item.quantity || 1);
-        productMap[name].totalRevenue += (item.price || item.total || 0);
-    };
-    if (Array.isArray(orders)) {
-        orders.forEach(processItem);
-    } else if (typeof orders === 'object' && orders !== null) {
-        Object.values(orders).forEach(customer => {
-            if (customer.items && Array.isArray(customer.items)) {
-                customer.items.forEach(processItem);
-            }
-        });
-    }
-    return Object.values(productMap).sort((a, b) => b.totalRevenue - a.totalRevenue);
-}
-
-function flattenConfirmedOrders(confirmedOrders) {
-    const flat = [];
-    Object.values(confirmedOrders).forEach(customer => {
-        if (customer.items && Array.isArray(customer.items)) {
-            const username = normalizeDisplayText(customer.username || '');
-            const customerName = cleanDisplayText(customer.nickname || customer.displayName || '') || username;
-            customer.items.forEach(item => {
-                flat.push({
-                    id: `order_${item.id || Date.now() + Math.random()}`,
-                    customerName,
-                    customerUsername: username,
-                    profilePictureUrl: customer.profilePictureUrl || '',
-                    productName: normalizeDisplayText(item.text || ''),
-                    quantity: 1,
-                    price: item.price || 0,
-                    total: item.price || 0,
-                    note: '',
-                    time: item.time || '',
-                    createdAt: new Date().toISOString()
-                });
-            });
-        }
-    });
-    return flat;
-}
-
-function generateSessionId() {
-    return 'session_' + Date.now() + '_' + Math.random().toString(36).substring(2, 8);
-}
-
-function createLiveSession(userId, data) {
-    let orders = data.orders;
-    if (orders && !Array.isArray(orders)) {
-        orders = flattenConfirmedOrders(orders);
-    } else if (Array.isArray(orders)) {
-        orders = orders.map(o => ({
-            ...o,
-            id: o.id || `order_${Date.now() + Math.random()}`,
-            customerUsername: normalizeDisplayText(o.customerUsername || o.tiktokUsername || ''),
-            customerName: cleanDisplayText(o.customerName || o.nickname || '') || normalizeDisplayText(o.customerUsername || o.tiktokUsername || ''),
-            productName: normalizeDisplayText(o.productName || o.text || '')
-        }));
-    } else {
-        orders = [];
-    }
-
-    const calculatedSummary = calculateSessionSummary(orders);
-    const summary = data.summary && typeof data.summary === 'object'
-        ? { ...data.summary, ...calculatedSummary }
-        : calculatedSummary;
-    const now = new Date().toISOString();
-    const id = data.id || generateSessionId();
-
-    const db = getDb();
-
-    const orderStmt = db.prepare(`
-        INSERT INTO orders (id, session_id, user_id, customer_name, customer_username, profile_picture_url, product_name, quantity, price, total, note, item_time, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    const finalSummary = db.transaction(() => {
-        db.prepare(`
-            INSERT INTO live_sessions (id, user_id, type, live_name, tiktok_username, started_at, ended_at, created_at, summary, status, resumed_at, resume_count, last_activity_at, ended_reason, revision)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-            id, userId,
-            data.type || 'live_session',
-            data.liveName || `Phiên live ${new Date().toLocaleDateString('vi-VN')}`,
-            data.tiktokUsername || '',
-            data.startedAt || now,
-            data.endedAt || null,
-            now,
-            JSON.stringify(summary),
-            data.status || 'live',
-            data.resumedAt || null,
-            Number(data.resumeCount || 0),
-            data.lastActivityAt || now,
-            data.endedReason || null,
-            Number(data.revision || 0)
-        );
-
-        for (const o of orders) {
-            const newOrderId = `order_${id}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-            orderStmt.run(
-                newOrderId,
-                id, userId,
-                o.customerName || '', o.customerUsername || '',
-                o.profilePictureUrl || '', o.productName || '',
-                o.quantity || 1, o.price || 0, o.total || 0,
-                o.note || '', o.time || '', o.createdAt || now
-            );
-        }
-
-        console.log(`>>> createLiveSession: đã insert ${orders.length} orders cho session ${id}`);
-
-        const actualOrders = db.prepare('SELECT * FROM orders WHERE session_id = ?').all(id);
-
-        console.log(`>>> createLiveSession: verify — session ${id} có ${actualOrders.length} orders trong DB`);
-        if (actualOrders.length !== orders.length) {
-            console.error(`>>> CẢNH BÁO: Số order insert (${orders.length}) khác số order thực tế trong DB (${actualOrders.length}) — có thể do PRIMARY KEY conflict`);
-        }
-
-        const actualSummary = calculateSessionSummary(actualOrders.map(row => ({
-            quantity: row.quantity,
-            price: row.price,
-            total: row.total
-        })));
-        const mergedSummary = { ...summary, ...actualSummary };
-        if (Array.isArray(data.sourceSessionIds)) {
-            mergedSummary.sourceSessionIds = data.sourceSessionIds;
-        }
-        db.prepare('UPDATE live_sessions SET summary = ? WHERE id = ?').run(JSON.stringify(mergedSummary), id);
-        return mergedSummary;
-    })();
-
-    return getLiveSessionById(userId, id);
-}
-
-function getLiveSessionById(userId, sessionId) {
-    const db = getDb();
-    const sessionRow = db.prepare('SELECT * FROM live_sessions WHERE id = ? AND user_id = ?').get(sessionId, userId);
-
-    if (!sessionRow) return null;
-
-    const orders = db.prepare('SELECT * FROM orders WHERE session_id = ? ORDER BY created_at').all(sessionId);
-    const session = rowToSession(sessionRow);
-    session.orders = orders.map(rowToOrder);
-    return session;
-}
-
+function getLiveSessionById(userId, sessionId) { return readUserSessions(userId).find(s => s.id === sessionId) || null; }
 function deleteLiveSession(userId, sessionId) {
-    const db = getDb();
-    db.prepare('DELETE FROM orders WHERE session_id = ?').run(sessionId);
-    const result = db.prepare('DELETE FROM live_sessions WHERE id = ? AND user_id = ?').run(sessionId, userId);
-    return result.changes > 0;
+    return mutate(userId, sessions => {
+        const i = sessions.findIndex(s => s.id === sessionId);
+        if (i < 0) return false;
+        if (!sessions[i].endedAt) throw new Error('Hãy kết thúc phiên trước khi xóa');
+        sessions.splice(i, 1);
+        return true;
+    });
 }
-
-// ⚠️ DEPRECATED/UNUSED: Hàm này giữ nguyên order.id gốc khi merge, có thể gây 
-// PRIMARY KEY conflict nếu dùng để lưu trực tiếp vào DB. Dùng 
-// mergeVisibleLiveSessionsWithLegacy (server.js) + createLiveSession thay thế.
-function mergeLiveSessions(userId, sessionIds) {
-    const sessions = sessionIds.map(id => getLiveSessionById(userId, id)).filter(Boolean);
-    if (sessions.length === 0) return null;
-
-    const mergedOrders = [];
-    const seenOrderIds = new Set();
-    sessions.forEach(session => {
-        (session.orders || []).forEach(order => {
-            if (order.id && seenOrderIds.has(order.id)) return;
-            if (order.id) seenOrderIds.add(order.id);
-            mergedOrders.push({ ...order, fromSession: session.liveName });
+function openSegment(session) {
+    if (!session.segments?.length) return { startedAt: session.startedAt, endedAt: null, orders: session.orders || [] };
+    const open = session.segments.filter(s => !s.endedAt && !s.closedBySessionAt);
+    if (open.length !== 1) throw new Error('Không xác định được segment đang mở; hãy đóng phiên cũ để tạo mới');
+    return open[0];
+}
+function updateLiveSession(userId, sessionId, data = {}) {
+    return mutate(userId, sessions => {
+        const session = sessions.find(s => s.id === sessionId);
+        if (!session || session.endedAt || session.type !== 'live_session') throw new Error('Không có phiên live đang hoạt động');
+        const segment = openSegment(session);
+        if (data.segmentStartedAt && segment.startedAt !== data.segmentStartedAt) throw new Error('Lượt live đã thay đổi');
+        if (!session.segments?.length) session.segments = [segment];
+        if (data.orders !== undefined) {
+            segment.orders = Array.isArray(data.orders) ? data.orders : flattenConfirmedOrders(data.orders);
+            segment.summary = calculateSessionSummary(segment.orders);
+            session.orders = rebuildSessionOrders(session);
+            session.summary = calculateSessionSummary(session.orders);
+        }
+        session.lastActivityAt = new Date().toISOString();
+        segment.lastActivityAt = session.lastActivityAt;
+        if (data.endedAt) {
+            session.endedAt = data.endedAt;
+            segment.endedAt = data.endedAt;
+            if (data.closeReason) session.closeReason = data.closeReason;
+        }
+        return session;
+    }, data.meta);
+}
+function recoveryVersion(session) { return crypto.createHash('sha256').update(JSON.stringify(session)).digest('hex'); }
+function startLiveSession(userId, { broadcasterId, resumeSessionId, liveName, startedAt, closeSessionIds = [], recovery, meta }) {
+    return mutate(userId, sessions => {
+        const now = startedAt || new Date().toISOString();
+        if (!Array.isArray(closeSessionIds) || closeSessionIds.some(id => typeof id !== 'string' || !id) || new Set(closeSessionIds).size !== closeSessionIds.length) throw new Error('Danh sách phiên cần đóng không hợp lệ');
+        const recoveryCreate = recovery?.confirmed === true && closeSessionIds.length > 0;
+        if (closeSessionIds.length && !recoveryCreate) throw new Error('Đóng phiên cũ cần xác nhận recovery');
+        if (recovery) {
+            if (!recovery.confirmed || !meta?.requestId || (resumeSessionId && closeSessionIds.length) || (!resumeSessionId && !closeSessionIds.length)) throw new Error('Yêu cầu recovery không hợp lệ');
+            for (const id of resumeSessionId ? [resumeSessionId] : closeSessionIds) {
+                const selected = sessions.find(s => s.id === id && s.type === 'live_session' && !s.endedAt && (!s.userId || s.userId === userId));
+                if (!selected || !Object.hasOwn(recovery.versions || {}, id) || recoveryVersion(selected) !== recovery.versions[id]) throw new Error('Phiên đã thay đổi hoặc không thuộc lựa chọn. Hãy tải lại recovery.');
+            }
+        }
+        for (const id of closeSessionIds) {
+            const old = sessions.find(s => s.id === id && !s.endedAt && s.type === 'live_session');
+            if (!old) throw new Error('Phiên cần đóng không còn mở');
+            old.endedAt = now;
+            old.closeReason = 'recovery-user-closed';
+            old.lastActivityAt = now;
+            (old.segments || []).filter(s => !s.endedAt && !s.closedBySessionAt).forEach(s => { s.endedAt = now; s.closeReason = old.closeReason; });
+        }
+        if (resumeSessionId) {
+            const session = sessions.find(s => s.id === resumeSessionId);
+            if (!session || session.tiktokUsername !== broadcasterId || session.type !== 'live_session') throw new Error('Lịch sử không thuộc tài khoản hoặc chủ live này');
+            if (!session.endedAt) {
+                const segment = openSegment(session);
+                session.lastActivityAt = now;
+                segment.lastActivityAt = now;
+                return { ...session, currentSegmentOrders: segment.orders, currentSegmentStartedAt: segment.startedAt };
+            }
+            session.segments ||= [{ startedAt: session.startedAt, endedAt: session.endedAt, orders: session.orders || [] }];
+            const seen = new Set();
+            session.segments.forEach(segment => {
+                // Legacy closed histories may lack per-segment end timestamps.
+                // Record that the containing session was closed; do not invent
+                // the actual end time of an individual segment.
+                if (!segment.endedAt) segment.closedBySessionAt = session.endedAt;
+                segment.orders = (segment.orders || []).filter(order => { const id = String(order?.id ?? ''); if (!id || seen.has(id)) return false; seen.add(id); return true; });
+                segment.summary = calculateSessionSummary(segment.orders);
+            });
+            session.segments.push({ id: crypto.randomUUID(), startedAt: now, endedAt: null, orders: [] });
+            session.orders = rebuildSessionOrders(session);
+            session.summary = calculateSessionSummary(session.orders);
+            session.endedAt = null;
+            session.lastStartedAt = now;
+            session.lastActivityAt = now;
+            return { ...session, currentSegmentOrders: [], currentSegmentStartedAt: now };
+        }
+        if (!recoveryCreate && sessions.some(s => !s.endedAt && s.type === 'live_session')) throw new Error('Còn phiên mở; hãy chọn tiếp tục hoặc đóng trước khi tạo phiên mới');
+        const session = { id: generateSessionId(), userId, type: 'live_session', liveName, tiktokUsername: broadcasterId, startedAt: now, endedAt: null, createdAt: now, lastActivityAt: now, orders: [], summary: calculateSessionSummary([]), segments: [{ id: crypto.randomUUID(), startedAt: now, endedAt: null, orders: [] }] };
+        sessions.unshift(session);
+        return { ...session, currentSegmentOrders: [], currentSegmentStartedAt: now };
+    }, meta);
+}
+function recoveryCandidates(userId, now = Date.now()) {
+    const configured = Number(process.env.LIVE_RECOVERY_STALE_HOURS || 12);
+    const hours = Number.isFinite(configured) && configured > 0 ? configured : 12;
+    return readUserSessions(userId).filter(s => s.type === 'live_session' && !s.endedAt).map(session => {
+        let segment, ambiguous = false;
+        try { segment = openSegment(session); } catch (_) { ambiguous = true; }
+        const fallback = [session.startedAt, ...(session.segments || []).flatMap(s => [s.startedAt, s.endedAt, s.lastActivityAt]), ...(session.orders || []).map(o => o.createdAt)].map(Date.parse).filter(t => Number.isFinite(t) && t <= now);
+        const activity = Date.parse(session.lastActivityAt);
+        const last = Number.isFinite(activity) && activity <= now ? activity : Math.max(...fallback);
+        return { session, segment, ambiguous, stale: !Number.isFinite(last) || now - last >= hours * 3600000, lastActivityAt: Number.isFinite(last) ? new Date(last).toISOString() : null };
+    });
+}
+function sourceRows(record, userId) { return record.sessions.flatMap(session => (session.orders || []).map(order => rawRow(userId, session, order))); }
+function checksum(rows) { return crypto.createHash('sha256').update(JSON.stringify(rows)).digest('hex'); }
+function sourceVersion(record) { return record.commitId || checksum(record.sessions); }
+function indexPath(userId) { return path.join(HISTORY_DIR, safeId(userId), 'projection.json'); }
+function buildIndex(userId) {
+    const previous = indexBuilds.get(userId) || Promise.resolve();
+    const task = previous.catch(() => {}).then(() => buildIndexSnapshot(userId));
+    indexBuilds.set(userId, task);
+    const cleanup = () => { if (indexBuilds.get(userId) === task) indexBuilds.delete(userId); };
+    task.then(cleanup, cleanup);
+    return task;
+}
+async function buildIndexSnapshot(userId) {
+    await persistence.acquireWriter(DATA_DIR);
+    const record = await readRecordAsync(userId);
+    const rows = sourceRows(record, userId);
+    // One atomic snapshot publishes a complete generation across all dates.
+    await persistence.atomicWrite(indexPath(userId), { schemaVersion: 2, revision: record.revision, sourceVersion: sourceVersion(record), checksum: checksum(rows), rows });
+    return record.revision;
+}
+function requestIndexUpdate(userId, immediate = false) {
+    if (disposed) return;
+    let job = indexJobs.get(userId);
+    if (!job) { job = { requested: true, running: false, timer: null, failures: 0 }; indexJobs.set(userId, job); }
+    job.requested = true;
+    if (job.running) return;
+    if (job.timer) { if (!immediate) return; clearTimeout(job.timer); }
+    job.timer = setTimeout(async () => {
+        job.timer = null;
+        job.running = true;
+        job.requested = false;
+        job.task = (async () => { try {
+            const revision = await buildIndex(userId);
+            await archiveOldIndexes(userId);
+            job.failures = 0;
+            if ((await readRecordAsync(userId)).revision !== revision) job.requested = true;
+        } catch (error) { console.error(`[live-store] index ${userId}:`, error.message); job.requested = true; job.failures += 1; }
+        finally { job.running = false; if (job.requested) requestIndexUpdate(userId); else indexJobs.delete(userId); }
+        })();
+        await job.task;
+    }, immediate ? 0 : Math.min(30000, 250 * (2 ** Math.min(job.failures, 7))));
+    job.timer.unref?.();
+}
+function readIndexedRows(userId, { start = '', end = '', offset = 0, limit = 0 } = {}) {
+    const record = readRecord(userId);
+    let rows;
+    try {
+        const index = JSON.parse(fs.readFileSync(indexPath(userId), 'utf8'));
+        if (index.schemaVersion !== 2 || index.revision !== record.revision || index.sourceVersion !== sourceVersion(record) || !Array.isArray(index.rows) || checksum(index.rows) !== index.checksum) throw new Error('Index stale/incomplete');
+        rows = index.rows;
+    } catch (_) { rows = sourceRows(record, userId); requestIndexUpdate(userId); }
+    const sorted = rows.filter(row => (!start || row.captureDate >= start) && (!end || row.captureDate <= end)).sort((a, b) => Date.parse(b.createdAt || 0) - Date.parse(a.createdAt || 0));
+    return limit > 0 ? sorted.slice(offset, offset + limit) : sorted.slice(offset);
+}
+function migrationAudit(userId) {
+    const record = readRecord(userId);
+    const source = sourceRows(record, userId);
+    const index = JSON.parse(fs.readFileSync(indexPath(userId), 'utf8'));
+    const stats = rows => ({ count: rows.length, revenueCents: rows.reduce((sum, row) => sum + Math.round(Number(row.total || 0) * 100), 0), distinctEventIds: new Set(rows.map(row => row.eventId).filter(Boolean)).size });
+    return { match: index.revision === record.revision && index.sourceVersion === sourceVersion(record) && checksum(source) === index.checksum && checksum(index.rows) === index.checksum, source: stats(source), indexed: stats(index.rows) };
+}
+async function migrateUserIndexes(userId) { await buildIndex(userId); return migrationAudit(userId); }
+// Maintain legacy per-day files off the commit path. v2 never reads these
+// archives; its atomic projection includes every date from the canonical source.
+async function archiveOldIndexes(userId) {
+    await persistence.acquireWriter(DATA_DIR);
+    const directory = path.join(HISTORY_DIR, safeId(userId));
+    let names;
+    try { names = await fs.promises.readdir(directory); }
+    catch (error) { if (error.code === 'ENOENT') return; throw error; }
+    const cutoff = Date.now() - 90 * 86400000;
+    for (const name of names.filter(n => /^\d{4}-\d{2}-\d{2}\.json$/.test(n))) {
+        const source = path.join(directory, name);
+        if ((await fs.promises.stat(source)).mtimeMs >= cutoff) continue;
+        const compressed = await gzip(await fs.promises.readFile(source));
+        await persistence.atomicWrite(path.join(ARCHIVE_DIR, userId, name + '.gz'), compressed);
+        await fs.promises.unlink(source);
+    }
+}
+async function recoverBackup(userId) {
+    return serialize(userId, async () => {
+        const target = filePath(userId);
+        const backup = validateRecord(JSON.parse(await fs.promises.readFile(target + '.bak', 'utf8')));
+        const damaged = await fs.promises.readFile(target, 'utf8');
+        await persistence.atomicWrite(`${target}.corrupt-${Date.now()}`, damaged);
+        await persistence.atomicWrite(target, backup);
+        requestIndexUpdate(userId, true);
+        return { revision: backup.revision, warning: 'Đã phục hồi backup; có thể thiếu commit mới hơn. Cần đối chiếu dữ liệu.' };
+    });
+}
+async function initialize() {
+    await persistence.acquireWriter(DATA_DIR);
+    const names = await fs.promises.readdir(DATA_DIR);
+    for (const name of names.filter(n => /^[a-zA-Z0-9_-]+\.json$/.test(n))) requestIndexUpdate(name.slice(0, -5), true);
+}
+async function drain() {
+    await persistence.drain();
+    await dispose();
+}
+async function dispose() {
+    disposed = true;
+    for (const job of indexJobs.values()) { if (job.timer) clearTimeout(job.timer); job.requested = false; }
+    await Promise.allSettled([...indexJobs.values()].map(job => job.task).filter(Boolean));
+    await Promise.allSettled([...indexBuilds.values()]);
+}
+// ── Compatibility adapters ────────────────────────────────────
+// Server cũ (SQLite) gọi 3 hàm này; bản JSON store trả về object trực tiếp.
+function rowToSession(row) {
+    return row ? { ...row } : null;
+}
+function rowToOrder(row) {
+    return row ? { ...row } : null;
+}
+async function renameLiveSession(userId, sessionId, newName) {
+    const name = cleanDisplayText(newName || '').slice(0, 120);
+    if (!name) return false;
+    let found = false;
+    try {
+        await mutate(userId, sessions => {
+            const target = sessions.find(s => s.id === sessionId);
+            if (!target) return null;
+            target.liveName = name;
+            target.lastActivityAt = new Date().toISOString();
+            found = true;
+            return target;
         });
-    });
-
-    const summary = calculateSessionSummary(mergedOrders);
-    const productSummary = calculateProductSummary(mergedOrders);
-
-    const customerMap = {};
-    mergedOrders.forEach(o => {
-        const customerUsername = normalizeDisplayText(o.customerUsername || '');
-        const customerName = normalizeDisplayName(o.customerName || '', customerUsername ? `@${customerUsername}` : undefined);
-        const key = customerUsername || customerName || 'unknown';
-        if (!customerMap[key]) {
-            customerMap[key] = {
-                customerName, customerUsername,
-                profilePictureUrl: o.profilePictureUrl, orders: [], total: 0
-            };
-        }
-        customerMap[key].orders.push(o);
-        customerMap[key].total += (o.total || o.price || 0);
-    });
-
-    return {
-        selectedSessions: sessions.map(s => ({
-            id: s.id, liveName: s.liveName, tiktokUsername: s.tiktokUsername,
-            startedAt: s.startedAt, summary: s.summary
-        })),
-        summary: { totalSessions: sessions.length, ...summary },
-        mergedOrders, productSummary,
-        customerSummary: Object.values(customerMap).sort((a, b) => b.total - a.total)
-    };
-}
-
-function getUserSessionFile(userId) {
-    return '';
-}
-
-/**
- * Cập nhật session đã có: xóa orders cũ và insert lại orders mới.
- * Dùng cho sync sau mỗi thao tác thêm/sửa/xóa khi user đang chỉnh sửa session lịch sử.
- */
-function updateLiveSession(userId, sessionId, patch) {
-    const db = getDb();
-    const existing = db.prepare('SELECT id, revision FROM live_sessions WHERE id = ? AND user_id = ?').get(sessionId, userId);
-    if (!existing) throw new Error(`Session ${sessionId} không tồn tại hoặc không thuộc user ${userId}`);
-
-    const requestedRevision = Number.isFinite(Number(patch.revision)) ? Number(patch.revision) : null;
-    if (requestedRevision !== null && requestedRevision < Number(existing.revision || 0)) {
-        return getLiveSessionById(userId, sessionId);
+    } catch (error) {
+        throw error;
     }
-    const revision = requestedRevision === null ? Number(existing.revision || 0) + 1 : requestedRevision;
-    const now = new Date().toISOString();
-    const metadata = {
-        status: patch.status,
-        endedAt: patch.endedAt,
-        endedReason: patch.endedReason,
-        lastActivityAt: patch.lastActivityAt || now,
-        resumedAt: patch.resumedAt,
-        resumeCount: patch.resumeCount
-    };
-
-    let orders = patch.orders;
-    if (!orders) {
-        // Không cập nhật orders nếu không truyền vào
-        if (patch.summary) {
-            db.prepare(`
-                UPDATE live_sessions
-                SET summary = ?, status = COALESCE(?, status), ended_at = COALESCE(?, ended_at),
-                    ended_reason = COALESCE(?, ended_reason), last_activity_at = ?,
-                    resumed_at = COALESCE(?, resumed_at), resume_count = COALESCE(?, resume_count), revision = ?
-                WHERE id = ? AND user_id = ?
-            `).run(JSON.stringify(patch.summary), metadata.status || null, metadata.endedAt || null,
-                metadata.endedReason || null, metadata.lastActivityAt, metadata.resumedAt || null,
-                metadata.resumeCount ?? null, revision, sessionId, userId);
-        }
-        return getLiveSessionById(userId, sessionId);
-    }
-
-    if (!Array.isArray(orders)) {
-        orders = flattenConfirmedOrders(orders);
-    }
-
-    const calculatedSummary = calculateSessionSummary(orders);
-    const summary = patch.summary
-        ? { ...patch.summary, ...calculatedSummary }
-        : calculatedSummary;
-
-    const orderStmt = db.prepare(`
-        INSERT INTO orders (id, session_id, user_id, customer_name, customer_username, profile_picture_url, product_name, quantity, price, total, note, item_time, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `);
-
-    db.transaction(() => {
-        // Xóa orders cũ của session này
-        db.prepare('DELETE FROM orders WHERE session_id = ?').run(sessionId);
-        // Insert orders mới
-        for (const o of orders) {
-            const newOrderId = `order_${sessionId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-            orderStmt.run(
-                newOrderId, sessionId, userId,
-                o.customerName || '', o.customerUsername || '',
-                o.profilePictureUrl || '', o.productName || '',
-                o.quantity || 1, o.price || 0, o.total || o.price || 0,
-                o.note || '', o.time || '', o.createdAt || now
-            );
-        }
-        db.prepare(`
-            UPDATE live_sessions
-            SET summary = ?, status = COALESCE(?, status), ended_at = COALESCE(?, ended_at),
-                ended_reason = COALESCE(?, ended_reason), last_activity_at = ?,
-                resumed_at = COALESCE(?, resumed_at), resume_count = COALESCE(?, resume_count), revision = ?
-            WHERE id = ? AND user_id = ?
-        `).run(JSON.stringify(summary), metadata.status || null, metadata.endedAt || null,
-            metadata.endedReason || null, metadata.lastActivityAt, metadata.resumedAt || null,
-            metadata.resumeCount ?? null, revision, sessionId, userId);
-    })();
-
-    return getLiveSessionById(userId, sessionId);
+    return found;
 }
 
-/**
- * Upsert session: nếu sessionId đã tồn tại thì update, không thì create mới.
- * Trả về { session, isNew }
- */
-function upsertLiveSession(userId, sessionId, data) {
-    const db = getDb();
-    const existing = sessionId
-        ? db.prepare('SELECT id FROM live_sessions WHERE id = ? AND user_id = ?').get(sessionId, userId)
-        : null;
-
-    if (existing) {
-        const session = updateLiveSession(userId, sessionId, data);
-        return { session, isNew: false };
-    }
-    const session = createLiveSession(userId, data);
-    return { session, isNew: true };
-}
-
-function renameLiveSession(userId, sessionId, newName) {
-    const db = getDb();
-    const result = db.prepare(
-        'UPDATE live_sessions SET live_name = ? WHERE id = ? AND user_id = ?'
-    ).run(newName, sessionId, userId);
-    return result.changes > 0;
-}
-
-module.exports = {
-    readUserSessions,
-    writeUserSessions,
-    createLiveSession,
-    updateLiveSession,
-    upsertLiveSession,
-    getLiveSessionById,
-    deleteLiveSession,
-    mergeLiveSessions,
-    calculateSessionSummary,
-    calculateProductSummary,
-    flattenConfirmedOrders,
-    getUserSessionFile,
-    rowToSession,
-    rowToOrder,
-    renameLiveSession
-};
-
+module.exports = { ...projection, readUserSessions, readRecord, writeUserSessions, createLiveSession, getLiveSessionById, deleteLiveSession, updateLiveSession, startLiveSession, readIndexedRows, migrationAudit, migrateUserIndexes, DATA_DIR, HISTORY_DIR, ARCHIVE_DIR, archiveOldIndexes, serialize, operationMeta, isDuplicate, recordReceipt, recoveryVersion, recoveryCandidates, requestIndexUpdate, recoverBackup, initialize, drain, dispose, rowToSession, rowToOrder, renameLiveSession };

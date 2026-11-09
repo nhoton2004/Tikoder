@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
     <title>TikTok Order Dashboard</title>
     <meta name="theme-color" content="#0B1020">
     <script>
@@ -19,6 +19,7 @@
     <link rel="stylesheet" href="/css/dashboard-premium.css">
     <link rel="stylesheet" href="/css/dashboard-pro.css">
     <link rel="stylesheet" href="/css/responsive-layout.css">
+    <link rel="stylesheet" href="/css/zalo-auto-reply.css">
 </head>
 <body>
     <div id="sidebar-backdrop" class="sidebar-backdrop no-print" hidden></div>
@@ -72,6 +73,8 @@
                         <button class="menu-item menu-sub-item w-full text-left" data-view="customers" data-tooltip="Khách hàng"><span class="nav-key"><img src="/icons/users.svg" alt=""></span><span class="menu-label min-w-0 truncate" data-i18n="menu.customers">Khách hàng</span></button>
                     </div>
                 </div>
+                <button class="menu-item w-full text-left" data-view="quotes" data-tooltip="Báo giá"><span class="nav-key"><img src="/icons/receipt-text.svg" alt=""></span><span class="menu-label min-w-0 truncate" data-i18n="menu.quotes">Báo giá</span> <span id="quote-count" aria-label="Số báo giá chờ gửi"></span></button>
+                <button class="menu-item w-full text-left" data-view="zalo-inbox" data-tooltip="Zalo tự động"><span class="nav-key"><img src="/icons/receipt-text.svg" alt=""></span><span class="menu-label min-w-0 truncate">Zalo tự động</span></button>
                 <div class="menu-group">
                     <button id="menu-settings-group-toggle" type="button" class="menu-item menu-group-toggle w-full text-left flex items-center justify-between" data-tooltip="Cài đặt" aria-expanded="false">
                         <div class="flex min-w-0 flex-1 items-center gap-2 truncate">
@@ -121,7 +124,7 @@
         <div class="main-wrap">
             <header class="topbar no-print">
                 <div class="topbar-title">
-                    <button id="sidebar-mobile-toggle" class="hamburger-btn" type="button" aria-label="Mở menu" aria-expanded="false">
+                    <button id="sidebar-mobile-toggle" class="hamburger-btn" type="button" aria-label="Mở menu" aria-controls="app-sidebar" aria-expanded="false">
                         <img src="/icons/layout-dashboard.svg" alt="" width="16" height="16">
                     </button>
                     <div>
@@ -279,13 +282,17 @@
 
                         <div class="live-connect-bar">
                             <span class="live-status-chip"><span></span> TikTok Live</span>
-                            <div class="live-quick-actions" style="margin-left: auto;">
-                                <button type="button" onclick="printAllSummary()" class="px-2.5 py-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1">
-                                    <span class="material-symbols-outlined text-sm">receipt_long</span> In tổng kết
-                                </button>
-                                <button type="button" id="btn-connect" class="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded-lg transition-colors flex items-center gap-1">
-                                    ⚡ Kết nối
-                                </button>
+                            <div class="live-connect-row">
+                                <input id="tiktok-id" type="text" placeholder="Nhập ID TikTok chủ Live để kết nối...">
+                                <div class="live-session-actions" role="group" aria-label="Điều khiển phiên Live">
+                                    <button id="btn-connect" type="button" data-i18n="live.connectBtn"><span class="material-symbols-outlined">link</span> Bắt đầu Live</button>
+                                    <button id="btn-end-live" type="button" class="bg-red-600 text-white px-3 py-2 rounded-lg font-bold disabled:opacity-50" data-i18n="actions.saveSession" disabled>Kết thúc Live</button>
+                                </div>
+                            </div>
+                            <div class="live-quick-actions">
+                                <span>Rapid fire</span>
+                                <button type="button" onclick="printAllSummary()"><span class="material-symbols-outlined">receipt_long</span> In chốt</button>
+                                <button type="button" onclick="showLiveSessions()"><span class="material-symbols-outlined">history</span> Lịch sử</button>
                                 <button type="button" class="live-orders-toggle" data-live-orders-toggle aria-expanded="true" onclick="toggleLiveOrdersPanel()">
                                     <span class="material-symbols-outlined">keyboard_double_arrow_right</span>
                                     <span data-live-orders-toggle-label>Thu gọn</span>
@@ -755,27 +762,28 @@
                                         <span id="selected-customers-count" class="bg-purple-800 text-white text-xs px-2 py-0.5 rounded-full hidden">0</span>
                                     </button>
                                     <button type="button" onclick="importCustomersFromHistory()" class="bg-emerald-600 text-white px-4 py-2 rounded-xl text-sm font-bold" data-i18n="customers.importHistory">Lấy từ lịch sử chốt</button>
-                                    <button type="button" onclick="resetCustomerForm()" class="bg-red-500 text-white px-4 py-2 rounded-xl text-sm font-bold" data-i18n="customers.new">Thêm khách</button>
+                                    <button id="customer-add-btn" type="button" onclick="openNewCustomer()" class="bg-red-500 text-white px-4 py-2 rounded-xl text-sm font-bold" data-i18n="customers.new">Thêm khách</button>
                                 </div>
                             </div>
 
-                        <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-4">
-                            <div class="panel overflow-hidden">
+                        <p id="customer-list-status" class="customer-list-status text-sm" role="status" aria-live="polite"></p>
+                        <div class="customers-layout grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_360px] gap-4">
+                            <div class="customers-list panel overflow-hidden">
                                 <div class="p-4 border-b bg-gray-50">
-                                    <input id="customer-search" type="search" class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm" placeholder="Tìm theo tên, TikTok username, số điện thoại">
+                                    <input id="customer-search" type="search" aria-label="Tìm khách hàng" class="w-full border border-gray-300 rounded-xl px-3 py-2 text-sm" placeholder="Tìm theo tên, TikTok username, số điện thoại">
                                 </div>
                                 <div class="overflow-x-auto">
-                                    <table class="customers-table w-full text-sm">
+                                    <table class="customers-table w-full text-sm" role="table" aria-label="Danh sách khách hàng">
                                         <thead class="bg-white border-b text-xs text-gray-500">
                                             <tr>
                                                 <th class="p-3 text-center w-10">
                                                     <input type="checkbox" id="customer-select-all" class="w-4 h-4 rounded border-gray-300 cursor-pointer" onchange="toggleSelectAllCustomers(this.checked)">
                                                 </th>
-                                                <th class="p-3 text-left">TikTok</th>
-                                                <th class="p-3 text-left">Tên</th>
-                                                <th class="p-3 text-left">Số điện thoại</th>
-                                                <th class="p-3 text-left">Địa chỉ</th>
-                                                <th class="p-3 text-right">Thao tác</th>
+                                                <th scope="col" class="p-3 text-left">TikTok</th>
+                                                <th scope="col" class="p-3 text-left">Tên</th>
+                                                <th scope="col" class="p-3 text-left">Số điện thoại</th>
+                                                <th scope="col" class="p-3 text-left">Địa chỉ</th>
+                                                <th scope="col" class="p-3 text-right">Thao tác</th>
                                             </tr>
                                         </thead>
                                         <tbody id="customers-table-body"></tbody>
@@ -783,11 +791,15 @@
                                 </div>
                             </div>
 
-            <form id="customer-form" class="panel p-4 space-y-3" onsubmit="saveCustomerForm(event)">
+                            <div id="customer-editor" class="customer-editor">
+                            <form id="customer-form" class="panel p-4 space-y-3" aria-labelledby="customer-form-title">
                                 <input type="hidden" id="customer-id">
-                                <div>
-                                    <h3 id="customer-form-title" class="font-black text-xl">Thêm khách hàng</h3>
-                                    <p id="customer-form-status" class="text-xs text-gray-400 mt-1"></p>
+                                <div class="customer-form-heading">
+                                    <div>
+                                        <h3 id="customer-form-title" class="font-black text-xl">Thêm khách hàng</h3>
+                                        <p id="customer-form-status" class="text-xs text-gray-400 mt-1" role="status" aria-live="polite"></p>
+                                    </div>
+                                    <button type="button" class="customer-form-close" onclick="closeCustomerEditor()" aria-label="Đóng form khách hàng">Đóng</button>button>
                                 </div>
 
                                 <!-- Nhập tự động -->
@@ -827,12 +839,12 @@
                                 <label class="block text-xs font-bold text-gray-500">Mã khách hàng
                                     <input id="customer-code" type="text" class="mt-1 w-full border border-gray-300 rounded-xl px-3 py-2 text-sm">
                                 </label>
-                                <div class="flex gap-2 pt-2">
+                                <div class="customer-form-actions flex gap-2 pt-2">
                                     <button type="submit" class="flex-1 bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold">Lưu</button>
-                                    <button type="button" onclick="resetCustomerForm()" class="bg-white border border-gray-300 px-4 py-2 rounded-xl text-sm font-bold">Hủy</button>
+                                    <button type="button" onclick="cancelCustomerEdit()" class="bg-white border border-gray-300 px-4 py-2 rounded-xl text-sm font-bold">Hủy</button>
                                 </div>
                             </form>
-
+                            </div>
                         </div>
                     </section>
 
@@ -903,6 +915,190 @@
                                     <button type="button" id="creditor-cancel-btn" onclick="resetCreditorDebtForm()" class="hidden bg-white border border-gray-300 px-4 py-2 rounded-xl text-sm font-bold">Hủy</button>
                                 </div>
                             </form>
+                        </div>
+                    </section>
+                    <section id="section-quotes" class="dashboard-section space-y-4 no-print" hidden>
+                        <div class="panel p-4 space-y-3">
+                            <h2 class="text-3xl font-black" data-i18n="menu.quotes">Báo giá</h2>
+                            <p class="text-sm text-gray-500">Tạo báo giá độc lập cho khách đã lưu, hoặc từ đơn hàng đang xem. Báo giá chỉ được gửi sau khi duyệt.</p>
+                                                        <details id="quote-create-editor">
+                                                            <summary>Tạo báo giá</summary>
+                                                            <form id="quote-create-form" class="space-y-3 mt-3">
+                                                                <label class="block">Khách hàng <select id="quote-create-customer" required aria-describedby="quote-create-help" class="w-full p-2 rounded-xl border"></select></label>
+                                                                <p id="quote-create-help" class="text-sm">Chọn khách đã lưu. Thêm khách mới trong mục Khách hàng nếu cần.</p>
+                                                                <div id="quote-create-items" class="space-y-2"></div>
+                                                                <button type="button" id="quote-create-add-item">Thêm món</button>
+                                                                <label class="block">Ghi chú vận chuyển <input id="quote-create-shipping" class="w-full p-2 rounded-xl border" value="chưa gồm phí vận chuyển" maxlength="300"></label>
+                                                                <p id="quote-create-status" role="status"></p>
+                                                                <button type="submit" class="bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold">Lưu báo giá</button>
+                                                            </form>
+                                                        </details>
+                            <div class="flex flex-wrap gap-2">
+                                <button type="button" onclick="switchView('orders')" class="bg-slate-900 text-white px-4 py-2 rounded-xl text-sm font-bold">Xem đơn hàng</button>
+                                <button type="button" onclick="loadQuotes()" class="border border-gray-300 px-4 py-2 rounded-xl text-sm font-bold">Tải lại báo giá</button>
+                                                                <button id="zalo-experimental-open" type="button" class="border border-gray-300 px-4 py-2 rounded-xl text-sm font-bold">Kết nối tài khoản Zalo thử</button>
+                            </div>
+                        </div>
+                        <div id="quote-list" class="space-y-4" aria-live="polite">Đang tải báo giá...</div>
+                    </section>
+
+                    <section id="section-zalo-inbox" class="dashboard-section no-print" hidden aria-labelledby="zar-title">
+                        <div class="zar-heading">
+                            <div class="zar-heading-row">
+                                <div>
+                                    <h2 id="zar-title">Zalo tự động trả lời</h2>
+                                    <p class="zar-subtitle">Tự động bắt từ khóa từ khách hàng và gửi câu trả lời, số điện thoại hoặc mã QR.</p>
+                                </div>
+                                <div class="zar-top-actions">
+                                    <button type="button" id="zar-refresh" class="zar-btn-secondary">Làm mới</button>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Ẩn các phần tử chẩn đoán/điều khiển cũ nhưng giữ nguyên ID để tương thích JS -->
+                        <div style="display: none;" aria-hidden="true">
+                            <button type="button" id="zar-connect"></button>
+                            <button type="button" id="zar-pause"></button>
+                            <button type="button" id="zar-diagnostics"></button>
+                            <p id="zar-connection"></p>
+                            <p id="zar-reader"></p>
+                        </div>
+
+                        <p id="zar-rules-warning" class="zar-alert-warning" role="status" aria-live="polite"></p>
+                        <p id="zar-status" class="zar-status-banner" role="status" aria-live="polite"></p>
+                        <p id="zar-error" class="zar-alert-danger" role="alert" aria-live="assertive"></p>
+
+                        <div class="zar-layout">
+                            <form id="zar-form" class="zar-config-col" aria-labelledby="zar-config-title">
+                                <fieldset id="zar-config" disabled>
+
+                                    <!-- CARD 1: Cấu hình chung -->
+                                    <div class="zar-card">
+                                        <div class="zar-card-header">
+                                            <div>
+                                                <h3 id="zar-config-title">Cấu hình chung</h3>
+                                                <p class="zar-card-desc">Bật/tắt tính năng và liên hệ Zalo thử nghiệm</p>
+                                            </div>
+                                            <label class="zar-switch">
+                                                <input id="zar-enabled" type="checkbox">
+                                                <span class="zar-slider"></span>
+                                            </label>
+                                        </div>
+                                        <div class="zar-card-body">
+                                            <div class="zar-form-grid">
+                                                <div class="zar-form-group">
+                                                    <label for="zar-target-phone">SĐT liên hệ thử</label>
+                                                    <input id="zar-target-phone" type="tel" placeholder="Ví dụ: 0326455925" autocomplete="off">
+                                                </div>
+                                                <div class="zar-form-group">
+                                                    <label for="zar-target-name">Tên hiển thị Zalo</label>
+                                                    <input id="zar-target-name" type="text" placeholder="Tên nick Zalo chính xác" autocomplete="off">
+                                                </div>
+                                            </div>
+                                            <div class="zar-form-group" style="margin-top: 12px;">
+                                                <label for="zar-cooldown">Thời gian chờ giữa các lần gửi cùng 1 người (giây)</label>
+                                                <input id="zar-cooldown" type="number" min="30" step="1" value="300" required>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- CARD 2: Mẫu Số Điện Thoại -->
+                                    <div class="zar-card">
+                                        <div class="zar-card-header">
+                                            <div>
+                                                <h3>1. Gửi Số điện thoại / Hotline</h3>
+                                                <p class="zar-card-desc">Tự động gửi SĐT khi tin nhắn chứa từ khóa</p>
+                                            </div>
+                                            <label class="zar-switch">
+                                                <input id="zar-phone-enabled" type="checkbox">
+                                                <span class="zar-slider"></span>
+                                            </label>
+                                        </div>
+                                        <div class="zar-card-body">
+                                            <div class="zar-form-group">
+                                                <label for="zar-phone-triggers">Từ khóa kích hoạt (cách nhau bởi dấu phẩy)</label>
+                                                <input id="zar-phone-triggers" type="text" placeholder="sdt, sđt, số điện thoại, hotline">
+                                            </div>
+                                            <div class="zar-form-group">
+                                                <label for="zar-phone-text">Nội dung trả lời</label>
+                                                <textarea id="zar-phone-text" rows="2" placeholder="Dạ em gửi mình số điện thoại: ..."></textarea>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- CARD 3: Mẫu Mã QR -->
+                                    <div class="zar-card">
+                                        <div class="zar-card-header">
+                                            <div>
+                                                <h3>2. Gửi Ảnh Mã QR Thanh Toán</h3>
+                                                <p class="zar-card-desc">Gửi kèm hình ảnh QR khi khách yêu cầu chuyển khoản</p>
+                                            </div>
+                                            <label class="zar-switch">
+                                                <input id="zar-qr-enabled" type="checkbox">
+                                                <span class="zar-slider"></span>
+                                            </label>
+                                        </div>
+                                        <div class="zar-card-body">
+                                            <div class="zar-form-group">
+                                                <label for="zar-qr-triggers">Từ khóa kích hoạt (cách nhau bởi dấu phẩy)</label>
+                                                <input id="zar-qr-triggers" type="text" placeholder="qr, mã qr, quét mã, số tài khoản">
+                                            </div>
+                                            <div class="zar-form-group">
+                                                <label for="zar-qr-caption">Lời nhắn kèm ảnh QR</label>
+                                                <textarea id="zar-qr-caption" rows="2" placeholder="Dạ em gửi mình mã thanh toán ạ"></textarea>
+                                            </div>
+                                            <div class="zar-form-group">
+                                                <label>Hình ảnh mã QR</label>
+                                                <div class="zar-upload-box">
+                                                    <input id="zar-image" type="file" accept="image/png,image/jpeg" style="position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0,0,0,0); border: 0;">
+                                                    <label for="zar-image" id="zar-select-image" class="zar-btn-secondary" style="display: inline-flex; align-items: center; justify-content: center; cursor: pointer; text-decoration: none;">Chọn ảnh từ máy</label>
+                                                    <button id="zar-upload" type="button" class="zar-btn-upload">Tải ảnh lên lưu trữ</button>
+                                                </div>
+                                                <p id="zar-image-info" class="zar-help">Chưa có ảnh QR.</p>
+                                                <img id="zar-image-preview" alt="Xem trước mã QR" hidden>
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- CARD 4: Mẫu Tùy Chỉnh (Custom Rules) -->
+                                    <div class="zar-card">
+                                        <div class="zar-card-header">
+                                            <div>
+                                                <h3>3. Câu trả lời tùy chỉnh theo từ khóa</h3>
+                                                <p class="zar-card-desc">Tự thêm các mẫu hỏi đáp thường gặp (địa chỉ, giá sỉ, giờ làm...)</p>
+                                            </div>
+                                            <button type="button" id="zar-add-custom-rule" class="zar-btn-add">+ Thêm mẫu mới</button>
+                                        </div>
+                                        <div class="zar-card-body">
+                                            <div id="zar-custom-rules-container" class="zar-custom-rules-list">
+                                                <!-- Dynamic custom rules rendered here -->
+                                            </div>
+                                        </div>
+                                    </div>
+
+                                    <!-- Action Bar Lưu -->
+                                    <div class="zar-sticky-save">
+                                        <p id="zar-dirty" class="zar-dirty-status">Chưa tải cấu hình.</p>
+                                        <button id="zar-save" type="submit" class="zar-btn-save">Lưu cấu hình</button>
+                                    </div>
+
+                                </fieldset>
+                            </form>
+
+                            <!-- Cột phải: Tin nhắn -->
+                            <div class="zar-inbox-col">
+                                <div class="zar-card">
+                                    <div class="zar-card-header">
+                                        <div>
+                                            <h3 id="zar-inbox-title">Lịch sử tin nhắn</h3>
+                                            <p class="zar-card-desc">Nhật ký tin nhận và trạng thái tự động xử lý</p>
+                                        </div>
+                                    </div>
+                                    <div class="zar-card-body">
+                                        <div id="zar-messages" class="zar-messages-container">Chưa tải tin nhắn.</div>
+                                    </div>
+                                </div>
+                            </div>
                         </div>
                     </section>
 
@@ -1012,6 +1208,14 @@
                                             </div>
                                         </div>
                                         <div class="settings-field">
+                                            <label for="shop-name" data-i18n="settings.shopName">Tên shop trên hóa đơn</label>
+                                            <p data-i18n="settings.shopNameDesc">Để trống nếu không muốn in tên shop.</p>
+                                            <div class="settings-input-wrap">
+                                                <span>▤</span>
+                                                <input type="text" id="shop-name" maxlength="120" placeholder="Tên shop đã cấu hình">
+                                            </div>
+                                        </div>
+                                        <div class="settings-field">
                                             <label for="printer-type" data-i18n="settings.printerType">Loại kết nối máy in</label>
                                             <p data-i18n="settings.printerTypeDesc">Chọn TCP (Wi‑Fi/LAN), USB/cổng trực tiếp, hoặc máy in hệ thống.</p>
                                             <select id="printer-type" class="settings-select" style="width:100%;margin-bottom:10px;">
@@ -1101,6 +1305,7 @@
         <button type="button" class="mobile-nav-item" data-view="orders"><span><img src="/icons/receipt-text.svg" alt=""></span><span data-i18n="menu.orders">Đơn hàng</span></button>
         <button type="button" class="mobile-nav-item" data-view="delivery"><span><img src="/icons/delivery.svg" alt=""></span><span data-i18n="menu.delivery">Đi Đơn</span></button>
         <button type="button" class="mobile-nav-item" data-view="customers"><span><img src="/icons/users.svg" alt=""></span><span data-i18n="menu.customers">Khách hàng</span></button>
+        <button type="button" class="mobile-nav-item" data-view="quotes"><span><img src="/icons/receipt-text.svg" alt=""></span><span data-i18n="menu.quotes">Báo giá</span></button>
         <button type="button" class="mobile-nav-item" data-view="settings"><span><img src="/icons/settings.svg" alt=""></span><span data-i18n="menu.settings">Cài đặt</span></button>
     </nav>
 
@@ -1319,5 +1524,7 @@
             </button>
         </div>
     </div>
+    <script src="/js/quotes.js"></script>
+    <script src="/js/zaloAutoReply.js"></script>
 </body>
 </html>

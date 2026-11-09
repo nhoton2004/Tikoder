@@ -16,7 +16,7 @@ const CHAT_BUFFER_LIMIT = 300;
 
 function getLiveRuntime(userId) {
     if (!liveRuntimeByUser.has(userId)) {
-        liveRuntimeByUser.set(userId, {
+        const runtime = {
             userId,
             tiktokConnection: null,
             confirmedOrders: {},
@@ -36,7 +36,22 @@ function getLiveRuntime(userId) {
             chatSeqByBroadcaster: new Map(), // Sequence per broadcaster cho fallback msgId
             sockets: new Set(),
             recentConfirmKeys: new Map() // Lưu dedup key -> timestamp
+        };
+        // Alias cho recovery flow (dùng currentSessionId/currentSessionStartedAt)
+        // để hai luồng luôn đọc/ghi cùng một state.
+        Object.defineProperty(runtime, 'currentSessionId', {
+            get() { return this.sessionId; },
+            set(value) { this.sessionId = value; },
+            enumerable: true,
+            configurable: true
         });
+        Object.defineProperty(runtime, 'currentSessionStartedAt', {
+            get() { return this.sessionStartedAt; },
+            set(value) { this.sessionStartedAt = value; },
+            enumerable: true,
+            configurable: true
+        });
+        liveRuntimeByUser.set(userId, runtime);
     }
     return liveRuntimeByUser.get(userId);
 }
@@ -221,6 +236,11 @@ function setupLiveHandler(io, ctx) {
 
         socket.emit('system-config', { printerInterface: ctx.printerInterface, tiktokSignApiKey: ctx.tiktokSignApiKey });
 
+        // Các event do handler inline trong server.js đảm nhận (recovery flow + in hóa đơn)
+        // không đăng ký lại ở đây để tránh chạy trùng.
+        const ownedElsewhere = new Set(ctx.skipSocketEvents || []);
+        const on = (event, handler) => ownedElsewhere.has(event) ? socket : socket.on(event, handler);
+
         socket.on('disconnect', () => {
             runtime.sockets.delete(socket.id);
             if (runtime.sockets.size === 0 && runtime.tiktokConnection) {
@@ -295,7 +315,7 @@ function setupLiveHandler(io, ctx) {
             endLiveSession(userId, runtime, ctx, 'manual_disconnect');
         });
 
-        socket.on('start-live', async (payload) => {
+        on('start-live', async (payload) => {
             const uniqueId = typeof payload === 'string' ? payload : (payload?.uniqueId || '');
             const clientSessionId = typeof payload === 'object' ? payload?.sessionId : null;
 
@@ -791,7 +811,7 @@ function setupLiveHandler(io, ctx) {
             }
         });
 
-        socket.on('reprint-item', (payload) => {
+        on('reprint-item', (payload) => {
             const username = payload?.username || '';
             const itemId = payload?.itemId;
             const isManual = !!payload?.isManual;
@@ -817,7 +837,7 @@ function setupLiveHandler(io, ctx) {
             }
         });
 
-        socket.on('reprint-total', (payload) => {
+        on('reprint-total', (payload) => {
             const username = typeof payload === 'string' ? payload : (payload?.username || '');
             const isManual = typeof payload === 'object' ? !!payload.isManual : false;
             const normalizedUsername = customerStore.normalizeTikTokUsername(username);

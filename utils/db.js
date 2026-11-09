@@ -147,6 +147,9 @@ function initTables() {
     for (const [name, definition] of sessionMigrations) {
         if (!sessionColumns.has(name)) db.exec(`ALTER TABLE live_sessions ADD COLUMN ${name} ${definition}`);
     }
+    // Consent (báo giá/Zalo) được lưu dạng JSON string; thêm cột cho DB cũ.
+    const customerColumns = new Set(db.prepare('PRAGMA table_info(customers)').all().map(column => column.name));
+    if (!customerColumns.has('consent')) db.exec("ALTER TABLE customers ADD COLUMN consent TEXT DEFAULT ''");
     db.exec('CREATE INDEX IF NOT EXISTS idx_sessions_user_status ON live_sessions(user_id, status)');
     db.prepare(`
         UPDATE live_sessions

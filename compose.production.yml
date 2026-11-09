@@ -1,0 +1,42 @@
+services:
+  tiktok-app:
+    environment:
+      NODE_ENV: production
+      VITE_DEV_SKIP_AUTH: "false"
+      TRUST_PROXY: "172.30.87.2/32"
+      CORS_ORIGIN: https://${APP_DOMAIN:?Set APP_DOMAIN}
+      PUBLIC_APP_URL: https://${APP_DOMAIN}/app
+    networks:
+      default: {}
+      proxy: {}
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      proxy:
+        ipv4_address: 172.30.87.2
+    depends_on:
+      tiktok-app:
+        condition: service_healthy
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+networks:
+  proxy:
+    ipam:
+      config:
+        - subnet: 172.30.87.0/24
+volumes:
+  caddy_data:
+  caddy_config:

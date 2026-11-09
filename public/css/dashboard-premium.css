@@ -735,9 +735,8 @@ textarea:disabled {
     .panel,
     .kpi-card,
     .menu-item,
-    .topbar,
-    .sidebar {
-        animation: premium-rise .44s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+    .topbar {
+        animation: premium-rise .44s cubic-bezier(0.2, 0.8, 0.2, 1) backwards;
     }
 
     .overview-kpi-grid .kpi-card:nth-child(2) { animation-delay: .05s; }
@@ -753,7 +752,7 @@ textarea:disabled {
     }
     to {
         opacity: 1;
-        transform: translateY(0) scale(1);
+        transform: none;
     }
 }
 
@@ -1556,11 +1555,14 @@ body[data-view="live"] .live-status-chip span {
 body[data-view="live"] .live-connect-row {
     margin: 0;
     display: grid;
-    grid-template-columns: minmax(0, 1fr) 148px;
+    grid-template-columns: minmax(120px, 1fr) auto;
+        min-width: 0;
     gap: 8px;
 }
 
 body[data-view="live"] .live-connect-row input {
+    min-width: 0;
+    width: 100%;
     min-height: 32px !important;
     height: 32px;
     border-radius: 5px !important;
@@ -1572,7 +1574,21 @@ body[data-view="live"] .live-connect-row input {
     font-weight: 700;
 }
 
+body[data-view="live"] .live-session-actions {
+    display: flex;
+    gap: 8px;
+    min-width: 0;
+}
+
 body[data-view="live"] .live-connect-row button {
+    width: auto !important;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 5px;
+    white-space: nowrap;
+    padding: 0 12px !important;
+    flex: 0 0 auto;
     min-height: 32px !important;
     height: 32px;
     min-width: 0 !important;
@@ -1589,6 +1605,7 @@ body[data-view="live"] .live-connect-row button .material-symbols-outlined {
 }
 
 body[data-view="live"] .live-quick-actions {
+    flex-wrap: wrap;
     margin: 0;
     display: flex;
     align-items: center;
@@ -1604,6 +1621,7 @@ body[data-view="live"] .live-quick-actions > span {
 }
 
 body[data-view="live"] .live-quick-actions button {
+    white-space: nowrap;
     min-height: 28px !important;
     border-radius: 6px !important;
     background: #f3f4f6 !important;
@@ -2820,14 +2838,19 @@ body[data-view="live"] .live-stat span {
 
 @media (max-width: 980px) {
     .app-shell,
-    body[data-view="live"] .app-shell {
-        grid-template-columns: 1fr !important;
+    .app-shell[data-sidebar-collapsed="true"],
+    body[data-view="live"] .app-shell,
+    body[data-view="live"] .app-shell[data-sidebar-collapsed="true"] {
+        grid-template-columns: minmax(0, 1fr) !important;
+        width: 100%;
         gap: 0 !important;
         padding: 0 !important;
     }
 
     .sidebar,
-    body[data-view="live"] .sidebar {
+    .app-shell[data-sidebar-collapsed="true"] .sidebar,
+    body[data-view="live"] .sidebar,
+    body[data-view="live"] .app-shell[data-sidebar-collapsed="true"] .sidebar {
         position: fixed !important;
         top: 12px !important;
         left: 12px !important;
@@ -2836,32 +2859,33 @@ body[data-view="live"] .live-stat span {
         height: calc(100dvh - 24px) !important;
         padding: 20px !important;
         border-radius: 16px !important;
-        overflow: hidden !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
     }
 
-    .brand-lockup,
-    .menu-item,
-    .sidebar-toggle-btn,
-    body[data-view="live"] .brand-lockup,
-    body[data-view="live"] .menu-item,
-    body[data-view="live"] .sidebar-toggle-btn {
+    .app-shell[data-sidebar-collapsed] .brand-lockup,
+    .app-shell[data-sidebar-collapsed] .menu-item,
+    .app-shell[data-sidebar-collapsed] .sidebar-toggle-btn,
+    body[data-view="live"] .app-shell[data-sidebar-collapsed] .brand-lockup,
+    body[data-view="live"] .app-shell[data-sidebar-collapsed] .menu-item,
+    body[data-view="live"] .app-shell[data-sidebar-collapsed] .sidebar-toggle-btn {
         justify-content: flex-start !important;
     }
 
-    .brand-copy,
-    .menu-label,
-    .sidebar-toggle-label,
-    body[data-view="live"] .brand-copy,
-    body[data-view="live"] .menu-label,
-    body[data-view="live"] .sidebar-toggle-label {
+    .app-shell[data-sidebar-collapsed] .brand-copy,
+    .app-shell[data-sidebar-collapsed] .menu-label,
+    .app-shell[data-sidebar-collapsed] .sidebar-toggle-label,
+    body[data-view="live"] .app-shell[data-sidebar-collapsed] .brand-copy,
+    body[data-view="live"] .app-shell[data-sidebar-collapsed] .menu-label,
+    body[data-view="live"] .app-shell[data-sidebar-collapsed] .sidebar-toggle-label {
         opacity: 1 !important;
         max-width: 180px !important;
         transform: none !important;
         pointer-events: auto !important;
     }
 
-    .menu-item,
-    body[data-view="live"] .menu-item {
+    .app-shell[data-sidebar-collapsed] .menu-item,
+    body[data-view="live"] .app-shell[data-sidebar-collapsed] .menu-item {
         justify-content: flex-start !important;
         gap: 10px !important;
         padding: 10px 12px !important;
@@ -2872,14 +2896,16 @@ body[data-view="live"] .live-stat span {
         box-shadow: inset 4px 0 0 #E8002D !important;
     }
 
-    .sidebar-toggle-btn,
-    body[data-view="live"] .sidebar-toggle-btn {
+    .app-shell[data-sidebar-collapsed] .sidebar-toggle-btn,
+    body[data-view="live"] .app-shell[data-sidebar-collapsed] .sidebar-toggle-btn {
         width: 100% !important;
         justify-content: center !important;
-        border: 1px solid #e4e7ec !important;
+        padding: 0 12px !important;
+        border: 1px solid var(--line) !important;
     }
 
     .topbar,
+    [data-theme] .topbar,
     body[data-view="live"] .topbar {
         top: 0 !important;
         min-height: 58px !important;
@@ -2888,8 +2914,21 @@ body[data-view="live"] .live-stat span {
         padding: 8px 12px !important;
     }
 
-    .topbar-title h1 {
+    .topbar-title {
+        width: 100%;
+        flex-wrap: wrap;
+    }
+
+    .topbar-title > div {
+        flex: 1 1 120px;
+        min-width: 0;
+    }
+
+    .topbar-title h1,
+    [data-theme] .topbar-title h1 {
         font-size: 18px !important;
+        line-height: 1.3 !important;
+        overflow-wrap: anywhere;
     }
 
     .content-area,
@@ -2911,22 +2950,6 @@ body[data-view="live"] .live-stat span {
         display: none !important;
     }
 
-    .overview-header-row {
-        align-items: flex-start !important;
-        flex-direction: column !important;
-        gap: 12px !important;
-    }
-
-    .overview-controls {
-        width: 100% !important;
-        justify-content: flex-start !important;
-    }
-
-    .overview-controls input,
-    .overview-range-btn {
-        flex: 1 1 138px !important;
-        min-width: 0 !important;
-    }
 
     .overview-insight-grid,
     .overview-mini-metrics {
@@ -3277,4 +3300,394 @@ body[data-view="live"] .live-current-orders-panel .live-count-pill {
 .app-shell[data-sidebar-collapsed="true"] .menu-submenu {
     padding-left: 0 !important;
     border-left: none !important;
+}
+
+/* Mobile keeps the existing theme tokens, not the forced-light desktop skin. */
+@media (max-width: 980px) {
+    html[data-theme] body[data-view] {
+        background: var(--bg) !important;
+        color: var(--txt) !important;
+    }
+
+    html[data-theme] body[data-view] :is(.sidebar, .topbar, .panel, .kpi-card,
+        .settings-card, .settings-side-card, .customer-card, .report-card,
+        .shop-insight-card, .live-command, .feature-hero, .live-stat,
+        .live-script-card, .live-order-card, .live-order-item, .live-panel,
+        .live-feed, .chat-row, .live-empty-state, .live-orders-empty,
+        .live-connect-bar, .overview-mini-card, .overview-empty-state,
+        .overview-meta-pill, .user-menu-dropdown, .mobile-bottom-nav) {
+        background: var(--panel) !important;
+        border-color: var(--line) !important;
+    }
+
+    html[data-theme] #section-overview .overview-insight-card {
+        background: var(--panel) !important;
+        border-color: var(--line) !important;
+    }
+
+    html[data-theme] body[data-view] :is(.topbar-title h1, .panel h2, .panel h3,
+        .panel strong, .kpi-card p, .overview-mini-value, .overview-empty-title,
+        .overview-insight-text, .live-command h2, .live-script-card h3,
+        .live-stat strong, .live-orders-head h3, .live-panel-head h3,
+        .live-empty-state strong, .live-order-card h4,
+        .live-order-item strong, .live-order-card-stats strong, .feature-hero h2,
+        .shop-insight-card h3, .report-card strong, .settings-page-heading h3,
+        .settings-card h4, .settings-side-card h4, .settings-field label,
+        .user-menu-action, .user-menu-profile p, .customers-table td,
+        .customer-form-close) {
+        color: var(--txt) !important;
+    }
+
+    html[data-theme] body[data-view] :is(.panel .text-gray-500, .panel .text-gray-400,
+        .panel .text-slate-500, .panel .text-xs, .topbar .text-gray-500,
+        .topbar .text-gray-400, .topbar .text-slate-500, .overview-mini-label,
+        .overview-mini-note, .overview-empty-desc, .overview-meta-pill,
+        .overview-chart, .live-command-main p, .live-script-card p,
+        .live-stat span, .live-status-text, .live-orders-head p,
+        .live-order-card-head p, .live-order-item span, .live-empty-state small,
+        .feature-hero p, .shop-insight-card p, .report-card p,
+        .settings-page-heading p, .settings-card-head p, .settings-side-title p,
+        .settings-side-title > span, .settings-field p, .settings-save-row p,
+        .customers-table th, .customer-list-status) {
+        color: var(--muted) !important;
+    }
+
+    html[data-theme] body[data-view] :is(.settings-card-head, .settings-side-title,
+        .settings-card-body, .settings-language-body, .settings-appearance-body,
+        .language-segment, .theme-segment, .settings-input-wrap,
+        .live-orders-head, .live-order-card-head, .live-order-card-foot,
+        .live-order-card-stats, .user-menu-profile, .customers-table thead) {
+        background: var(--surface-soft) !important;
+        border-color: var(--line) !important;
+    }
+
+    html[data-theme] body[data-view] :is(input, select, textarea, .settings-select),
+    html[data-theme] #customer-form :is(input, textarea),
+    html[data-theme] body[data-view] .live-connect-row input {
+        background: var(--surface) !important;
+        border-color: var(--line-strong) !important;
+        color: var(--txt) !important;
+    }
+
+    html[data-theme] body[data-view] :is(input, textarea)::placeholder,
+    html[data-theme] #customer-form :is(input, textarea)::placeholder {
+        color: var(--muted) !important;
+        opacity: 1;
+    }
+
+    html[data-theme] body[data-view] :is(.hamburger-btn, .topbar-session-btn,
+        .topbar-save-session-btn, .user-menu-trigger, .sidebar-toggle-btn,
+        .overview-range-btn, .overview-cta-secondary, .language-option,
+        .theme-option, .settings-export-btn, .live-quick-actions button,
+        .live-order-card button, .live-orders-toggle, .customer-form-close) {
+        background: var(--surface) !important;
+        color: var(--txt) !important;
+        border-color: var(--line) !important;
+    }
+
+    html[data-theme] body[data-view] :is(.menu-item, .mobile-nav-item) {
+        color: var(--muted) !important;
+    }
+
+    html[data-theme] body[data-view] :is(.menu-item.active, .menu-item:hover,
+        .mobile-nav-item.active, .overview-range-btn.active,
+        .overview-range-btn.bg-red-50, .language-option.active,
+        .theme-option.active, .live-status-chip, .live-count-pill,
+        .live-script-label, .feature-eyebrow) {
+        background: var(--brand-soft) !important;
+        color: var(--brand) !important;
+        border-color: var(--line) !important;
+    }
+
+    html[data-theme] body[data-view] .overview-range-btn.active {
+        border-color: var(--brand) !important;
+    }
+
+    html[data-theme] body[data-view] :is(.user-menu-action.danger,
+        .live-order-card button.danger, .live-order-item-actions button:first-child,
+        .live-order-card-foot strong, .live-order-comment-price) {
+        color: var(--brand) !important;
+    }
+
+    html[data-theme] body[data-view] .customers-table tr {
+        border-color: var(--line) !important;
+    }
+
+    html[data-theme] body[data-view] .customers-table tbody tr:hover {
+        background: var(--surface-soft) !important;
+    }
+
+    html[data-theme] body[data-view] .customers-table tr[data-customer-row] td {
+        max-width: none !important;
+        white-space: normal !important;
+    }
+
+    html[data-theme] body[data-view] .customer-form-actions,
+    html[data-theme] body[data-view] .customer-form-close {
+        background: var(--panel) !important;
+        color: var(--txt) !important;
+    }
+
+    html[data-theme] #customer-form-status:is(.text-red-500, .text-red-600),
+    html[data-theme] .customer-list-status:is(.text-red-500, .text-red-600) {
+        color: var(--brand) !important;
+    }
+
+    html[data-theme] #customer-form button[type="submit"] {
+        background: var(--brand-strong) !important;
+        color: var(--bg) !important;
+    }
+
+    html[data-theme] #customer-form button[type="button"]:not(.customer-form-close) {
+        background: var(--surface) !important;
+        color: var(--txt) !important;
+        border-color: var(--line-strong) !important;
+    }
+
+    /* These modal IDs and their existing descendants are shared by both themes. */
+    html[data-theme] :is(#history-modal, #live-sessions-modal,
+        #merge-modal, #delivery-warning-modal) > div {
+        background: var(--panel) !important;
+        color: var(--txt) !important;
+        border-color: var(--line) !important;
+    }
+
+    html[data-theme] :is(#history-modal, #live-sessions-modal,
+        #merge-modal, #delivery-warning-modal) :is(.bg-gray-50, .bg-purple-50,
+        .bg-green-50, .bg-amber-50) {
+        background: var(--surface-soft) !important;
+        border-color: var(--line) !important;
+    }
+
+    html[data-theme] :is(#history-modal, #live-sessions-modal,
+        #merge-modal, #delivery-warning-modal) :is(.text-gray-800,
+        .text-purple-800, .text-green-800, .text-amber-800) {
+        color: var(--txt) !important;
+    }
+
+    html[data-theme] :is(#history-modal, #live-sessions-modal,
+        #merge-modal, #delivery-warning-modal) :is(.text-gray-400, .text-gray-500) {
+        color: var(--muted) !important;
+    }
+
+    html[data-theme] :is(#history-modal, #live-sessions-modal,
+        #merge-modal, #delivery-warning-modal) .border {
+        border-color: var(--line) !important;
+    }
+
+    html[data-theme] #history-list-content > .flex:hover {
+        background: var(--surface-soft) !important;
+    }
+
+    body[data-view="live"] .live-connect-bar,
+    body[data-view="live"] .live-workspace,
+    body[data-view="live"] .live-workspace.is-orders-collapsed {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    body[data-view="live"] .live-kpi-strip,
+    body[data-view="live"] .live-orders-grid,
+    body[data-view="orders"] .orders-current-panel .live-orders-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    body[data-view="live"] .live-quick-actions,
+    .live-panel-actions {
+        flex-wrap: wrap;
+    }
+
+    /* Inactive nav icons must remain visible on the token-driven dark surfaces. */
+    html[data-theme="dark"] body[data-view] :is(.mobile-nav-item, .menu-item) img,
+    html[data-theme="dark"] body[data-view] :is(.hamburger-btn, .topbar-session-btn,
+        .topbar-save-session-btn) img {
+        filter: brightness(0) invert(0.85) !important;
+    }
+
+    html[data-theme="dark"] body[data-view] .mobile-nav-item.active img {
+        filter: invert(70%) sepia(25%) saturate(1350%) hue-rotate(303deg) !important;
+    }
+}
+.dashboard-section#section-quotes button, .dashboard-section#section-quotes a {
+    display: inline-flex; align-items: center; min-height: 40px; padding: 8px 12px;
+    border: 1px solid #cbd5e1; border-radius: 10px; font-weight: 700;
+}
+.dashboard-section#section-quotes textarea, .dashboard-section#section-quotes input, .dashboard-section#section-quotes select {
+    max-width: 100%; padding: 8px; border: 1px solid #94a3b8; border-radius: 8px;
+    background: transparent; color: inherit;
+}
+.dashboard-section#section-quotes summary { cursor: pointer; font-weight: 700; padding: 8px 0; }
+
+/* Figma: TikTok Live Management — Đồng nhất giao diện (node 7:171). */
+body[data-view="live"] .live-kpi-strip {
+    gap: 12px;
+}
+
+body[data-view="live"] .live-stat {
+    min-height: 104px;
+    position: relative;
+    flex-direction: column;
+    justify-content: flex-start;
+    gap: 5px;
+    padding: 14px 12px 10px !important;
+    text-align: center;
+}
+
+body[data-view="live"] .live-stat > div {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 4px;
+}
+
+body[data-view="live"] .live-stat span:first-child {
+    color: #64748b !important;
+    font-size: 10px !important;
+    font-weight: 700 !important;
+    letter-spacing: 0;
+}
+
+body[data-view="live"] .live-stat strong {
+    margin-top: 0;
+    font-size: 19px !important;
+}
+
+body[data-view="live"] .live-stat-icon {
+    width: 30px;
+    height: 30px;
+    font-size: 14px;
+}
+
+body[data-view="live"] .live-connect-bar {
+    min-height: 64px;
+    gap: 10px;
+    padding: 8px 11px;
+}
+
+body[data-view="live"] .live-connect-row {
+    grid-template-columns: minmax(120px, 1fr) auto;
+}
+
+body[data-view="live"] .live-quick-actions > span {
+    color: #0b172b;
+    letter-spacing: 0;
+}
+
+body[data-view="live"] .live-workspace {
+    grid-template-columns: minmax(0, 1fr) minmax(360px, 0.42fr) !important;
+    gap: 12px;
+}
+
+body[data-view="live"] .live-panel {
+    height: calc(100dvh - 330px);
+    min-height: 360px;
+    border-radius: 6px;
+}
+
+body[data-view="live"] .live-panel-head {
+    min-height: 36px;
+    padding: 0 10px;
+}
+
+body[data-view="live"] .live-panel-head h3 {
+    font-size: 12px !important;
+}
+
+body[data-view="live"] .live-feed {
+    background: #fafbfc !important;
+    padding: 12px;
+}
+
+@media (max-width: 1180px) {
+    body[data-view="live"] .live-workspace {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    body[data-view="live"] .live-panel {
+        height: auto;
+        min-height: 320px;
+    }
+}
+
+@media (max-width: 767px) {
+    body[data-view="live"] .live-connect-row {
+        grid-template-columns: minmax(0, 1fr);
+    }
+
+    body[data-view="live"] .live-session-actions button {
+        flex: 1 1 0;
+    }
+}
+
+@media (max-width: 620px) {
+    body[data-view="live"] .live-stat {
+        min-height: 92px;
+    }
+
+    body[data-view="live"] .live-connect-bar {
+        align-items: stretch;
+    }
+}
+
+/* Final live-screen overrides: follow node 7:171 after the legacy shell rules. */
+@media (min-width: 981px) {
+    body[data-view="live"] .app-shell {
+        grid-template-columns: 70px minmax(0, 1fr) !important;
+    }
+
+    body[data-view="live"] .sidebar {
+        padding: 14px 10px !important;
+    }
+
+    body[data-view="live"] .brand-copy,
+    body[data-view="live"] .menu-label,
+    body[data-view="live"] .sidebar-toggle-label {
+        opacity: 0 !important;
+        max-width: 0 !important;
+        pointer-events: none;
+    }
+}
+
+body[data-view="live"] .topbar-title h1 {
+    font-size: 14px !important;
+    color: #ff003c !important;
+}
+
+body[data-view="live"] .user-menu-trigger {
+    background: #fff !important;
+    border-color: #e9ecf1 !important;
+}
+
+body[data-view="live"] #user-name,
+body[data-view="live"] #user-email {
+    display: block !important;
+}
+
+body[data-view="live"] #user-name {
+    color: #0b172b !important;
+}
+
+body[data-view="live"] #user-email {
+    color: #64748b !important;
+}
+
+body[data-view="live"] #user-avatar {
+    border-color: #e9ecf1 !important;
+}
+
+@media (max-width: 980px) {
+    .sidebar,
+    [data-theme="light"] .sidebar,
+    [data-theme="dark"] .sidebar,
+    body[data-view="live"] .sidebar {
+        z-index: 1100 !important;
+    }
+
+    body[data-view="live"] .app-shell {
+        grid-template-columns: minmax(0, 1fr) !important;
+    }
+
+    body[data-view="live"] #user-name,
+    body[data-view="live"] #user-email {
+        display: none !important;
+    }
 }

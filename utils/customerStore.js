@@ -31,6 +31,13 @@ function rowToCustomer(row) {
     }
     c.displayName = cleanDisplayText(c.displayName);
     c.tiktokUsername = normalizeTikTokUsername(c.tiktokUsername);
+    if (row.consent) {
+        try {
+            c.consent = JSON.parse(row.consent);
+        } catch (_) {
+            c.consent = undefined;
+        }
+    }
     return c;
 }
 
@@ -108,8 +115,8 @@ function writeUserCustomers(userId, customers) {
     const db = getDb();
     db.prepare('DELETE FROM customers WHERE user_id = ?').run(userId);
     const stmt = db.prepare(`
-        INSERT INTO customers (id, user_id, tiktok_username, display_name, phone, province, district, ward, address_detail, address_note, postal_code, customer_code, delivery_note, default_weight_kg, allow_try_on, view_only_no_try, partial_delivery, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO customers (id, user_id, tiktok_username, display_name, phone, province, district, ward, address_detail, address_note, postal_code, customer_code, delivery_note, default_weight_kg, allow_try_on, view_only_no_try, partial_delivery, consent, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     const insertAll = db.transaction((items) => {
         for (const c of items) {
@@ -122,6 +129,7 @@ function writeUserCustomers(userId, customers) {
                 c.addressDetail || '', c.addressNote || '', c.postalCode || '',
                 c.customerCode || '', c.deliveryNote || '', c.defaultWeightKg || '',
                 c.allowTryOn || '', c.viewOnlyNoTry || '', c.partialDelivery || '',
+                c.consent ? JSON.stringify(c.consent) : '',
                 c.createdAt || new Date().toISOString(),
                 c.updatedAt || new Date().toISOString()
             );
@@ -301,6 +309,22 @@ function mergeCustomers(userId, primaryCustomerId, secondaryCustomerIds) {
     return getCustomerById(userId, primaryCustomerId);
 }
 
+// Consent can only be changed through this explicit operation, never by imports.
+function setQuoteConsent(userId, customerId, value) {
+    if (!['unknown', 'granted', 'denied'].includes(value)) throw new Error('Invalid consent');
+    const customers = readUserCustomers(userId);
+    const customer = customers.find(item => item.id === customerId);
+    if (!customer) return null;
+    const previous = customer.consent || {};
+    if (value === (previous.quoteMessages || 'unknown')) return customer;
+    const now = new Date().toISOString();
+    customer.consent = { ...previous, quoteMessages: value, source: 'nhap_tay',
+        grantedAt: value === 'granted' ? now : '', optedOutAt: value === 'denied' ? now : '' };
+    customer.updatedAt = now;
+    writeUserCustomers(userId, customers);
+    return customer;
+}
+
 module.exports = {
     readUserCustomers,
     writeUserCustomers,
@@ -314,6 +338,7 @@ module.exports = {
     deleteCustomer,
     mergeCustomers,
     parseTikTokUsernames,
+    setQuoteConsent,
     normalizeTikTokUsername,
     normalizePhone,
     getUserCustomerFile: () => ''

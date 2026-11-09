@@ -1,5 +1,9 @@
 node_modules
 .env
+.env.*
+!.env.example
+config.json
+config.local.json
 data
 history
 firebase-service-account.json
@@ -11,3 +15,11 @@ yarn-error.log*
 .vscode
 .github
 .gemini
+.backup*
+*.bak
+*.db
+*.sqlite*
+*.db-shm
+*.db-wal
+deploy/secrets
+backups
