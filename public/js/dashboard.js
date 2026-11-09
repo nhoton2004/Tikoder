@@ -3,6 +3,7 @@
         const tiktokIdInput = document.getElementById('tiktok-id');
         const btnConnect = document.getElementById('btn-connect');
         const statusMsg = document.getElementById('status-msg');
+        const shopNameInput = document.getElementById('shop-name');
         const printerIpInput = document.getElementById('printer-ip');
         const tiktokApiKeyInput = document.getElementById('tiktok-api-key');
         const systemStatusMsg = document.getElementById('system-status-msg');
@@ -69,6 +70,7 @@
         let currentUserUid = '';
         let currentUserRole = 'user';
         let currentView = 'overview';
+        let configuredShopName = '';
         const seenChatMsgIds = new Set();
         let mobilePopoverEl = null;
         let mobilePopoverHideTimer = null;
@@ -112,6 +114,8 @@
                 'settings.integrationTitle': 'Kết nối & Tích hợp',
                 'settings.integrationDesc': 'Cấu hình các dịch vụ bên thứ ba và thiết bị ngoại vi.',
                 'settings.online': 'Online',
+                'settings.shopName': 'Tên shop trên hóa đơn',
+                'settings.shopNameDesc': 'Để trống nếu không muốn in tên shop.',
                 'settings.printer': 'Máy in hóa đơn',
                 'settings.printerDesc': 'Địa chỉ IP hoặc cổng kết nối của máy in.',
                 'settings.apiKey': 'TikTok Sign API Key',
@@ -208,6 +212,8 @@
                 'settings.integrationTitle': 'Connections & Integrations',
                 'settings.integrationDesc': 'Configure third-party services and external devices.',
                 'settings.online': 'Online',
+                'settings.shopName': 'Receipt shop name',
+                'settings.shopNameDesc': 'Leave blank to omit the shop name from receipts.',
                 'settings.printer': 'Invoice printer',
                 'settings.printerDesc': 'Printer IP address or connection port.',
                 'settings.apiKey': 'TikTok Sign API Key',
@@ -1252,6 +1258,7 @@
         window.toggleSettings = () => switchView('settings');
         window.saveSettings = () => {
             socket.emit('update-settings', {
+                shopName: shopNameInput.value.trim(),
                 printerInterface: printerIpInput.value.trim(),
                 tiktokSignApiKey: tiktokApiKeyInput.value.trim()
             });
@@ -1418,6 +1425,8 @@
         socket.on('history-data', res => loadSessionOrdersToCurrentView(legacySessionId(res.fileName)));
 
         socket.on('system-config', (config) => {
+            configuredShopName = normalizeDisplayText(config.shopName || '');
+            shopNameInput.value = configuredShopName;
             printerIpInput.value = config.printerInterface;
             tiktokApiKeyInput.value = config.tiktokSignApiKey;
         });
@@ -1942,6 +1951,78 @@
                 .replace(/'/g, '&#039;');
         }
 
+        function formatReceiptItemTime(item) {
+            const savedTime = normalizeDisplayText(item?.time || '');
+            if (savedTime) return savedTime;
+            const createdAt = normalizeDisplayText(item?.createdAt || '');
+            if (!createdAt) return '';
+            const date = new Date(createdAt);
+            if (Number.isNaN(date.getTime())) return createdAt;
+            return date.toLocaleString('vi-VN', {
+                timeZone: 'Asia/Ho_Chi_Minh',
+                hour: '2-digit', minute: '2-digit', second: '2-digit',
+                day: '2-digit', month: '2-digit', year: 'numeric', hour12: false
+            });
+        }
+
+        function renderReceiptHtml({
+            shopName = '',
+            sessionName = '',
+            customer = {},
+            items = [],
+            total,
+            thankYouText = ['Cảm ơn bạn đã ủng hộ shop!', 'Hẹn gặp bạn ở live sau.']
+        } = {}) {
+            const safeItems = Array.isArray(items) ? items : [];
+            const calculatedTotal = safeItems.reduce((sum, item) => sum + Number(item?.price || 0), 0);
+            const suppliedTotal = Number(total);
+            const receiptTotal = Number.isFinite(suppliedTotal) && suppliedTotal === calculatedTotal
+                ? suppliedTotal
+                : calculatedTotal;
+            const customerName = getDisplayName(customer.name || customer.nickname || '', customer.username || '');
+            const username = formatTikTokUsername(customer.username || '');
+            const thankYouLines = (Array.isArray(thankYouText) ? thankYouText : String(thankYouText || '').split(/\r?\n/))
+                .map(normalizeDisplayText)
+                .filter(Boolean)
+                .slice(0, 2);
+
+            return `<article class="receipt">
+                <header class="receipt__header">
+                    ${normalizeDisplayText(shopName) ? `<p class="receipt__shop">${escapeHtml(normalizeDisplayText(shopName))}</p>` : ''}
+                    <h1 class="receipt__title">PHIẾU TỔNG ĐƠN</h1>
+                    <div class="receipt__meta">
+                        ${normalizeDisplayText(sessionName) ? `<div class="receipt__meta-row"><span>Phiên:</span><span>${escapeHtml(normalizeDisplayText(sessionName))}</span></div>` : ''}
+                    </div>
+                </header>
+                <hr class="receipt__rule">
+                <section class="receipt__customer">
+                    <p class="receipt__label">KHÁCH HÀNG</p>
+                    <p class="receipt__customer-name">${escapeHtml(customerName)}</p>
+                    ${username ? `<p class="receipt__username">${escapeHtml(username)}</p>` : ''}
+                </section>
+                <hr class="receipt__rule">
+                <section class="receipt__items">
+                    <div class="receipt__items-head"><span>Nội dung</span><span>Thành tiền</span></div>
+                    ${safeItems.map(item => {
+                        const time = formatReceiptItemTime(item);
+                        return `<div class="receipt__item"><span class="receipt__item-name">${escapeHtml(normalizeDisplayText(item?.text || item?.productName || '—'))}${time ? `<time class="receipt__item-time">${escapeHtml(time)}</time>` : ''}</span><span class="receipt__money">${escapeHtml(formatMoney(Number(item?.price || 0)))}</span></div>`;
+                    }).join('')}
+                </section>
+                <hr class="receipt__rule">
+                <div class="receipt__count"><span>Số dòng hàng</span><span>${safeItems.length}</span></div>
+                <hr class="receipt__rule">
+                <section class="receipt__total">
+                    <p class="receipt__total-label">TỔNG TIỀN</p>
+                    <p class="receipt__total-amount">${escapeHtml(formatMoney(receiptTotal))}</p>
+                </section>
+                <hr class="receipt__rule receipt__rule--strong">
+                ${thankYouLines.length ? `<div class="receipt__thanks">${thankYouLines.map(line => `<p>${escapeHtml(line)}</p>`).join('')}</div>` : ''}
+                <p class="receipt__note">Vui lòng đối chiếu thông tin đơn.</p>
+            </article>`;
+        }
+
+        window.renderReceiptHtml = renderReceiptHtml;
+
         function escapeJsString(value) {
             return String(value ?? '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\n/g, '\\n').replace(/\r/g, '');
         }
@@ -2331,10 +2412,15 @@
             const order = ordersData[normalizeTikTokUsername(username)];
             if (!order) return;
             const items = itemId === undefined ? order.items : order.items.filter(item => item.id === itemId);
-            document.getElementById('print-section').innerHTML = `<h2>${escapeHtml(loadedHistoryName)}</h2>
-                <h3>${escapeHtml(buildCustomerLabel(order.nickname, username))}</h3>` + items.map(item =>
-                `<p>${escapeHtml(item.text)}: ${escapeHtml(formatMoney(item.price))}</p>`).join('') +
-                `<p>Tổng: ${escapeHtml(formatMoney(items.reduce((sum, item) => sum + Number(item.price || 0), 0)))}</p>`;
+            const total = items.reduce((sum, item) => sum + Number(item.price || 0), 0);
+            document.getElementById('print-section').innerHTML = renderReceiptHtml({
+                shopName: configuredShopName,
+                sessionName: loadedHistoryName,
+                customer: { name: order.nickname || order.displayName || '', username },
+                items,
+                total,
+                thankYouText: ['Cảm ơn bạn đã ủng hộ shop!', 'Hẹn gặp bạn ở live sau.']
+            });
             window.print();
         }
         window.reprintItem = (username, itemId) => loadedHistoryName ? printHistoryOrder(username, itemId) : socket.emit('reprint-item', { username: normalizeTikTokUsername(username), itemId });

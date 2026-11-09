@@ -51,9 +51,10 @@ function serverFixture(t) {
         isAdminOrSuperAdmin: () => false, getUserRoom: id => id,
         emitToUser: (id, event, data) => sockets.filter(s => s.uid === id).forEach(s => s.emit(event, data)),
         io: { on(event, handler) { connectHandler = handler; } },
-        printerInterface: '', tiktokSignApiKey: '',
+        shopName: '', printerInterface: '', tiktokSignApiKey: '',
         fs, path, HISTORY_ROOT_DIR: historyDirectory, getUserHistoryDir,
                 CHAT_BUFFER_LIMIT: 300, parsePrice: () => 0,
+        currentReceiptContext() { return {}; },
         printBill() { effects.prints += 1; }, printDetailedBill() {}, setTimeout: () => 0, shuttingDown: false
     };
     vm.createContext(context);

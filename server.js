@@ -1065,6 +1065,7 @@ const LIVE_SESSIONS_DIR = path.join(__dirname, 'data', 'live-sessions');
 
 let printerInterface = 'tcp://192.168.1.9'; 
 let tiktokSignApiKey = '';
+let shopName = '';
 let printer = null;
 const liveRuntimeByUser = new Map(); // { userId -> runtime state }
 const CHAT_BUFFER_LIMIT = 300;
@@ -1186,6 +1187,7 @@ if (fs.existsSync(CONFIG_FILE)) {
         const config = JSON.parse(fs.readFileSync(CONFIG_FILE));
         printerInterface = config.printerInterface || printerInterface;
         tiktokSignApiKey = config.tiktokSignApiKey || '';
+        shopName = normalizeDisplayText(config.shopName || '');
         if (tiktokSignApiKey) {
             SignConfig.apiKey = tiktokSignApiKey;
         }
@@ -1193,7 +1195,7 @@ if (fs.existsSync(CONFIG_FILE)) {
 }
 
 function saveConfig() {
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify({ printerInterface, tiktokSignApiKey }, null, 2));
+    fs.writeFileSync(CONFIG_FILE, JSON.stringify({ shopName, printerInterface, tiktokSignApiKey }, null, 2));
 }
 
 function displayFallbackFromUsername(username) {
@@ -1241,19 +1243,63 @@ function initPrinter(newInterface) {
 initPrinter(printerInterface);
 
 function removeVietnameseTones(str) {
-    if (!str) return '';
-    str = str.replace(/à|á|ạ|ả|ã|â|ầ|ấ|ậ|ẩ|ẫ|ă|ằ|ắ|ặ|ẳ|ẵ/g,"a"); 
-    str = str.replace(/è|é|ẹ|ẻ|ẽ|ê|ề|ế|ệ|ể|ễ/g,"e"); 
-    str = str.replace(/ì|í|ị|ỉ|ĩ/g,"i"); 
-    str = str.replace(/ò|ó|ọ|ỏ|õ|ô|ồ|ố|ộ|ổ|ỗ|ơ|ờ|ớ|ợ|ở|ỡ/g,"o"); 
-    str = str.replace(/ù|ú|ụ|ủ|ũ|ư|ừ|ứ|ự|ử|ữ/g,"u"); 
-    str = str.replace(/ỳ|ý|ỵ|ỷ|ỹ/g,"y"); 
-    str = str.replace(/đ/g,"d");
-    str = str.replace(/À|Á|Ạ|Ả|Ã|Â|Ầ|Ấ|Ậ|Ẩ|Ẫ|Ă|Ằ|Ắ|Ặ|Ẳ|Ẵ/g, "A");
-    return str;
+    return String(str || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/đ/g, 'd')
+        .replace(/Đ/g, 'D');
 }
 
-async function printBill(item, order, userId) {
+function formatThermalMoney(value) {
+    return `${new Intl.NumberFormat('vi-VN').format(Number(value || 0))} D`;
+}
+
+function formatThermalItemTime(item) {
+    const savedTime = normalizeDisplayText(item?.time || '');
+    if (savedTime) return savedTime;
+    const createdAt = normalizeDisplayText(item?.createdAt || '');
+    if (!createdAt) return '';
+    const date = new Date(createdAt);
+    if (Number.isNaN(date.getTime())) return createdAt;
+    return date.toLocaleString('vi-VN', {
+        timeZone: 'Asia/Ho_Chi_Minh',
+        hour: '2-digit', minute: '2-digit', second: '2-digit',
+        day: '2-digit', month: '2-digit', year: 'numeric', hour12: false
+    });
+}
+
+function wrapThermalText(value, width = 48) {
+    const text = removeVietnameseTones(normalizeDisplayText(value)).replace(/\s+/g, ' ').trim();
+    if (!text) return ['-'];
+    const lines = [];
+    let remaining = text;
+    while (remaining.length > width) {
+        let breakAt = remaining.lastIndexOf(' ', width);
+        if (breakAt < 1) breakAt = width;
+        lines.push(remaining.slice(0, breakAt).trim());
+        remaining = remaining.slice(breakAt).trim();
+    }
+    if (remaining) lines.push(remaining);
+    return lines;
+}
+
+function thermalItemLines(label, amount, width = 48) {
+    const money = formatThermalMoney(amount);
+    const labelWidth = Math.max(8, width - money.length - 2);
+    const labelLines = wrapThermalText(label, labelWidth);
+    return labelLines.map((line, index) => index === labelLines.length - 1
+        ? `${line}${' '.repeat(Math.max(2, width - line.length - money.length))}${money}`
+        : line);
+}
+
+function currentReceiptContext(userId, runtime) {
+    const session = runtime?.currentSessionId
+        ? liveSessionStore.getLiveSessionById(userId, runtime.currentSessionId)
+        : null;
+    return { sessionName: session?.liveName || '' };
+}
+
+async function printBill(item, order, userId, receiptContext = {}) {
     if (!printer) return;
     try {
         const displayName = normalizeOrderCustomerName(order.nickname, order.username);
@@ -1261,42 +1307,47 @@ async function printBill(item, order, userId) {
         
         printer.clear();
         printer.alignCenter();
-        
-        // TÊN KHÁCH HÀNG & ID (TO VỪA & ĐẬM)
+        printer.setTextNormal();
+        if (shopName) {
+            printer.bold(true);
+            printer.println(removeVietnameseTones(shopName));
+        }
+        printer.bold(true);
+        printer.println("PHIEU DON HANG");
+        printer.bold(false);
+        if (receiptContext.sessionName) {
+            wrapThermalText(`Phien: ${receiptContext.sessionName}`).forEach(line => printer.println(line));
+        }
+        printer.println("------------------------------------------------");
+
+        printer.alignLeft();
+        printer.println("KHACH HANG");
+        printer.setTextDoubleHeight();
+        printer.bold(true);
+        wrapThermalText(displayName).forEach(line => printer.println(line));
+        printer.setTextNormal();
+        printer.bold(false);
+        wrapThermalText(`@${customerStore.normalizeTikTokUsername(order.username)}`).forEach(line => printer.println(line));
+        printer.println("------------------------------------------------");
+        thermalItemLines(item.text, item.price).forEach(line => printer.println(line));
+        const itemTime = formatThermalItemTime(item);
+        if (itemTime) {
+            wrapThermalText(itemTime).forEach(line => printer.println(line));
+        }
+        printer.println("------------------------------------------------");
+        printer.alignCenter();
         printer.setTextDoubleHeight();
         printer.setTextDoubleWidth();
         printer.bold(true);
-        printer.println(removeVietnameseTones(`${displayName} - ${order.username}`));
-        
-        // TIME (BÌNH THƯỜNG)
+        printer.println("TONG TIEN");
+        printer.println(formatThermalMoney(item.price));
         printer.setTextNormal();
         printer.bold(false);
-        const date = new Date().toLocaleDateString('vi-VN', {day: '2-digit', month: '2-digit', year: 'numeric'});
-        printer.println(`${date} ${item.time}`);
-        
-        printer.println("--------------------------------");
-
-        // NỘI DUNG CHỐT & GIÁ (TO NHẤT ĐỂ DỄ NHÌN)
+        printer.println("================================================");
         printer.alignCenter();
-        printer.setTextQuadArea();
-        printer.bold(true);
-        
-        // Nội dung món hàng
-        printer.println(removeVietnameseTones(item.text));
-        
-        // Giá
-        printer.println(new Intl.NumberFormat('vi-VN').format(item.price));
-        
-        printer.setTextNormal();
-        printer.bold(false);
-        printer.println("--------------------------------");
-
-        // FOOTER
-        printer.alignCenter();
-        printer.bold(true);
-        printer.println("LH: 0828642688_@anhthuhcm1");
-        printer.bold(false);
-        printer.println(removeVietnameseTones("Cảm ơn cục zàng đã ủng hộ nha"));
+        printer.println(removeVietnameseTones("Cảm ơn bạn đã ủng hộ shop!"));
+        printer.println(removeVietnameseTones("Hẹn gặp bạn ở live sau."));
+        printer.println(removeVietnameseTones("Vui lòng đối chiếu thông tin đơn."));
         
         printer.cut();
 
@@ -1310,54 +1361,67 @@ async function printBill(item, order, userId) {
     }
 }
 
-async function printDetailedBill(order, userId) {
+async function printDetailedBill(order, userId, receiptContext = {}) {
     if (!printer) return;
     try {
         const displayName = normalizeOrderCustomerName(order.nickname, order.username);
+        const items = Array.isArray(order.items) ? order.items : [];
+        const total = items.reduce((sum, item) => sum + Number(item.price || 0), 0);
         console.log(`>>> Đang in bill chi tiết cho khách: ${displayName}`);
         
         printer.clear();
         printer.alignCenter();
         printer.setTextNormal();
-        printer.println("HOA DON TONG HOP");
-        printer.println("--------------------------------");
+        if (shopName) {
+            printer.bold(true);
+            printer.println(removeVietnameseTones(shopName));
+        }
+        printer.bold(true);
+        printer.println("PHIEU TONG DON");
+        printer.bold(false);
+        if (receiptContext.sessionName) {
+            wrapThermalText(`Phien: ${receiptContext.sessionName}`).forEach(line => printer.println(line));
+        }
+        printer.println("------------------------------------------------");
 
-        // THÔNG TIN KHÁCH
         printer.alignLeft();
+        printer.println("KHACH HANG");
         printer.setTextDoubleHeight();
         printer.bold(true);
-        printer.println(`${displayName}`);
+        wrapThermalText(displayName).forEach(line => printer.println(line));
         
         printer.setTextNormal();
         printer.bold(false);
-        printer.println(`ID: @${order.username}`);
-        printer.println("--------------------------------");
+        wrapThermalText(`@${customerStore.normalizeTikTokUsername(order.username)}`).forEach(line => printer.println(line));
+        printer.println("------------------------------------------------");
+        printer.println("Noi dung                             Thanh tien");
 
-        // LIÊT KÊ CÁC MÓN
-        order.items.forEach((item, index) => {
-            printer.alignLeft();
-            printer.bold(true);
-            printer.println(`${index + 1}. ${item.text}`);
-            printer.bold(false);
-            printer.alignRight();
-            printer.println(`${new Intl.NumberFormat('vi-VN').format(item.price)} D  (${item.time})`);
-            printer.println(""); // Dòng trống giữa các món
+        items.forEach((item) => {
+            thermalItemLines(item.text, item.price).forEach(line => printer.println(line));
+            const itemTime = formatThermalItemTime(item);
+            if (itemTime) {
+                wrapThermalText(itemTime).forEach(line => printer.println(line));
+            }
         });
 
-        printer.alignCenter();
-        printer.println("--------------------------------");
+        printer.println("------------------------------------------------");
+        printer.println(`So dong hang: ${items.length}`);
+        printer.println("------------------------------------------------");
 
-        // TỔNG CỘNG (SIÊU TO)
+        printer.alignCenter();
         printer.setTextDoubleHeight();
         printer.setTextDoubleWidth();
         printer.bold(true);
-        printer.println("TONG CONG:");
-        printer.println(`${new Intl.NumberFormat('vi-VN').format(order.total)} D`);
+        printer.println("TONG TIEN");
+        printer.println(formatThermalMoney(total));
         
         printer.setTextNormal();
-        printer.println("--------------------------------");
+        printer.bold(false);
+        printer.println("================================================");
         printer.alignCenter();
-        printer.println(removeVietnameseTones("Cảm ơn cục zàng đã ủng hộ nha"));
+        printer.println(removeVietnameseTones("Cảm ơn bạn đã ủng hộ shop!"));
+        printer.println(removeVietnameseTones("Hẹn gặp bạn ở live sau."));
+        printer.println(removeVietnameseTones("Vui lòng đối chiếu thông tin đơn."));
         
         printer.cut();
 
@@ -2445,7 +2509,7 @@ io.on('connection', (socket) => {
     runtime.sockets.add(socket.id);
     socket.join(userRoom);
 
-    socket.emit('system-config', { printerInterface, tiktokSignApiKey });
+    socket.emit('system-config', { shopName, printerInterface, tiktokSignApiKey });
 
     socket.on('disconnect', () => {
         runtime.sockets.delete(socket.id);
@@ -2453,6 +2517,10 @@ io.on('connection', (socket) => {
     });
 
     socket.on('update-settings', (data) => {
+        if (data.shopName !== undefined) {
+            shopName = normalizeDisplayText(data.shopName).slice(0, 120);
+            saveConfig();
+        }
         if (data.printerInterface !== undefined) {
             initPrinter(data.printerInterface);
         }
@@ -2741,7 +2809,7 @@ io.on('connection', (socket) => {
             emitToUser(userId, 'all-confirmed-orders', runtime.confirmedOrders);
             if (result?.item) {
                 emitToUser(userId, 'order-confirmed', runtime.confirmedOrders[result.username]);
-                try { printBill(result.item, runtime.confirmedOrders[result.username], userId); }
+                try { printBill(result.item, runtime.confirmedOrders[result.username], userId, currentReceiptContext(userId, runtime)); }
                 catch (error) { console.error('Đơn đã lưu, lỗi in:', error.message); }
             }
         }).catch(error => {
@@ -2797,14 +2865,14 @@ io.on('connection', (socket) => {
         const normalizedUsername = customerStore.normalizeTikTokUsername(username);
         if (runtime.confirmedOrders[normalizedUsername]) {
             const item = runtime.confirmedOrders[normalizedUsername].items.find(i => i.id === itemId);
-            if (item) printBill(item, runtime.confirmedOrders[normalizedUsername], userId);
+            if (item) printBill(item, runtime.confirmedOrders[normalizedUsername], userId, currentReceiptContext(userId, runtime));
         }
     });
 
     socket.on('reprint-total', (username) => {
         const normalizedUsername = customerStore.normalizeTikTokUsername(username);
         if (runtime.confirmedOrders[normalizedUsername]) {
-            printDetailedBill(runtime.confirmedOrders[normalizedUsername], userId);
+            printDetailedBill(runtime.confirmedOrders[normalizedUsername], userId, currentReceiptContext(userId, runtime));
         }
     });
 
